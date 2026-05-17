@@ -1,0 +1,3 @@
+-- Historical placeholder.
+-- This remote hotfix version was previously applied outside of the current workspace migration tree.
+-- The file exists locally only to keep Supabase CLI history aligned for subsequent migrations.

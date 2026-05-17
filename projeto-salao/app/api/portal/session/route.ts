@@ -1,0 +1,83 @@
+import { NextResponse } from "next/server";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { createSignedStorageUrl } from "@/lib/server/storageUrls";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isMissingColumnError(message?: string) {
+  return /column .* does not exist/i.test(message || "");
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const token = searchParams.get("token")?.trim();
+
+  if (!token) {
+    return NextResponse.json({ status: "not_found", message: "Token ausente." }, { status: 200 });
+  }
+
+  if (!UUID_PATTERN.test(token)) {
+    return NextResponse.json({ status: "not_found", message: "Link não encontrado ou expirado." }, { status: 200 });
+  }
+
+  try {
+    const supabase = createSupabaseAdminClient();
+
+    const { data: linkData, error: linkError } = await supabase
+      .from("clientes")
+      .select("id, nome, portal_token, portal_active")
+      .eq("portal_token", token)
+      .is("deleted_at", null)
+      .single();
+
+    if (linkError) {
+      if (isMissingColumnError(linkError.message)) {
+        return NextResponse.json({ status: "migration_required", message: "O portal ainda não está disponível." }, { status: 200 });
+      }
+      if (linkError.code === "PGRST116") {
+        return NextResponse.json({ status: "not_found", message: "Link não encontrado ou expirado." }, { status: 200 });
+      }
+      console.error("[portal] Link lookup error:", JSON.stringify(linkError));
+      return NextResponse.json({ status: "error", message: "Erro ao validar o link." }, { status: 200 });
+    }
+
+    if (!linkData || linkData.portal_active === false) {
+      return NextResponse.json({ status: "inactive", message: "Link encerrado pela clínica." }, { status: 200 });
+    }
+
+    const clientId = linkData.id;
+    const clientName = linkData.nome;
+
+    const [homecareRes, galleryRes, appointmentsRes, preConsultaRes] = await Promise.all([
+      supabase.from("manutencao_homecare").select("*").eq("cliente_id", clientId).order("created_at", { ascending: false }),
+      supabase.from("client_photos").select("*").eq("cliente_id", clientId).is("deleted_at", null).order("captured_at", { ascending: false }),
+      supabase.from("agendamentos").select("*").eq("cliente_id", clientId).in("status", ["agendado", "confirmado"]).gte("inicio_em", new Date().toISOString()).order("inicio_em", { ascending: true }),
+      supabase.from("clientes").select("token_pre_consulta, link_ativo, pre_consulta_respondida_em").eq("id", clientId).single(),
+    ]);
+
+    if (homecareRes.error) console.error("[portal] homecare error:", JSON.stringify(homecareRes.error));
+    if (galleryRes.error) console.error("[portal] gallery error:", JSON.stringify(galleryRes.error));
+    if (appointmentsRes.error) console.error("[portal] appointments error:", JSON.stringify(appointmentsRes.error));
+
+    const signedGallery = await Promise.all(
+      (galleryRes.data ?? []).map(async (photo) => ({
+        ...photo,
+        url: await createSignedStorageUrl(supabase, { storageBucket: photo.storage_bucket, storagePath: photo.storage_path, fallbackUrl: photo.url }),
+      }))
+    );
+
+    const preConsultaStatus = preConsultaRes.data?.pre_consulta_respondida_em ? "completed" : preConsultaRes.data?.link_ativo ? "pending" : "not_available";
+
+    return NextResponse.json({
+      status: "ready",
+      clientName,
+      homecare: homecareRes.data ?? [],
+      gallery: signedGallery,
+      upcomingAppointments: appointmentsRes.data ?? [],
+      preConsulta: { status: preConsultaStatus, respondedAt: preConsultaRes.data?.pre_consulta_respondida_em ?? null },
+    });
+  } catch (err) {
+    console.error("[portal] Unexpected error:", err);
+    return NextResponse.json({ status: "error", message: "Erro interno ao carregar o portal." }, { status: 200 });
+  }
+}

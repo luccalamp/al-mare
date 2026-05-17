@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "build": "npm run build --prefix projeto-salao",
+    "vercel-build": "cd projeto-salao && npm ci --no-audit --no-fund && npm run build"
+  },
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
+    "@vercel/analytics": "^2.0.1",
+    "nodemailer": "^8.0.7"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.0"
+  }
+}

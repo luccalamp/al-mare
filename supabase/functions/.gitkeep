@@ -1,0 +1,3 @@
+# Edge Functions directory
+# Create new functions with: supabase functions new <name>
+# Deploy with: supabase functions deploy <name>

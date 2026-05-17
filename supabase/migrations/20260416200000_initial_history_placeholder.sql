@@ -1,0 +1,3 @@
+-- Historical placeholder.
+-- This version was already applied remotely before the current workspace layout.
+-- It is kept locally so Supabase CLI can align migration history without mutating the remote state.

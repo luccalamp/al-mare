@@ -1,0 +1,3 @@
+-- Historical placeholder for the original Iluminare schema.
+-- The concrete SQL is no longer present in this workspace, but the remote project already has this
+-- version recorded. Keeping this file locally preserves CLI compatibility for future pushes.
