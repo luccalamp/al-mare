@@ -92,8 +92,6 @@ interface AnamnesisWindowProps {
   onSaveFichaAnamnese: (clientId: string, dados: FichaAnamneseCapilarDados) => Promise<void>;
   onDeletePhoto: (clientId: string, photoId: string) => Promise<void>;
   onDeleteClient: (clientId: string) => Promise<void>;
-  onGeneratePreConsultationLink: (clientId: string) => Promise<string>;
-  onDeactivatePreConsultationLink: (clientId: string) => Promise<void>;
   initialTab?: WindowTab;
 }
 
@@ -1610,8 +1608,6 @@ export default function AnamnesisWindow({
   onSaveFichaAnamnese,
   onDeletePhoto,
   onDeleteClient,
-  onGeneratePreConsultationLink,
-  onDeactivatePreConsultationLink,
   initialTab = "perfil",
 }: AnamnesisWindowProps) {
   const [activeTab, setActiveTab] = useState<WorkflowStageId>(initialTab);
@@ -1995,8 +1991,6 @@ export default function AnamnesisWindow({
             {activeTab === "pre-consulta" && (
               <ClientPreConsultationTab
                 client={client}
-                onGeneratePreConsultationLink={onGeneratePreConsultationLink}
-                onDeactivatePreConsultationLink={onDeactivatePreConsultationLink}
               />
             )}
             {activeTab === "anamnese" && (

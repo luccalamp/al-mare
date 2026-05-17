@@ -15,7 +15,6 @@ import AnamnesisWindow from "@/components/AnamnesisWindow";
 import DashboardWindow from "@/components/DashboardWindow";
 import DocumentsWindow from "@/components/DocumentsWindow";
 import NewClientForm from "@/components/NewClientForm";
-import { buildPreConsultationLink } from "@/lib/preConsultation";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -51,8 +50,6 @@ export default function HomePage() {
     saveFichaAnamnese,
     deletePhoto,
     deleteClient,
-    issuePreConsultationToken,
-    deactivatePreConsultationToken,
     syncWarning,
     lastSnapshotAt,
   } = useClients();
@@ -181,17 +178,6 @@ export default function HomePage() {
       tone: "success",
       message: "Foto arquivada com sucesso e enviada para quarentena privada.",
     });
-  };
-
-  const handleGeneratePreConsultationLink = async (clientId: string) => {
-    const token = await issuePreConsultationToken(clientId);
-    const link = buildPreConsultationLink(token, window.location.origin);
-    await navigator.clipboard.writeText(link);
-    return link;
-  };
-
-  const handleDeactivatePreConsultationLink = async (clientId: string) => {
-    await deactivatePreConsultationToken(clientId);
   };
 
   const mergeOpenClientAppointment = (clientId: string, appointment: ClientAppointment) => {
@@ -612,8 +598,6 @@ export default function HomePage() {
             onSaveFichaAnamnese={handleSaveFichaAnamnese}
             onDeletePhoto={handleDeletePhoto}
             onDeleteClient={handleDeleteClient}
-            onGeneratePreConsultationLink={handleGeneratePreConsultationLink}
-            onDeactivatePreConsultationLink={handleDeactivatePreConsultationLink}
           />
         )}
       </AnimatePresence>
