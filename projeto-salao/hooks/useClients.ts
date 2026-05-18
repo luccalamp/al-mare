@@ -17,6 +17,9 @@ const CLIENTS_REALTIME_TABLES = [
   "ficha_anamnese_capilar",
 ] as const;
 const CLIENTS_REALTIME_DEBOUNCE_MS = 300;
+const CLIENTS_HEARTBEAT_INTERVAL_MS = 60_000;
+
+export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
 type ClientsSnapshot = {
   savedAt: string;
@@ -190,6 +193,45 @@ function enrichClient(client: Client): Client {
     journey: deriveClientJourney(client),
   };
 }
+
+const mergeClients = (localClients: Client[], remoteClients: Client[]): Client[] => {
+  const remoteById = new Map<string, Client>();
+  for (const client of remoteClients) {
+    remoteById.set(client.id, client);
+  }
+
+  const localById = new Map<string, Client>();
+  for (const client of localClients) {
+    localById.set(client.id, client);
+  }
+
+  const merged: Client[] = [];
+
+  for (const remoteClient of remoteClients) {
+    const localClient = localById.get(remoteClient.id);
+    if (!localClient) {
+      merged.push(remoteClient);
+      continue;
+    }
+
+    const remoteUpdatedAt = new Date(remoteClient.updatedAt || 0).getTime();
+    const localUpdatedAt = new Date(localClient.updatedAt || 0).getTime();
+
+    if (remoteUpdatedAt >= localUpdatedAt) {
+      merged.push(remoteClient);
+    } else {
+      merged.push(localClient);
+    }
+  }
+
+  merged.sort((a, b) => {
+    const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+
+  return merged;
+};
 
 const mapDbClients = (dbClients: any[]): Client[] =>
   (dbClients || []).map((row) => {
@@ -403,11 +445,12 @@ export function useClients() {
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [lastSnapshotAt, setLastSnapshotAt] = useState<string | null>(null);
   const clientsRef = useRef<Client[]>([]);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const realtimeAllowShrinkRef = useRef(false);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const commitClients = useCallback((nextClients: Client[]) => {
@@ -427,16 +470,16 @@ export function useClients() {
     clientsRef.current = snapshot.clients;
     setClients(snapshot.clients);
     setLastSnapshotAt(snapshot.savedAt);
-    setSyncWarning(warning);
     return true;
   }, []);
 
   // 1. Loader Principal - Consome os 4 módulos do Iluminare Studio
-  const loadClients = useCallback(async ({ allowShrink = false, background = false }: { allowShrink?: boolean; background?: boolean } = {}) => {
+  const loadClients = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     try {
       if (!background) {
         setLoading(true);
       }
+      setSyncStatus("syncing");
 
       const response = await fetch("/api/clients", { method: "GET", cache: "no-store" });
       const payload = (await response.json().catch(() => null)) as ClientListResponse | null;
@@ -446,22 +489,16 @@ export function useClients() {
       }
 
       const dbClients = Array.isArray(payload?.clients) ? payload.clients : [];
-
       const formatted = mapDbClients(dbClients || []);
-      const previousCount = clientsRef.current.length;
 
-      if (!allowShrink && previousCount > 0 && formatted.length < previousCount) {
-        setSyncWarning(
-          `A base online retornou ${formatted.length} cliente(s), abaixo dos ${previousCount} ja carregados. Mantive a cópia local para evitar perda de dados na tela.`
-        );
-        return clientsRef.current;
-      }
-
-      commitClients(formatted);
-      setSyncWarning(null);
-      return formatted;
+      const merged = mergeClients(clientsRef.current, formatted);
+      commitClients(merged);
+      setSyncStatus("synced");
+      setLastSyncedAt(new Date().toISOString());
+      return merged;
     } catch (err) {
       console.error("Falha ao carregar do Iluminare Studio:", err);
+      setSyncStatus("error");
       restoreSnapshot("Falha ao ler a base agora. Mantive a ultima copia local salva neste navegador.");
       return clientsRef.current;
     } finally {
@@ -483,52 +520,53 @@ export function useClients() {
   }, [loadClients]);
 
   useEffect(() => {
-    const scheduleRefresh = ({ allowShrink = false }: { allowShrink?: boolean } = {}) => {
-      realtimeAllowShrinkRef.current = realtimeAllowShrinkRef.current || allowShrink;
-
+    const scheduleRefresh = () => {
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
       }
 
       realtimeRefreshTimeoutRef.current = setTimeout(() => {
-        const nextAllowShrink = realtimeAllowShrinkRef.current;
-        realtimeAllowShrinkRef.current = false;
         realtimeRefreshTimeoutRef.current = null;
-        void loadClients({ allowShrink: nextAllowShrink, background: true });
+        void loadClients({ background: true });
       }, CLIENTS_REALTIME_DEBOUNCE_MS);
     };
 
     const channel = CLIENTS_REALTIME_TABLES.reduce(
       (currentChannel, table) =>
-        currentChannel.on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table },
-          () => {
+        currentChannel
+          .on("postgres_changes", { event: "INSERT", schema: "public", table }, () => {
             scheduleRefresh();
-          }
-        ).on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table },
-          (payload) => {
-            const allowShrink =
-              table === "clientes" &&
-              Boolean((payload.new as { deleted_at?: string | null } | null)?.deleted_at);
-
-            scheduleRefresh({ allowShrink });
-          }
-        ),
+          })
+          .on("postgres_changes", { event: "UPDATE", schema: "public", table }, () => {
+            scheduleRefresh();
+          })
+          .on("postgres_changes", { event: "DELETE", schema: "public", table }, () => {
+            scheduleRefresh();
+          }),
       supabase.channel(`clients-sync-${crypto.randomUUID()}`)
     );
 
     channel.subscribe();
 
     return () => {
-      realtimeAllowShrinkRef.current = false;
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
         realtimeRefreshTimeoutRef.current = null;
       }
       void supabase.removeChannel(channel);
+    };
+  }, [loadClients]);
+
+  useEffect(() => {
+    heartbeatIntervalRef.current = setInterval(() => {
+      void loadClients({ background: true });
+    }, CLIENTS_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
     };
   }, [loadClients]);
 
@@ -1048,7 +1086,7 @@ export function useClients() {
     }
 
     commitClients(clientsRef.current.filter((client) => client.id !== id));
-    await loadClients({ allowShrink: true });
+    await loadClients();
   };
 
   const togglePreConsultationToken = async (clientId: string, active: boolean) => {
@@ -1101,7 +1139,8 @@ export function useClients() {
     deleteClient,
     togglePreConsultationToken,
     loading,
-    syncWarning,
+    syncStatus,
+    lastSyncedAt,
     lastSnapshotAt,
     refreshClients: loadClients,
   };

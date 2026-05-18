@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
-import { useClients } from "@/hooks/useClients";
+import { useClients, SyncStatus } from "@/hooks/useClients";
 import FolderIcon from "@/components/FolderIcon";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
@@ -53,8 +53,10 @@ export default function HomePage() {
     deletePhoto,
     deleteClient,
     togglePreConsultationToken,
-    syncWarning,
+    syncStatus,
+    lastSyncedAt,
     lastSnapshotAt,
+    refreshClients,
   } = useClients();
   const [openClientModal, setOpenClientModal] = useState<{ client: Client, initialTab: WindowTab } | null>(null);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -354,8 +356,21 @@ export default function HomePage() {
 
   const formattedSnapshotAt =
     lastSnapshotAt ? new Date(lastSnapshotAt).toLocaleString("pt-BR") : null;
+  const formattedLastSyncedAt =
+    lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("pt-BR") : null;
   const activeJourneyLabel = JOURNEY_FILTERS.find((filter) => filter.id === journeyFilter)?.label ?? "Tudo";
-  const snapshotStatusLabel = syncWarning ? "Protegido" : formattedSnapshotAt ? "Pronto" : "Online";
+  const syncLabelMap: Record<SyncStatus, string> = {
+    idle: "Online",
+    syncing: "Sincronizando",
+    synced: formattedLastSyncedAt ? `Sincronizado ${formattedLastSyncedAt}` : "Online",
+    error: "Offline",
+  };
+  const snapshotStatusLabel = syncLabelMap[syncStatus];
+
+  const handleManualSync = async () => {
+    if (syncStatus === "syncing") return;
+    await refreshClients();
+  };
   const hasOverlayOpen = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showNewForm);
 
   return (
@@ -490,7 +505,22 @@ export default function HomePage() {
               </p>
             </div>
 
-            <span className="premium-chip shrink-0 text-[11px] font-semibold">{snapshotStatusLabel}</span>
+            <div className="premium-chip shrink-0 flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold">
+                {syncStatus === "syncing" && <RefreshCw size={12} className="animate-spin" />}
+                {syncStatus === "synced" && <CheckCircle2 size={12} className="text-emerald-600" />}
+                {syncStatus === "error" && <AlertTriangle size={12} className="text-amber-600" />}
+                {snapshotStatusLabel}
+              </span>
+              <button
+                onClick={handleManualSync}
+                disabled={syncStatus === "syncing"}
+                className="rounded-full p-1.5 transition-colors hover:bg-black/5 disabled:opacity-50"
+                title="Sincronizar agora"
+              >
+                <RefreshCw size={14} className={syncStatus === "syncing" ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -562,19 +592,6 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-
-        {syncWarning && (
-          <div className="premium-card mb-4 flex items-start gap-3 rounded-[1.6rem] border-amber-300/60 bg-amber-50/85 px-4 py-4 text-sm text-amber-950">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold">Protecao de dados ativada</p>
-              <p className="mt-1 text-amber-900/90">{syncWarning}</p>
-              {formattedSnapshotAt && (
-                <p className="mt-1 text-xs text-amber-900/70">Ultima copia local salva: {formattedSnapshotAt}</p>
-              )}
-            </div>
-          </div>
-        )}
 
         {pageFeedback && (
           <div
