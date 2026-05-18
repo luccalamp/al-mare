@@ -24,29 +24,9 @@ type PublicAuthError = {
   status?: number;
 };
 
-
-const LOCAL_AUTH_HOSTS = new Set(["localhost", "127.0.0.1"]);
-
 function logAuthError(scope: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {
     console.error(`[auth] ${scope}`, error);
-  }
-}
-
-function getSafeRedirectTo() {
-  if (typeof window === "undefined") return undefined;
-
-  try {
-    const origin = new URL(window.location.origin);
-    const isSecureOrigin =
-      origin.protocol === "https:" ||
-      (origin.protocol === "http:" && LOCAL_AUTH_HOSTS.has(origin.hostname));
-
-    if (!isSecureOrigin) return undefined;
-
-    return new URL("/", origin).toString();
-  } catch {
-    return undefined;
   }
 }
 
@@ -355,6 +335,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
           queryParams: {
             prompt: "select_account",
           },
