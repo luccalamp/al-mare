@@ -28,7 +28,8 @@ export type GoogleCalendarEventResult = {
 export async function getGoogleCalendarSession(): Promise<GoogleCalendarSession> {
   try {
     console.log("[gcal-session-client] Fetching session...");
-    const res = await fetch("/api/google-calendar/session", { cache: "no-store" });
+    console.log("[gcal-session-client] Cookies:", typeof document !== "undefined" ? document.cookie : "N/A");
+    const res = await fetch("/api/google-calendar/session", { cache: "no-store", credentials: "include" });
     const text = await res.text();
     console.log("[gcal-session-client] Status:", res.status);
     console.log("[gcal-session-client] Body:", text);
@@ -37,6 +38,38 @@ export async function getGoogleCalendarSession(): Promise<GoogleCalendarSession>
       console.log("[gcal-session-client] API error");
       return { connected: false };
     }
+    const data = JSON.parse(text);
+    console.log("[gcal-session-client] Parsed session:", data);
+    return data;
+  } catch (err) {
+    console.error("[gcal-session-client] Fetch failed:", err);
+    return { connected: false };
+  }
+}
+    const data = JSON.parse(text);
+    console.log("[gcal-session-client] Parsed session:", data);
+    return data;
+  } catch (err) {
+    console.error("[gcal-session-client] Fetch failed:", err);
+    return { connected: false };
+  }
+}
+    const data = JSON.parse(text);
+    console.log("[gcal-session-client] Parsed session:", data);
+    return data;
+  } catch (err) {
+    console.error("[gcal-session-client] Fetch failed:", err);
+    return { connected: false };
+  }
+}
+    const data = JSON.parse(text);
+    console.log("[gcal-session-client] Parsed session:", data);
+    return data;
+  } catch (err) {
+    console.error("[gcal-session-client] Fetch failed:", err);
+    return { connected: false };
+  }
+}
     const data = JSON.parse(text);
     console.log("[gcal-session-client] Parsed session:", data);
     return data;

@@ -8,7 +8,7 @@ const GOOGLE_CALENDAR_CALLBACK_PATH = "/google-calendar-callback";
 
 type StoredTokens = {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   expires_at: number;
   email?: string;
 };
@@ -108,7 +108,7 @@ export function getGoogleCalendarAuthUrl(state: string, redirectUri: string): st
 
 export async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<{
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   expires_in: number;
   email?: string;
 }> {
@@ -205,22 +205,39 @@ export function readStoredTokens(): StoredTokens | null {
   const cookieStore = cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
+  console.log("[gcal-read] === START ===");
   console.log("[gcal-read] Cookie name:", GOOGLE_TOKEN_COOKIE);
   console.log("[gcal-read] Cookie present:", !!raw);
   console.log("[gcal-read] Cookie length:", raw?.length || 0);
+  console.log("[gcal-read] All cookies:", cookieStore.getAll().map(c => `${c.name}(${c.value?.length || 0})`).join(", "));
 
-  if (!raw) return null;
+  if (!raw) {
+    console.log("[gcal-read] === NO COOKIE FOUND ===");
+    return null;
+  }
 
   try {
-    const parsed = JSON.parse(raw) as StoredTokens;
-    if (!parsed.access_token || !parsed.refresh_token || !parsed.expires_at) {
+    const parsed = decryptTokens(raw);
+    if (!parsed) {
+      console.log("[gcal-read] Decryption returned null");
+      return null;
+    }
+
+    if (!parsed.access_token || !parsed.expires_at) {
       console.log("[gcal-read] Parsed but missing fields");
       return null;
     }
+
+    if (!parsed.refresh_token) {
+      console.log("[gcal-read] Token loaded without refresh token; reconnection may be required after expiration");
+    }
+
     console.log("[gcal-read] Successfully read tokens for:", parsed.email);
+    console.log("[gcal-read] === SUCCESS ===");
     return parsed;
   } catch (err) {
     console.error("[gcal-read] Parse/Decrypt failed:", err);
+    console.log("[gcal-read] Raw cookie preview:", raw.substring(0, 50) + "...");
     return null;
   }
 }
@@ -335,6 +352,11 @@ export async function getValidAccessToken(): Promise<{ accessToken: string; emai
 
   if (Date.now() >= tokens.expires_at - 60_000) {
     console.log("[gcal-valid-token] Refreshing token...");
+    if (!tokens.refresh_token) {
+      console.log("[gcal-valid-token] Missing refresh token; user must reconnect");
+      return null;
+    }
+
     try {
       const refreshed = await refreshAccessToken(tokens.refresh_token);
       const updated: StoredTokens = {

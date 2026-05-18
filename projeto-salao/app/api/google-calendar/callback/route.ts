@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exchangeCodeForTokens, resolveGoogleCalendarRedirectUri, storeTokens } from "@/lib/server/googleCalendarAuth";
+import { exchangeCodeForTokens, readStoredTokens, resolveGoogleCalendarRedirectUri, storeTokens } from "@/lib/server/googleCalendarAuth";
 
 export async function POST(request: Request) {
   try {
@@ -17,15 +17,16 @@ export async function POST(request: Request) {
     console.log("[gcal-callback] GOOGLE_CALENDAR_REDIRECT_URI env:", process.env.GOOGLE_CALENDAR_REDIRECT_URI);
     console.log("[gcal-callback] code length:", code.length);
 
+    const existingTokens = readStoredTokens();
     const tokens = await exchangeCodeForTokens(code, redirectUri);
 
     console.log("[gcal-callback] tokens received");
     console.log("[gcal-callback] email:", tokens.email);
-    console.log("[gcal-callback] has refresh_token:", !!tokens.refresh_token);
+    console.log("[gcal-callback] has refresh_token:", !!(tokens.refresh_token || existingTokens?.refresh_token));
 
     const storedTokens = {
       access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
+      refresh_token: tokens.refresh_token || existingTokens?.refresh_token,
       expires_at: Date.now() + tokens.expires_in * 1000,
       email: tokens.email,
     };
