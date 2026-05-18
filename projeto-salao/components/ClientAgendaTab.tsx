@@ -59,6 +59,18 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
+function parseDateInput(dateStr: string): Date | null {
+  const dateOnlyMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    const parsedDate = new Date(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  }
+
+  const parsedDate = new Date(dateStr);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
 function formatDateFull(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Data inválida";
@@ -119,10 +131,10 @@ export default function ClientAgendaTab({
   const [notes, setNotes] = useState("");
 
   const startTime = useMemo(() => {
-    const d = new Date(date);
+    const d = parseDateInput(date);
     const h = parseInt(hour, 10);
     const m = parseInt(minute, 10);
-    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    if (!d || Number.isNaN(h) || Number.isNaN(m)) return null;
     d.setHours(h, m, 0, 0);
     return d;
   }, [date, hour, minute]);
