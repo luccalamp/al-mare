@@ -10,7 +10,6 @@ import FolderIcon from "@/components/FolderIcon";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
 import BrandLogo from "@/components/BrandLogo";
-import { buildPreConsultationLink } from "@/lib/preConsultation";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -53,8 +52,7 @@ export default function HomePage() {
     saveFichaAnamnese,
     deletePhoto,
     deleteClient,
-    issuePreConsultationToken,
-    deactivatePreConsultationToken,
+    togglePreConsultationToken,
     syncWarning,
     lastSnapshotAt,
   } = useClients();
@@ -185,15 +183,8 @@ export default function HomePage() {
     });
   };
 
-  const handleGeneratePreConsultationLink = async (clientId: string) => {
-    const token = await issuePreConsultationToken(clientId);
-    const link = buildPreConsultationLink(token);
-    await navigator.clipboard.writeText(link);
-    return link;
-  };
-
-  const handleDeactivatePreConsultationLink = async (clientId: string) => {
-    await deactivatePreConsultationToken(clientId);
+  const handleTogglePreConsulta = async (clientId: string, active: boolean) => {
+    await togglePreConsultationToken(clientId, active);
   };
 
   const mergeOpenClientAppointment = (clientId: string, appointment: ClientAppointment) => {
@@ -755,8 +746,7 @@ export default function HomePage() {
             onSaveFichaAnamnese={handleSaveFichaAnamnese}
             onDeletePhoto={handleDeletePhoto}
             onDeleteClient={handleDeleteClient}
-            onGeneratePreConsultationLink={handleGeneratePreConsultationLink}
-            onDeactivatePreConsultationLink={handleDeactivatePreConsultationLink}
+            onTogglePreConsulta={handleTogglePreConsulta}
           />
         )}
       </AnimatePresence>

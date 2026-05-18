@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
-const PUBLIC_PATH_PREFIXES = ["/login", "/pre-consulta", "/portal", "/google-calendar-callback"];
-const PUBLIC_API_PREFIXES = ["/api/pre-consultation", "/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/portal", "/api/google-calendar/callback"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback"];
+const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/portal", "/api/google-calendar/callback"];
 
 function matchesPrefix(pathname: string, prefixes: string[]) {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

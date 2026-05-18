@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 
     const { data: linkData, error: linkError } = await supabase
       .from("clientes")
-      .select("id, nome, portal_token, portal_active")
+      .select("id, nome, portal_token, portal_active, token_pre_consulta, link_ativo, pre_consulta_respondida_em")
       .eq("portal_token", token)
       .is("deleted_at", null)
       .single();
@@ -108,6 +108,10 @@ export async function GET(request: Request) {
       homecare: homecareRes.data ?? [],
       gallery: signedGallery,
       upcomingAppointments: appointmentsRes.data ?? [],
+      preConsulta: {
+        linkActive: linkData.link_ativo ?? false,
+        respondedAt: linkData.pre_consulta_respondida_em ?? null,
+      },
     });
   } catch (err) {
     console.error("[portal] Unexpected error:", err);

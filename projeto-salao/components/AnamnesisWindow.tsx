@@ -12,9 +12,9 @@ const AnamneseCapilarTab = dynamic(() => import("@/components/AnamneseCapilarTab
 import ClientProfileTab from "@/components/ClientProfileTab";
 import ClientEvolutionTab from "@/components/ClientEvolutionTab";
 import ClientAgendaTab from "@/components/ClientAgendaTab";
-import ClientPreConsultationTab from "@/components/ClientPreConsultationTab";
 import ClientFinanceiroTab from "@/components/ClientFinanceiroTab";
 import ClientAssinaturasTab from "@/components/ClientAssinaturasTab";
+import ClientLinksTab from "@/components/ClientLinksTab";
 import { getPhotoCategoryLabel, normalizePhotoCategory } from "@/lib/photos";
 import {
   WORKFLOW_STAGE_TEMPLATE_LABELS,
@@ -105,8 +105,7 @@ interface AnamnesisWindowProps {
   onSaveFichaAnamnese: (clientId: string, dados: FichaAnamneseCapilarDados) => Promise<void>;
   onDeletePhoto: (clientId: string, photoId: string) => Promise<void>;
   onDeleteClient: (clientId: string) => Promise<void>;
-  onGeneratePreConsultationLink: (clientId: string) => Promise<string>;
-  onDeactivatePreConsultationLink: (clientId: string) => Promise<void>;
+  onTogglePreConsulta: (clientId: string, active: boolean) => Promise<void>;
   initialTab?: WindowTab;
 }
 
@@ -1797,8 +1796,7 @@ export default function AnamnesisWindow({
   onSaveFichaAnamnese,
   onDeletePhoto,
   onDeleteClient,
-  onGeneratePreConsultationLink,
-  onDeactivatePreConsultationLink,
+  onTogglePreConsulta,
   initialTab = "perfil",
 }: AnamnesisWindowProps) {
   const [activeTab, setActiveTab] = useState<WorkflowStageId>(initialTab);
@@ -2224,11 +2222,10 @@ export default function AnamnesisWindow({
               />
             )}
             {activeTab === "pre-consulta" && (
-              <ClientPreConsultationTab
+              <ClientLinksTab
                 client={client}
                 portalLink={portalLink}
-                onGeneratePreConsultationLink={onGeneratePreConsultationLink}
-                onDeactivatePreConsultationLink={onDeactivatePreConsultationLink}
+                onTogglePreConsulta={onTogglePreConsulta}
               />
             )}
             {activeTab === "anamnese" && (

@@ -12,6 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  FileText,
+  CheckCircle,
 } from "lucide-react";
 
 type PortalStatus = "loading" | "ready" | "not_found" | "inactive" | "error";
@@ -43,6 +45,23 @@ type AppointmentItem = {
   observacoes?: string;
 };
 
+type PreConsultaStatus = {
+  linkActive: boolean;
+  respondedAt: string | null;
+};
+
+type PreConsultaForm = {
+  nome: string;
+  whatsapp: string;
+  queixaPrincipal: string;
+  objetivoTratamento: string;
+  alergias: string;
+  medicacoes: string;
+  observacoes: string;
+  consentimentoDados: boolean;
+  consentimentoImagem: boolean;
+};
+
 function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
@@ -72,14 +91,32 @@ function getStatusLabel(status: string): string {
   return labels[status] || status;
 }
 
+const emptyForm: PreConsultaForm = {
+  nome: "",
+  whatsapp: "",
+  queixaPrincipal: "",
+  objetivoTratamento: "",
+  alergias: "",
+  medicacoes: "",
+  observacoes: "",
+  consentimentoDados: false,
+  consentimentoImagem: false,
+};
+
 export default function PortalPage({ params }: { params: { token: string } }) {
   const [status, setStatus] = useState<PortalStatus>("loading");
   const [clientName, setClientName] = useState("");
   const [homecare, setHomecare] = useState<HomecareItem[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
+  const [preConsulta, setPreConsulta] = useState<PreConsultaStatus>({ linkActive: false, respondedAt: null });
   const [activeSection, setActiveSection] = useState<string>("homecare");
   const [expandedHomecare, setExpandedHomecare] = useState<string | null>(null);
+
+  const [form, setForm] = useState<PreConsultaForm>(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
   useEffect(() => {
     async function loadPortal() {
@@ -112,6 +149,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           setHomecare(data.homecare || []);
           setGallery(data.gallery || []);
           setAppointments(data.upcomingAppointments || []);
+          if (data.preConsulta) {
+            setPreConsulta(data.preConsulta);
+          }
           setStatus("ready");
           return;
         }
@@ -124,6 +164,45 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
     void loadPortal();
   }, [params.token]);
+
+  const updateField = <K extends keyof PreConsultaForm>(field: K, value: PreConsultaForm[K]) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmitPreConsulta = async () => {
+    if (!form.consentimentoDados || !form.consentimentoImagem) {
+      setSubmitError("Aceite os termos de consentimento para continuar.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setSubmitError(null);
+
+      const res = await fetch("/api/portal/pre-consulta", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: params.token,
+          ...form,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!data || data.status === "not_found" || data.status === "inactive") {
+        setSubmitError(data?.message || "Não foi possível enviar a avaliação.");
+        return;
+      }
+
+      setSubmitSuccess(true);
+      setPreConsulta((prev) => ({ ...prev, respondedAt: new Date().toISOString() }));
+    } catch {
+      setSubmitError("Erro ao enviar. Tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const firstName = clientName.split(" ")[0] || "Cliente";
 
@@ -192,10 +271,16 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     );
   }
 
+  const preConsultaEnabled = preConsulta.linkActive && !preConsulta.respondedAt;
+  const preConsultaResponded = preConsulta.respondedAt;
+
   const sections = [
     { id: "homecare", label: "Homecare", icon: ShoppingBag, count: homecare.length },
     { id: "appointments", label: "Agendamentos", icon: Calendar, count: appointments.length },
     { id: "gallery", label: "Galeria", icon: Camera, count: gallery.length },
+    ...(preConsultaEnabled || preConsultaResponded
+      ? [{ id: "avaliacao", label: "Avaliação", icon: FileText, count: preConsultaResponded ? 1 : 0 }]
+      : []),
   ];
 
   return (
@@ -457,7 +542,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                           )}
                         </div>
                       </div>
-                      <span className={`text-[10px] font-semibold whitespace-nowrap ${getStatusLabel(apt.status)}`}>
+                      <span className="text-[10px] font-semibold whitespace-nowrap" style={{ color: "#8c5a2d" }}>
                         {getStatusLabel(apt.status)}
                       </span>
                     </div>
@@ -514,9 +599,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                       />
-                      <div
-                        className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                       <div className="absolute bottom-0 left-0 right-0 p-2.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         <span
                           className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
@@ -534,6 +617,219 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     </a>
                   ))}
                 </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* AVALIAÇÃO (Pre-Consulta) */}
+          {activeSection === "avaliacao" && (
+            <motion.div
+              key="avaliacao"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-4"
+            >
+              {preConsultaResponded && !preConsultaEnabled ? (
+                <div
+                  className="rounded-2xl p-8 text-center"
+                  style={{
+                    backgroundColor: "rgba(255, 255, 255, 0.6)",
+                    border: "1px solid rgba(113, 76, 43, 0.1)",
+                  }}
+                >
+                  <CheckCircle size={48} className="mx-auto mb-4" style={{ color: "#5c8b65" }} />
+                  <h2 className="text-lg font-semibold mb-2" style={{ color: "#4f2f19" }}>
+                    Avaliação enviada
+                  </h2>
+                  <p className="text-sm" style={{ color: "#7d624d" }}>
+                    Sua avaliação foi recebida com sucesso em {formatDateTime(preConsulta.respondedAt!)}.
+                  </p>
+                </div>
+              ) : submitSuccess ? (
+                <div
+                  className="rounded-2xl p-8 text-center"
+                  style={{
+                    backgroundColor: "rgba(255, 255, 255, 0.6)",
+                    border: "1px solid rgba(113, 76, 43, 0.1)",
+                  }}
+                >
+                  <CheckCircle size={48} className="mx-auto mb-4" style={{ color: "#5c8b65" }} />
+                  <h2 className="text-lg font-semibold mb-2" style={{ color: "#4f2f19" }}>
+                    Avaliação enviada com sucesso!
+                  </h2>
+                  <p className="text-sm" style={{ color: "#7d624d" }}>
+                    Obrigado por preencher. A clínica já recebeu suas informações.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="rounded-2xl p-5"
+                    style={{
+                      backgroundColor: "rgba(255, 255, 255, 0.6)",
+                      border: "1px solid rgba(113, 76, 43, 0.1)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <FileText size={18} style={{ color: "#8c5a2d" }} />
+                      <h2 className="text-lg font-semibold" style={{ color: "#4f2f19" }}>
+                        Avaliação inicial
+                      </h2>
+                    </div>
+                    <p className="text-sm" style={{ color: "#7d624d" }}>
+                      Preencha as informações abaixo para ajudar a clínica a preparar seu atendimento.
+                    </p>
+                  </div>
+
+                  <div
+                    className="rounded-2xl p-5 space-y-4"
+                    style={{
+                      backgroundColor: "rgba(255, 255, 255, 0.6)",
+                      border: "1px solid rgba(113, 76, 43, 0.1)",
+                    }}
+                  >
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Nome completo
+                      </label>
+                      <input
+                        type="text"
+                        value={form.nome}
+                        onChange={(e) => updateField("nome", e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        WhatsApp
+                      </label>
+                      <input
+                        type="tel"
+                        value={form.whatsapp}
+                        onChange={(e) => updateField("whatsapp", e.target.value)}
+                        placeholder="(00) 00000-0000"
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Qual sua queixa principal?
+                      </label>
+                      <textarea
+                        value={form.queixaPrincipal}
+                        onChange={(e) => updateField("queixaPrincipal", e.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm resize-none"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Qual objetivo do tratamento?
+                      </label>
+                      <textarea
+                        value={form.objetivoTratamento}
+                        onChange={(e) => updateField("objetivoTratamento", e.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm resize-none"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Alergias
+                      </label>
+                      <input
+                        type="text"
+                        value={form.alergias}
+                        onChange={(e) => updateField("alergias", e.target.value)}
+                        placeholder="Se houver, liste aqui"
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Medicamentos de uso contínuo
+                      </label>
+                      <input
+                        type="text"
+                        value={form.medicacoes}
+                        onChange={(e) => updateField("medicacoes", e.target.value)}
+                        placeholder="Se houver, liste aqui"
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#7d624d" }}>
+                        Observações adicionais
+                      </label>
+                      <textarea
+                        value={form.observacoes}
+                        onChange={(e) => updateField("observacoes", e.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-xl border border-[rgba(113,76,43,0.15)] bg-white px-4 py-2.5 text-sm resize-none"
+                        style={{ color: "#4f2f19" }}
+                      />
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.consentimentoDados}
+                          onChange={(e) => updateField("consentimentoDados", e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded"
+                          style={{ accentColor: "#8c5a2d" }}
+                        />
+                        <span className="text-xs leading-relaxed" style={{ color: "#7d624d" }}>
+                          Concordo que meus dados sejam utilizados pela clínica para fins de atendimento e acompanhamento
+                          terapêutico.
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.consentimentoImagem}
+                          onChange={(e) => updateField("consentimentoImagem", e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded"
+                          style={{ accentColor: "#8c5a2d" }}
+                        />
+                        <span className="text-xs leading-relaxed" style={{ color: "#7d624d" }}>
+                          Concordo com o registro de imagens clínicas para documentação técnica e acompanhamento da minha
+                          evolução.
+                        </span>
+                      </label>
+                    </div>
+
+                    {submitError && (
+                      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {submitError}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleSubmitPreConsulta}
+                      disabled={submitting}
+                      className="w-full rounded-xl py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{ backgroundColor: "#8c5a2d" }}
+                    >
+                      {submitting ? "Enviando..." : "Enviar avaliação"}
+                    </button>
+                  </div>
+                </>
               )}
             </motion.div>
           )}

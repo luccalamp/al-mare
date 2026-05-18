@@ -28,13 +28,6 @@ type UploadedImageAsset = {
   storagePath: string;
 };
 
-type PreConsultationLinkMutationResponse = {
-  token?: string | null;
-  linkActive?: boolean | null;
-  respondedAt?: string | null;
-  error?: string;
-};
-
 type ClientMutationResponse = {
   id?: string;
   error?: string;
@@ -356,28 +349,6 @@ const persistClientsSnapshot = (clients: Client[]): string | null => {
     return null;
   }
 };
-
-async function runPreConsultationLinkMutation(method: "POST" | "PUT", clientId: string) {
-  const response = await fetch("/api/pre-consultation/link", {
-    method,
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ clientId }),
-  });
-
-  const payload = (await response.json().catch(() => null)) as PreConsultationLinkMutationResponse | null;
-  if (!response.ok) {
-    const fallbackMessage =
-      method === "POST"
-        ? "Não foi possível gerar o link de triagem agora."
-        : "Não foi possível invalidar o link de triagem agora.";
-
-    throw new Error(payload?.error && typeof payload.error === "string" ? payload.error : fallbackMessage);
-  }
-
-  return payload ?? {};
-}
 
 async function runClientMutation(
   method: "POST" | "PUT",
@@ -1080,31 +1051,20 @@ export function useClients() {
     await loadClients({ allowShrink: true });
   };
 
-  const issuePreConsultationToken = async (clientId: string) => {
-    const row = await runPreConsultationLinkMutation("POST", clientId);
-    const token = row.token;
+  const togglePreConsultationToken = async (clientId: string, active: boolean) => {
+    const response = await fetch("/api/portal/pre-consulta", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientId, active }),
+    });
 
-    if (!token) {
-      throw new Error("O link de triagem não retornou um código válido.");
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const message = body && typeof body === "object" && "error" in body ? String((body as Record<string, unknown>)["error"]) : "Não foi possível alterar o status.";
+      throw new Error(message);
     }
 
-    commitClients(
-      clientsRef.current.map((client) =>
-        client.id === clientId
-          ? {
-              ...client,
-              preConsultation: { token, linkActive: row.linkActive ?? true, respondedAt: row.respondedAt ?? undefined },
-              updatedAt: new Date().toISOString(),
-            }
-          : client
-      )
-    );
-
-    return token;
-  };
-
-  const deactivatePreConsultationToken = async (clientId: string) => {
-    const row = await runPreConsultationLinkMutation("PUT", clientId);
+    const row = await response.json();
 
     commitClients(
       clientsRef.current.map((client) =>
@@ -1112,9 +1072,9 @@ export function useClients() {
           ? {
               ...client,
               preConsultation: {
-                token: row.token ?? client.preConsultation?.token,
-                linkActive: row.linkActive ?? false,
-                respondedAt: row.respondedAt ?? client.preConsultation?.respondedAt,
+                token: client.preConsultation?.token,
+                linkActive: row.linkActive ?? active,
+                respondedAt: client.preConsultation?.respondedAt,
               },
               updatedAt: new Date().toISOString(),
             }
@@ -1139,8 +1099,7 @@ export function useClients() {
     linkAppointmentToGoogle,
     deletePhoto,
     deleteClient,
-    issuePreConsultationToken,
-    deactivatePreConsultationToken,
+    togglePreConsultationToken,
     loading,
     syncWarning,
     lastSnapshotAt,

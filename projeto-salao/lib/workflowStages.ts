@@ -29,7 +29,7 @@ export const WORKFLOW_STAGE_TEMPLATE_LABELS: Record<WorkflowStageTemplate, strin
 const BUILTIN_WORKFLOW_STAGE_DEFINITIONS: Array<Omit<WorkflowStageDefinition, "visible">> = [
   { id: "perfil", source: "builtin", label: "Perfil", template: "livre" },
   { id: "agenda", source: "builtin", label: "Agenda", template: "retorno" },
-  { id: "pre-consulta", source: "builtin", label: "Pré-consulta", template: "checklist" },
+  { id: "pre-consulta", source: "builtin", label: "Links", template: "checklist" },
   { id: "anamnese", source: "builtin", label: "Ficha", template: "checklist" },
   { id: "diagnostico", source: "builtin", label: "Saúde", template: "orientacao" },
   { id: "colorimetria", source: "builtin", label: "Procedimentos", template: "orientacao" },
