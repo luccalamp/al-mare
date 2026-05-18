@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
 import { Cormorant_Garamond } from "next/font/google";
 import { BrandingConfigProvider } from "@/components/BrandingConfigProvider";
@@ -57,6 +58,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  headers().get("x-nonce");
+
   return (
     <html lang="pt-BR" className={`${geist.variable} ${cormorant.variable}`} suppressHydrationWarning>
       <head>

@@ -8,12 +8,23 @@ const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/a
 const API_ALLOWED_ORIGIN = "https://jakoliveira.com.br";
 
 function buildCsp(nonce: string) {
+  const isDev = process.env.NODE_ENV !== "production";
   const { supabaseUrl } = getSupabasePublicConfig();
   const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
 
   const imgSrc = ["'self'", "data:", "blob:"];
   const connectSrc = ["'self'", "https://oauth2.googleapis.com", "https://www.googleapis.com"];
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    "https://va.vercel-scripts.com",
+  ];
+
+  if (isDev) {
+    scriptSrc.push("'unsafe-eval'");
+  }
 
   if (supabaseOrigin) {
     imgSrc.push(supabaseOrigin);
@@ -26,7 +37,7 @@ function buildCsp(nonce: string) {
 
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}'`,
+    `script-src ${scriptSrc.join(" ")}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "style-src-attr 'unsafe-inline'",
     "font-src 'self' https://fonts.gstatic.com data:",
@@ -90,8 +101,10 @@ function applyResponseHeaders(
 
 export async function middleware(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID()).replace(/=+$/g, "");
+  const cspHeader = buildCsp(nonce);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", cspHeader);
 
   const { response, user } = await updateSupabaseSession(request, requestHeaders);
   const pathname = request.nextUrl.pathname;

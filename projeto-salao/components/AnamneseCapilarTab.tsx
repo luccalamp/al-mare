@@ -596,18 +596,6 @@ function buildPrintHtml(client: Client, dados: FichaAnamneseCapilarDados, brandi
           </header>
           ${sections}
         </main>
-        <script>
-          (function() {
-            var printed = false;
-            function startPrint() {
-              if (printed) return;
-              printed = true;
-              window.focus();
-              window.print();
-            }
-            setTimeout(startPrint, 250);
-          })();
-        </script>
       </body>
     </html>
   `;
@@ -624,6 +612,15 @@ function writePrintPreview(
     printWindow.document.open();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
+
+    window.setTimeout(() => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (printError) {
+        console.error("Erro ao iniciar impressão:", printError);
+      }
+    }, 250);
   } catch (error) {
     console.error("Erro ao gerar prévia de impressão:", error);
     printWindow.close();

@@ -1,10 +1,13 @@
 "use client";
 
-import { inject } from "@vercel/analytics";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
-inject();
-
 export default function VercelAnalytics() {
-  return <SpeedInsights />;
+  return (
+    <>
+      <Analytics />
+      <SpeedInsights />
+    </>
+  );
 }
