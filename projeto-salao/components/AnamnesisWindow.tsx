@@ -3,7 +3,7 @@
 
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { AppointmentDraft, Client, FichaAnamneseCapilarDados, PortalLink, WindowTab, HOME_CARE_PRODUCTS, calcularPrecoComDesconto, calcularParcelas } from "@/types";
 import PhotoEvolutionComparison from "@/components/PhotoEvolutionComparison";
@@ -227,164 +227,6 @@ function renderWorkflowStageIcon(stage: WorkflowStageDefinition) {
   }
 }
 
-type GlassSelectOption<T extends string | number> = { value: T; label: string };
-
-/** Seletor estilo Liquid Glass — lista em portal + fixed para não ser cortada por overflow dos modais. */
-function GlassSelect<T extends string | number>({
-  label,
-  options,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  options: readonly GlassSelectOption<T>[];
-  value: T;
-  onChange: (v: T) => void;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-  const [panel, setPanel] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    maxHeight: number;
-  } | null>(null);
-
-  const updatePanelPosition = useCallback(() => {
-    const el = triggerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const margin = 10;
-    const gap = 4;
-    const maxList = 280;
-    const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
-    const spaceAbove = rect.top - gap - margin;
-    /** Abre para cima se couber melhor em cima (evita lista cortada no fim da viewport). */
-    const openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
-    const maxHeight = Math.min(maxList, Math.max(80, openUp ? spaceAbove : spaceBelow));
-    const top = openUp
-      ? Math.max(margin, rect.top - gap - maxHeight)
-      : rect.bottom + gap;
-    setPanel({
-      top,
-      left: Math.max(margin, Math.min(rect.left, window.innerWidth - rect.width - margin)),
-      width: rect.width,
-      maxHeight,
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPanel(null);
-      return;
-    }
-    updatePanelPosition();
-  }, [open, updatePanelPosition]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onScroll = () => updatePanelPosition();
-    const onResize = () => updatePanelPosition();
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [open, updatePanelPosition]);
-
-  useEffect(() => {
-    const onDoc = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (rootRef.current?.contains(t)) return;
-      if (listRef.current?.contains(t)) return;
-      const el = e.target as HTMLElement | null;
-      if (el?.closest?.("[data-glass-select-portal]")) return;
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onDoc);
-    return () => document.removeEventListener("pointerdown", onDoc);
-  }, []);
-
-  const selected = options.find((o) => o.value === value) ?? options[0];
-
-  const listPortal =
-    open &&
-    panel &&
-    typeof document !== "undefined" &&
-    createPortal(
-      <ul
-        ref={listRef}
-        data-glass-select-portal
-        role="listbox"
-        style={{
-          position: "fixed",
-          top: panel.top,
-          left: panel.left,
-          width: panel.width,
-          maxHeight: panel.maxHeight,
-          zIndex: 2147483647,
-          WebkitBackdropFilter: "blur(20px) saturate(1.5)",
-          backdropFilter: "blur(20px) saturate(1.5)",
-        }}
-        className="overflow-y-auto overscroll-contain rounded-2xl border border-white/60 bg-white/40 p-1 shadow-[0_20px_60px_rgba(0,0,0,0.12)] ring-1 ring-white/30"
-      >
-        {options.map((opt) => {
-          const isActive = opt.value === value;
-          return (
-            <li key={String(opt.value)} role="option" aria-selected={isActive}>
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-[#0071e3]/18 text-[#1d1d1f]"
-                    : "text-[#3a3a3c] hover:bg-white/45"
-                }`}
-              >
-                {opt.label}
-              </button>
-            </li>
-          );
-        })}
-      </ul>,
-      document.body
-    );
-
-  return (
-    <div ref={rootRef} className="relative space-y-1.5">
-      <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">{label}</span>
-      <button
-        ref={triggerRef}
-        type="button"
-        disabled={disabled}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => !disabled && setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-left text-sm font-medium text-[#3a3a3c] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md transition hover:bg-white/55 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/25 disabled:cursor-not-allowed disabled:opacity-60"
-        style={{
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.65), 0 1px 2px rgba(0,0,0,0.04)",
-        }}
-      >
-        <span className="truncate">{selected.label}</span>
-        <ChevronDown
-          size={16}
-          className={`shrink-0 text-[#86868b] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          aria-hidden
-        />
-      </button>
-      {listPortal}
-    </div>
-  );
-}
-
 // ---- ABA: DIAGNÓSTICO (ESTRUTURA & SAÚDE) ----
 function DiagnosisTab({
   client,
@@ -399,14 +241,13 @@ function DiagnosisTab({
   );
   const latest = history[0];
   const previous = history[1];
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [porosidade, setPorosidade] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [elasticidade, setElasticidade] = useState<1 | 2 | 3>(1);
   const [historiaQuimicaPrevia, setHistoriaQuimicaPrevia] = useState("");
   const [resultadoTesteMecha, setResultadoTesteMecha] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [portalReady, setPortalReady] = useState(false);
   const latestElasticidade = latest ? ELASTICITY_LABELS[latest.elasticidade] : null;
   const latestPorosidade = latest ? POROSITY_LABELS[latest.porosidade] : null;
   const diagnosisTone = getDiagnosisTone(latest);
@@ -437,10 +278,6 @@ function DiagnosisTab({
     return notes.join(" ");
   }, [latest, previous]);
 
-  useEffect(() => {
-    setPortalReady(true);
-  }, []);
-
   const resetForm = () => {
     setPorosidade(3);
     setElasticidade(1);
@@ -467,7 +304,7 @@ function DiagnosisTab({
       setFeedback({ type: "success", message: "Diagnóstico salvo com sucesso." });
       resetForm();
       setTimeout(() => {
-        setIsModalOpen(false);
+        setIsFormOpen(false);
         setFeedback(null);
       }, 700);
     } catch (err) {
@@ -492,10 +329,10 @@ function DiagnosisTab({
 
           <button
             type="button"
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => setIsFormOpen(!isFormOpen)}
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#7a4921] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#623915]"
           >
-            + Novo diagnóstico
+            {isFormOpen ? "Fechar formulário" : "+ Novo diagnóstico"}
           </button>
         </div>
 
@@ -521,6 +358,100 @@ function DiagnosisTab({
               <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Última atualização em {formatDate(latest.data)}.</p>
             </div>
           </div>
+        )}
+
+        {isFormOpen && (
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-[28px] border border-[var(--color-brand-line)] bg-white/80 p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
+            <div className="flex items-center justify-between">
+              <h4 className="text-base font-semibold text-[var(--color-text)]">Novo Diagnóstico Capilar</h4>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFormOpen(false);
+                  setFeedback(null);
+                }}
+                disabled={isSubmitting}
+                className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] disabled:opacity-50"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Porosidade (1-5)</span>
+                <select
+                  value={porosidade}
+                  onChange={(e) => setPorosidade(Number(e.target.value) as 1 | 2 | 3 | 4 | 5)}
+                  disabled={isSubmitting}
+                  className="w-full rounded-xl border border-[var(--color-brand-line)] bg-white px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/25"
+                >
+                  <option value={1}>1 — muito baixa</option>
+                  <option value={2}>2 — baixa</option>
+                  <option value={3}>3 — média</option>
+                  <option value={4}>4 — alta</option>
+                  <option value={5}>5 — muito alta</option>
+                </select>
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Elasticidade</span>
+                <select
+                  value={elasticidade}
+                  onChange={(e) => setElasticidade(Number(e.target.value) as 1 | 2 | 3)}
+                  disabled={isSubmitting}
+                  className="w-full rounded-xl border border-[var(--color-brand-line)] bg-white px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/25"
+                >
+                  <option value={1}>Saudável</option>
+                  <option value={2}>Sensibilizado</option>
+                  <option value={3}>Crítico</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Histórico Químico</span>
+              <textarea
+                value={historiaQuimicaPrevia}
+                onChange={(e) => setHistoriaQuimicaPrevia(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-[var(--color-brand-line)] bg-white px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:ring-2 focus:ring-[var(--color-brand-accent)]/25"
+                placeholder="Descreva os processos químicos anteriores..."
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">Teste de Mecha</span>
+              <textarea
+                value={resultadoTesteMecha}
+                onChange={(e) => setResultadoTesteMecha(e.target.value)}
+                rows={2}
+                required
+                className="w-full rounded-xl border border-[var(--color-brand-line)] bg-white px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-tertiary)] focus:ring-2 focus:ring-[var(--color-brand-accent)]/25"
+                placeholder="Resultado técnico do teste de mecha"
+              />
+            </label>
+
+            {feedback && (
+              <div
+                className={`text-xs font-medium rounded-xl px-3 py-2 ${
+                  feedback.type === "success" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                }`}
+              >
+                {feedback.message}
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#7a4921] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#623915] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+              >
+                {isSubmitting && <Loader2 size={14} className="animate-spin" />}
+                {isSubmitting ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </form>
         )}
       </section>
 
@@ -656,129 +587,6 @@ function DiagnosisTab({
           )}
         </article>
       </section>
-
-      {portalReady &&
-        createPortal(
-          <AnimatePresence>
-            {isModalOpen && (
-              <motion.div
-                key="diagnostico-modal"
-                className="fixed inset-0 z-[100] flex items-end justify-center overflow-y-auto bg-black/20 p-2 backdrop-blur-md sm:items-center sm:p-6"
-                style={{ WebkitBackdropFilter: "blur(12px)", backdropFilter: "blur(12px)" }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  if (!isSubmitting) {
-                    setIsModalOpen(false);
-                    setFeedback(null);
-                  }
-                }}
-              >
-                <motion.form
-                onSubmit={handleSubmit}
-                className="w-full max-w-xl space-y-4 rounded-[28px] border border-white/60 bg-white/45 p-4 text-[#3a3a3c] shadow-2xl backdrop-blur-xl max-h-[calc(var(--app-dvh)-1rem)] overflow-y-auto sm:my-6 sm:rounded-3xl sm:p-6 sm:max-h-[min(90dvh,calc(var(--app-dvh)-2rem))]"
-                style={{
-                  WebkitBackdropFilter: "blur(24px) saturate(1.6)",
-                  backdropFilter: "blur(24px) saturate(1.6)",
-                  boxShadow: "0 30px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
-                }}
-                initial={{ opacity: 0, y: 20, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.98 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-              <div className="flex items-center justify-between">
-                <h4 className="text-base font-semibold text-[#1d1d1f]">Novo Diagnóstico Capilar</h4>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsModalOpen(false);
-                    setFeedback(null);
-                  }}
-                  disabled={isSubmitting}
-                  className="text-xs text-[#6e6e73] hover:text-[#1d1d1f] disabled:opacity-50"
-                >
-                  Fechar
-                </button>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <GlassSelect<1 | 2 | 3 | 4 | 5>
-                  label="Porosidade (1-5)"
-                  value={porosidade}
-                  onChange={setPorosidade}
-                  disabled={isSubmitting}
-                  options={[
-                    { value: 1, label: "1 — muito baixa" },
-                    { value: 2, label: "2 — baixa" },
-                    { value: 3, label: "3 — média" },
-                    { value: 4, label: "4 — alta" },
-                    { value: 5, label: "5 — muito alta" },
-                  ]}
-                />
-                <GlassSelect<1 | 2 | 3>
-                  label="Elasticidade"
-                  value={elasticidade}
-                  onChange={setElasticidade}
-                  disabled={isSubmitting}
-                  options={[
-                    { value: 1, label: "Saudável" },
-                    { value: 2, label: "Sensibilizado" },
-                    { value: 3, label: "Crítico" },
-                  ]}
-                />
-              </div>
-
-              <label className="block space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Histórico Químico</span>
-                <textarea
-                  value={historiaQuimicaPrevia}
-                  onChange={(e) => setHistoriaQuimicaPrevia(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm text-[#3a3a3c] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                  placeholder="Descreva os processos químicos anteriores..."
-                />
-              </label>
-
-              <label className="block space-y-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Teste de Mecha</span>
-                <textarea
-                  value={resultadoTesteMecha}
-                  onChange={(e) => setResultadoTesteMecha(e.target.value)}
-                  rows={2}
-                  required
-                  className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm text-[#3a3a3c] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                  placeholder="Resultado técnico do teste de mecha"
-                />
-              </label>
-
-              {feedback && (
-                <div
-                  className={`text-xs font-medium rounded-xl px-3 py-2 ${
-                    feedback.type === "success" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {feedback.message}
-                </div>
-              )}
-
-              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#0071e3]/20 bg-[#0071e3]/10 px-4 py-3 text-sm font-semibold text-[#0071e3] transition-colors hover:bg-[#0071e3]/15 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:py-2"
-                >
-                  {isSubmitting && <Loader2 size={14} className="animate-spin" />}
-                  {isSubmitting ? "Salvando..." : "Salvar"}
-                </button>
-              </div>
-            </motion.form>
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
     </div>
   );
 }
@@ -801,75 +609,19 @@ function ColorimetyTab({
     [procedures]
   );
   const averageTicket = procedures.length > 0 ? totalRevenue / procedures.length : undefined;
-  const [portalReady, setPortalReady] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [tecnica, setTecnica] = useState("");
-  const [valorStr, setValorStr] = useState("");
-  const [anotacoes, setAnotacoes] = useState("");
-  const [altura, setAltura] = useState("");
-  const [fundo, setFundo] = useState("");
-  const [ox, setOx] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  const applyBudgetPreset = (preset: CapillaryTherapyBudgetPreset) => {
-    setTecnica(preset.tecnicaUtilizada);
-    setValorStr(preset.value.toFixed(2).replace(".", ","));
-    setAnotacoes(preset.notes);
-    setAltura("");
-    setFundo("");
-    setOx("");
-    setErr(null);
-    setModalOpen(true);
-  };
-
-  useEffect(() => {
-    setPortalReady(true);
-  }, []);
-
-  const reset = () => {
-    setTecnica("");
-    setValorStr("");
-    setAnotacoes("");
-    setAltura("");
-    setFundo("");
-    setOx("");
-    setErr(null);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tecnica.trim()) {
-      setErr("Informe o nome do procedimento.");
-      return;
-    }
-    const valorNum = valorStr.trim() === "" ? null : Number(valorStr.replace(",", "."));
-    if (valorStr.trim() !== "" && Number.isNaN(valorNum as number)) {
-      setErr("Valor inválido.");
-      return;
-    }
-    const alturaNum = altura.trim() === "" ? null : Number(altura);
-    if (altura.trim() !== "" && (Number.isNaN(alturaNum as number) || alturaNum! < 1 || alturaNum! > 10)) {
-      setErr("Altura de tom deve ser entre 1 e 10.");
-      return;
-    }
+  const applyBudgetPreset = async (preset: CapillaryTherapyBudgetPreset) => {
     try {
-      setSaving(true);
-      setErr(null);
       await onAddProcedimento(client.id, {
-        tecnicaUtilizada: tecnica.trim(),
-        valor: valorNum,
-        anotacoes: anotacoes.trim() || undefined,
-        alturaClareamento: alturaNum,
-        fundoClareamentoObtido: fundo.trim() || undefined,
-        volumagemOx: ox.trim() || undefined,
+        tecnicaUtilizada: preset.tecnicaUtilizada,
+        valor: preset.value,
+        anotacoes: preset.notes || undefined,
+        alturaClareamento: null,
+        fundoClareamentoObtido: undefined,
+        volumagemOx: undefined,
       });
-      reset();
-      setModalOpen(false);
     } catch {
-      setErr("Não foi possível salvar. Tente novamente.");
-    } finally {
-      setSaving(false);
+      alert("Não foi possível salvar o procedimento. Tente novamente.");
     }
   };
 
@@ -885,13 +637,7 @@ function ColorimetyTab({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#7a4921] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#623915]"
-          >
-            + Novo procedimento
-          </button>
+
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -1030,137 +776,7 @@ function ColorimetyTab({
         </div>
       )}
 
-      {portalReady &&
-        createPortal(
-          <AnimatePresence>
-            {modalOpen && (
-              <motion.div
-                key="procedimento-modal"
-                className="fixed inset-0 z-[100] flex items-end justify-center overflow-y-auto bg-black/20 p-2 backdrop-blur-md sm:items-center sm:p-6"
-                style={{ WebkitBackdropFilter: "blur(12px)", backdropFilter: "blur(12px)" }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  if (!saving) {
-                    setModalOpen(false);
-                    reset();
-                  }
-                }}
-              >
-                <motion.form
-                  onSubmit={handleSubmit}
-                  className="w-full max-w-lg space-y-4 rounded-[28px] border border-white/60 bg-white/45 p-4 text-[#3a3a3c] shadow-2xl backdrop-blur-xl max-h-[calc(var(--app-dvh)-1rem)] overflow-y-auto sm:my-6 sm:rounded-3xl sm:p-6 sm:max-h-[min(90dvh,calc(var(--app-dvh)-2rem))]"
-                  style={{
-                    WebkitBackdropFilter: "blur(24px) saturate(1.6)",
-                    backdropFilter: "blur(24px) saturate(1.6)",
-                    boxShadow: "0 30px 80px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.7)",
-                  }}
-                  initial={{ opacity: 0, y: 16, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.98 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-base font-semibold text-[#1d1d1f]">Novo procedimento</h4>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModalOpen(false);
-                        reset();
-                      }}
-                      disabled={saving}
-                      className="text-xs text-[#6e6e73] hover:text-[#1d1d1f] disabled:opacity-50"
-                    >
-                      Fechar
-                    </button>
-                  </div>
 
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Procedimento / técnica</span>
-                    <input
-                      value={tecnica}
-                      onChange={(e) => setTecnica(e.target.value)}
-                      className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                      placeholder="Ex.: Consulta capilar, sessão terapêutica, corte..."
-                      required
-                    />
-                  </label>
-
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Valor (R$)</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={valorStr}
-                      onChange={(e) => setValorStr(e.target.value)}
-                      className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm tabular-nums text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                      placeholder="0,00"
-                    />
-                  </label>
-
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Anotações</span>
-                    <textarea
-                      value={anotacoes}
-                      onChange={(e) => setAnotacoes(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm text-[#3a3a3c] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                      placeholder="Observações, produtos, detalhes do atendimento..."
-                    />
-                  </label>
-
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="block space-y-1.5 sm:col-span-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Alt. tom (1–10)</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={altura}
-                        onChange={(e) => setAltura(e.target.value)}
-                        className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0071e3]/25"
-                        placeholder="—"
-                      />
-                    </label>
-                    <label className="block space-y-1.5 sm:col-span-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Fundo</span>
-                      <input
-                        value={fundo}
-                        onChange={(e) => setFundo(e.target.value)}
-                        className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0071e3]/25"
-                        placeholder="ex. 9.3"
-                      />
-                    </label>
-                    <label className="block space-y-1.5 sm:col-span-1">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">Vol. OX</span>
-                      <input
-                        value={ox}
-                        onChange={(e) => setOx(e.target.value)}
-                        className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#0071e3]/25"
-                        placeholder="ex. 20 vol"
-                      />
-                    </label>
-                  </div>
-
-                  {err && <p className="text-xs font-medium text-red-600">{err}</p>}
-
-                  <div className="flex pt-1">
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#0071e3]/20 bg-[#0071e3]/10 px-4 py-3 text-sm font-semibold text-[#0071e3] transition-colors hover:bg-[#0071e3]/15 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:py-2"
-                    >
-                      {saving && <Loader2 size={14} className="animate-spin" />}
-                      {saving ? "Salvando..." : "Salvar procedimento"}
-                    </button>
-                  </div>
-                </motion.form>
-              </motion.div>
-            )}
-          </AnimatePresence>,
-          document.body
-        )}
     </div>
   );
 }
