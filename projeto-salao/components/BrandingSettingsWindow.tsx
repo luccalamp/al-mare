@@ -45,27 +45,20 @@ export default function BrandingSettingsWindow({ onClose }: BrandingSettingsWind
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.1)", backdropFilter: "blur(6px)" }}
+      className="premium-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={onClose}
     >
       <motion.div
-        className="relative flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px]"
-        style={{
-          background: "rgba(255, 255, 255, 0.78)",
-          backdropFilter: "blur(32px) saturate(1.8)",
-          border: "1px solid rgba(255, 255, 255, 0.4)",
-          boxShadow: "0 40px 100px rgba(0,0,0,0.15)",
-        }}
+        className="premium-window relative flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px]"
         initial={{ opacity: 0, scale: 0.92, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 12 }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center gap-3 border-b border-black/5 px-4 py-4 sm:px-6">
+        <div className="premium-window-header flex items-center gap-3 px-4 py-4 sm:px-6">
           <button onClick={onClose} className="h-5 w-5 rounded-full bg-[#ff5f57] sm:h-3 sm:w-3" aria-label="Fechar janela" />
           <div className="flex flex-1 items-center justify-center gap-3">
             <Building2 size={16} className="text-[var(--color-brand-accent)]" />

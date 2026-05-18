@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { buildStorageObjectPublicUrl, createSignedStorageUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
   isMissingColumnError,
@@ -33,7 +35,6 @@ const createSchema = z.discriminatedUnion("action", [
     sizeBytes: z.number().int().nonnegative(),
     storageBucket: z.string().trim().min(1),
     storagePath: z.string().trim().min(1),
-    publicUrl: z.string().url(),
   }),
 ]);
 
@@ -56,6 +57,56 @@ function buildCompanyDocumentError(error: { message?: string } | null | undefine
 
   console.error("Failed to persist company document data:", error);
   return buildJsonError(fallback, 500);
+}
+
+export async function GET(request: Request) {
+  const authContext = await requireAuthorizedStaff(request, {
+    forbiddenMessage: "Seu acesso não permite gerenciar documentos.",
+  });
+  if (authContext instanceof NextResponse) {
+    return authContext;
+  }
+
+  const [foldersResult, documentsResult] = await Promise.all([
+    authContext.admin
+      .from("company_document_folders")
+      .select("*")
+      .eq("user_id", authContext.userId)
+      .order("created_at", { ascending: true }),
+    authContext.admin
+      .from("company_documents")
+      .select(
+        "id, folder_id, nome, arquivo_nome, mime_type, tamanho_bytes, storage_bucket, storage_path, public_url, created_at, updated_at, company_document_folders(nome)"
+      )
+      .eq("user_id", authContext.userId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (foldersResult.error) {
+    return buildCompanyDocumentError(foldersResult.error, "Não foi possível carregar as pastas agora.");
+  }
+
+  if (documentsResult.error) {
+    return buildCompanyDocumentError(documentsResult.error, "Não foi possível carregar os documentos agora.");
+  }
+
+  const storageAdmin = createSupabaseAdminClient();
+  const signedDocuments = await Promise.all(
+    (Array.isArray(documentsResult.data) ? documentsResult.data : []).map(async (document) => ({
+      ...document,
+      public_url: await createSignedStorageUrl(storageAdmin, {
+        storageBucket: document.storage_bucket,
+        storagePath: document.storage_path,
+        fallbackUrl: document.public_url,
+      }),
+    }))
+  );
+
+  return NextResponse.json({
+    folders: Array.isArray(foldersResult.data) ? foldersResult.data : [],
+    documents: signedDocuments,
+  });
 }
 
 export async function POST(request: Request) {
@@ -111,10 +162,10 @@ export async function POST(request: Request) {
           tamanho_bytes: parsedBody.data.sizeBytes,
           storage_bucket: parsedBody.data.storageBucket,
           storage_path: parsedBody.data.storagePath,
-          public_url: parsedBody.data.publicUrl,
+          public_url: buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath),
         })
         .select(
-          "id, folder_id, nome, arquivo_nome, mime_type, tamanho_bytes, storage_path, public_url, created_at, updated_at, company_document_folders(nome)"
+          "id, folder_id, nome, arquivo_nome, mime_type, tamanho_bytes, storage_bucket, storage_path, public_url, created_at, updated_at, company_document_folders(nome)"
         )
         .single();
 
@@ -122,7 +173,17 @@ export async function POST(request: Request) {
         return buildCompanyDocumentError(error, "Não foi possível registrar o documento agora.");
       }
 
-      return NextResponse.json({ record: data });
+      const storageAdmin = createSupabaseAdminClient();
+      const signedRecord = {
+        ...data,
+        public_url: await createSignedStorageUrl(storageAdmin, {
+          storageBucket: data.storage_bucket,
+          storagePath: data.storage_path,
+          fallbackUrl: data.public_url,
+        }),
+      };
+
+      return NextResponse.json({ record: signedRecord });
     }
   }
 }

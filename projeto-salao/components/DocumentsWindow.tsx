@@ -189,27 +189,20 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.1)", backdropFilter: "blur(6px)" }}
+        className="premium-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
       >
         <motion.div
-          className="relative flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px]"
-          style={{
-            background: "rgba(255, 255, 255, 0.78)",
-            backdropFilter: "blur(32px) saturate(1.8)",
-            border: "1px solid rgba(255, 255, 255, 0.4)",
-            boxShadow: "0 40px 100px rgba(0,0,0,0.15)",
-          }}
+          className="premium-window relative flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px]"
           initial={{ opacity: 0, scale: 0.92, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: 12 }}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-3 border-b border-black/5 px-4 py-4 sm:px-6">
+          <div className="premium-window-header flex items-center gap-3 px-4 py-4 sm:px-6">
             <button onClick={onClose} className="h-5 w-5 rounded-full bg-[#ff5f57] sm:h-3 sm:w-3" aria-label="Fechar janela" />
             <div className="flex flex-1 items-center justify-center gap-3">
               <Building2 size={16} className="text-[var(--color-brand-accent)]" />
@@ -222,7 +215,7 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
             <div className="rounded-[30px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">{branding.documentsTitle}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Central de Arquivos</p>
                   <h3 className="mt-1 text-xl font-semibold text-[var(--color-text)]">{branding.documentsTitle}</h3>
                   <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-secondary)]">
                     {branding.documentsDescription}

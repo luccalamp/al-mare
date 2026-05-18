@@ -2,17 +2,19 @@
 "use client";
 
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { AppointmentDraft, Client, FichaAnamneseCapilarDados, WindowTab } from "@/types";
-import AnamneseCapilarTab from "@/components/AnamneseCapilarTab";
+import { AppointmentDraft, Client, FichaAnamneseCapilarDados, PortalLink, WindowTab, HOME_CARE_PRODUCTS, calcularPrecoComDesconto, calcularParcelas } from "@/types";
 import PhotoEvolutionComparison from "@/components/PhotoEvolutionComparison";
+
+const AnamneseCapilarTab = dynamic(() => import("@/components/AnamneseCapilarTab"), { ssr: false });
 import ClientProfileTab from "@/components/ClientProfileTab";
 import ClientEvolutionTab from "@/components/ClientEvolutionTab";
 import ClientAgendaTab from "@/components/ClientAgendaTab";
 import ClientPreConsultationTab from "@/components/ClientPreConsultationTab";
+import ClientFinanceiroTab from "@/components/ClientFinanceiroTab";
 import { getPhotoCategoryLabel, normalizePhotoCategory } from "@/lib/photos";
-import { useOrganizations } from "@/components/OrganizationProvider";
 import {
   WORKFLOW_STAGE_TEMPLATE_LABELS,
   WorkflowStageDefinition,
@@ -38,6 +40,8 @@ import {
   Calendar,
   Loader2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Banknote,
   ClipboardList,
   Plus,
@@ -47,12 +51,15 @@ import {
   X,
   Activity,
   ChevronUp,
+  CheckCircle,
   Settings,
   Info,
+  Check,
 } from "lucide-react";
 
 interface AnamnesisWindowProps {
   client: Client;
+  portalLink?: PortalLink;
   onClose: () => void;
   onUpdate: (client: Client, photoFiles?: { file: File; type: string }[]) => void;
   onAddDiagnostico: (
@@ -81,8 +88,12 @@ interface AnamnesisWindowProps {
       produtosRecomendados: string;
       obsCuidados?: string;
       dataRetornoSugerida?: string;
+      valorTotal?: number;
+      formaPagamento?: "avista" | "parcelado";
+      parcelas?: number;
     }
   ) => Promise<void>;
+  onConfirmarPagamento: (clientId: string, homecareId: string) => Promise<void>;
   onAddAppointment: (clientId: string, input: AppointmentDraft) => Promise<Client["appointments"][number]>;
   onLinkAppointmentToGoogle: (
     clientId: string,
@@ -92,6 +103,8 @@ interface AnamnesisWindowProps {
   onSaveFichaAnamnese: (clientId: string, dados: FichaAnamneseCapilarDados) => Promise<void>;
   onDeletePhoto: (clientId: string, photoId: string) => Promise<void>;
   onDeleteClient: (clientId: string) => Promise<void>;
+  onGeneratePreConsultationLink: (clientId: string) => Promise<string>;
+  onDeactivatePreConsultationLink: (clientId: string) => Promise<void>;
   initialTab?: WindowTab;
 }
 
@@ -194,6 +207,8 @@ function renderWorkflowStageIcon(stage: WorkflowStageDefinition) {
       return <ImageIcon size={14} />;
     case "evolucao":
       return <Activity size={14} />;
+    case "financeiro":
+      return <Banknote size={14} />;
     default:
       return <ClipboardList size={14} />;
   }
@@ -1074,29 +1089,56 @@ function ColorimetyTab({
 }
 
 // ---- ABA: PÓS-VENDA (HOMECARE & MANUTENÇÃO) ----
-function HomecareTab({ client, onAddHomecare }: { client: Client; onAddHomecare: AnamnesisWindowProps["onAddHomecare"] }) {
+function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
+  client: Client;
+  onAddHomecare: AnamnesisWindowProps["onAddHomecare"];
+  onConfirmarPagamento: AnamnesisWindowProps["onConfirmarPagamento"];
+}) {
   const [isAdding, setIsAdding] = useState(false);
   const [saving, setSaving] = useState(false);
-  
+
   const [produtosRecomendados, setProdutosRecomendados] = useState("");
   const [obsCuidados, setObsCuidados] = useState("");
   const [dataRetornoSugerida, setDataRetornoSugerida] = useState("");
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [formaPagamento, setFormaPagamento] = useState<"avista" | "parcelado">("avista");
+  const [parcelas, setParcelas] = useState(1);
+
+  const toggleProduct = (name: string) => {
+    setSelectedProducts((prev) =>
+      prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
+    );
+  };
+
+  const produtosSelecionados = HOME_CARE_PRODUCTS.filter((p) => selectedProducts.includes(p.name));
+  const valorTotalHomecare = produtosSelecionados.reduce((s, p) => s + p.price, 0);
+  const valorComDesconto = valorTotalHomecare > 0 ? calcularPrecoComDesconto(valorTotalHomecare, 10) : 0;
+  const parcelasCalculadas = parcelas > 1 ? calcularParcelas(valorTotalHomecare, parcelas) : [];
+
+  const selectedText = produtosSelecionados.map((p) => `${p.name} (R$ ${p.price.toFixed(2)})`).join(", ");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!produtosRecomendados.trim()) return;
-    
+    const text = produtosRecomendados.trim() || selectedText;
+    if (!text) return;
+
     setSaving(true);
     try {
       await onAddHomecare(client.id, {
-        produtosRecomendados,
+        produtosRecomendados: text,
         obsCuidados: obsCuidados || undefined,
         dataRetornoSugerida: dataRetornoSugerida || undefined,
+        valorTotal: valorTotalHomecare || undefined,
+        formaPagamento: valorTotalHomecare > 0 ? formaPagamento : undefined,
+        parcelas: formaPagamento === "parcelado" ? parcelas : undefined,
       });
       setIsAdding(false);
       setProdutosRecomendados("");
       setObsCuidados("");
       setDataRetornoSugerida("");
+      setSelectedProducts([]);
+      setFormaPagamento("avista");
+      setParcelas(1);
     } catch (error) {
       console.error(error);
       alert("Erro ao salvar recomendação.");
@@ -1107,6 +1149,110 @@ function HomecareTab({ client, onAddHomecare }: { client: Client; onAddHomecare:
 
   return (
     <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
+      {/* Catálogo de Produtos Home Care */}
+      <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Catálogo Home Care</p>
+        <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Produtos Profissionais</h3>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+          Selecione os produtos para incluir na prescrição. Parcelamento em até 4x ou 10% de desconto à vista.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {HOME_CARE_PRODUCTS.map((product) => {
+            const isSelected = selectedProducts.includes(product.name);
+            return (
+              <button
+                key={product.name}
+                type="button"
+                onClick={() => toggleProduct(product.name)}
+                className={`text-left rounded-2xl border p-4 transition-all ${
+                  isSelected
+                    ? "border-emerald-300 bg-emerald-50/70 shadow-[0_4px_12px_rgba(94,58,28,0.08)]"
+                    : "border-[var(--color-brand-line)] bg-white/70 hover:bg-white"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--color-text)]">{product.name}</p>
+                    {product.description && (
+                      <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">{product.description}</p>
+                    )}
+                  </div>
+                  <span className="text-sm font-black text-[var(--color-brand-deep)] flex-shrink-0">
+                    R$ {product.price.toFixed(0)}
+                  </span>
+                </div>
+                {isSelected && (
+                  <div className="mt-2 flex items-center gap-1 text-emerald-600">
+                    <Check size={12} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Selecionado</span>
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedProducts.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-[var(--color-brand-line)] bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-semibold text-[var(--color-text)]">Total</span>
+              <span className="font-black text-[var(--color-brand-deep)]">R$ {valorTotalHomecare.toFixed(2)}</span>
+            </div>
+            {formaPagamento === "avista" && valorTotalHomecare > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-emerald-600 font-semibold">À vista com 10% desconto</span>
+                <span className="font-bold text-emerald-600">R$ {valorComDesconto.toFixed(2)}</span>
+              </div>
+            )}
+            {formaPagamento === "parcelado" && parcelasCalculadas.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                  {parcelas}x de R$ {parcelasCalculadas[0].toFixed(2)} sem juros
+                </p>
+                <p className="text-[10px] text-[var(--color-text-secondary)]">Total: R$ {valorTotalHomecare.toFixed(2)}</p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setFormaPagamento("avista"); setParcelas(1); }}
+                className={`flex-1 rounded-xl border py-2 text-xs font-bold uppercase tracking-wider transition ${
+                  formaPagamento === "avista" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-white border-gray-200 text-gray-500"
+                }`}
+              >
+                À vista (-10%)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormaPagamento("parcelado")}
+                className={`flex-1 rounded-xl border py-2 text-xs font-bold uppercase tracking-wider transition ${
+                  formaPagamento === "parcelado" ? "bg-[var(--color-brand-soft)] border-[var(--color-brand-line)] text-[var(--color-brand-deep)]" : "bg-white border-gray-200 text-gray-500"
+                }`}
+              >
+                Parcelar
+              </button>
+            </div>
+            {formaPagamento === "parcelado" && (
+              <div className="flex gap-2">
+                {[2, 3, 4].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setParcelas(n)}
+                    className={`flex-1 rounded-xl border py-2 text-xs font-bold transition ${
+                      parcelas === n ? "bg-[var(--color-brand-soft)] border-[var(--color-brand-line)] text-[var(--color-brand-deep)]" : "bg-white border-gray-200 text-gray-500"
+                    }`}
+                  >
+                    {n}x
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
       <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-3">
@@ -1132,7 +1278,7 @@ function HomecareTab({ client, onAddHomecare }: { client: Client; onAddHomecare:
           </div>
         ) : (
           <div className="mt-5 space-y-4">
-            {client.homecare.map(h => (
+            {client.homecare.map((h) => (
               <div key={h.id} className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/70 p-5 shadow-[0_10px_24px_rgba(94,58,28,0.05)]">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Prescrição Técnica</span>
@@ -1141,17 +1287,49 @@ function HomecareTab({ client, onAddHomecare }: { client: Client; onAddHomecare:
                   </div>
                 </div>
                 <p className="mt-3 text-sm font-medium text-[var(--color-text)]">{h.produtosRecomendados}</p>
+                {h.valorTotal && (
+                  <div className="mt-2 flex items-center gap-3 text-xs">
+                    <span className="font-bold text-[var(--color-brand-deep)]">R$ {h.valorTotal.toFixed(2)}</span>
+                    {h.formaPagamento === "parcelado" && h.parcelas && (
+                      <span className="text-[var(--color-text-secondary)]">{h.parcelas}x no cartão</span>
+                    )}
+                    {h.formaPagamento === "avista" && (
+                      <span className="text-emerald-600 font-semibold">10% desconto à vista</span>
+                    )}
+                  </div>
+                )}
                 {h.obsCuidados && (
                   <p className="mt-2 text-xs leading-5 text-[var(--color-text-secondary)] italic">&ldquo;{h.obsCuidados}&rdquo;</p>
                 )}
-                {h.dataRetornoSugerida && (
-                  <div className="mt-4 flex items-center gap-2 rounded-[16px] border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-3">
-                    <Zap size={12} className="text-[var(--color-brand-deep)]" />
-                    <span className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--color-brand-deep)]">
-                      Retorno Sugerido: {formatDate(h.dataRetornoSugerida)}
-                    </span>
-                  </div>
-                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {h.dataRetornoSugerida && (
+                    <div className="flex items-center gap-2 rounded-[16px] border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-2">
+                      <Zap size={12} className="text-[var(--color-brand-deep)]" />
+                      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-brand-deep)]">
+                        Retorno: {formatDate(h.dataRetornoSugerida)}
+                      </span>
+                    </div>
+                  )}
+                  {h.valorTotal && (
+                    h.pago ? (
+                      <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5">
+                        <CheckCircle size={13} className="text-emerald-600" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                          Pago {h.confirmadoEm ? formatDate(h.confirmadoEm) : ""}
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void onConfirmarPagamento(client.id, h.id)}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700 transition hover:bg-emerald-100"
+                      >
+                        <CheckCircle size={13} />
+                        Confirmar pagamento
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -1207,6 +1385,11 @@ function HomecareTab({ client, onAddHomecare }: { client: Client; onAddHomecare:
                         rows={3}
                         className="input-light min-h-24"
                       />
+                      {selectedProducts.length > 0 && (
+                        <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">
+                          Itens do catálogo: {selectedText}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-1.5">
@@ -1598,26 +1781,30 @@ function GalleryTab({
 // ---- MAIN WINDOW ----
 export default function AnamnesisWindow({
   client,
+  portalLink,
   onClose,
   onUpdate,
   onAddDiagnostico,
   onAddProcedimento,
   onAddHomecare,
+  onConfirmarPagamento,
   onAddAppointment,
   onLinkAppointmentToGoogle,
   onSaveFichaAnamnese,
   onDeletePhoto,
   onDeleteClient,
+  onGeneratePreConsultationLink,
+  onDeactivatePreConsultationLink,
   initialTab = "perfil",
 }: AnamnesisWindowProps) {
   const [activeTab, setActiveTab] = useState<WorkflowStageId>(initialTab);
-  const { activeOrgId } = useOrganizations();
   const [workflowStages, setWorkflowStages] = useState<WorkflowStageDefinition[]>(() => createDefaultWorkflowStages());
   const [workflowLoaded, setWorkflowLoaded] = useState(false);
   const [workflowSyncState, setWorkflowSyncState] = useState<"loading" | "syncing" | "synced" | "error">("loading");
   const [draggedStageId, setDraggedStageId] = useState<WorkflowStageId | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<WorkflowStageId | null>(null);
   const [showStageEditor, setShowStageEditor] = useState(false);
+  const [showMobileStagePicker, setShowMobileStagePicker] = useState(false);
   const [headerExpanded, setHeaderExpanded] = useState(false);
   const [customStageDraft, setCustomStageDraft] = useState<{
     label: string;
@@ -1646,6 +1833,7 @@ export default function AnamnesisWindow({
     () => workflowStages.find((stage) => stage.id === activeTab) ?? null,
     [activeTab, workflowStages]
   );
+  const activeDisplayStage = activeStage ?? visibleStages[0] ?? null;
   const activeCustomStage = activeStage?.source === "custom" ? activeStage : null;
   const activeVisibleStageIndex = visibleStages.findIndex((stage) => stage.id === activeTab);
   const previousVisibleStage = activeVisibleStageIndex > 0 ? visibleStages[activeVisibleStageIndex - 1] : null;
@@ -1656,6 +1844,7 @@ export default function AnamnesisWindow({
   const journeyTargetTab = visibleStages.some((stage) => stage.id === journey.nextTab)
     ? journey.nextTab
     : visibleStages[0]?.id ?? journey.nextTab;
+  const activeStageLabel = activeDisplayStage?.label.trim() || (activeDisplayStage ? "Etapa extra" : "Escolher etapa");
 
   const workflowSyncMessage = {
     loading: "Carregando etapas salvas na nuvem.",
@@ -1676,26 +1865,17 @@ export default function AnamnesisWindow({
     setWorkflowLoaded(false);
     setWorkflowSyncState("loading");
 
-    if (!activeOrgId) {
-      setWorkflowStages(createDefaultWorkflowStages());
-      setWorkflowLoaded(true);
-      setWorkflowSyncState("synced");
-      return () => {
-        active = false;
-      };
-    }
-
-    const cachedStages = readWorkflowStagesCache(activeOrgId);
+    const cachedStages = readWorkflowStagesCache(null);
     setWorkflowStages(cachedStages);
 
     void (async () => {
       try {
-        const remoteStages = await fetchWorkflowStagesFromSupabase(activeOrgId);
+        const remoteStages = await fetchWorkflowStagesFromSupabase(null);
         if (!active) return;
 
         if (remoteStages) {
           setWorkflowStages(remoteStages);
-          writeWorkflowStagesCache(remoteStages, activeOrgId);
+          writeWorkflowStagesCache(remoteStages, null);
         }
 
         setWorkflowSyncState("synced");
@@ -1714,19 +1894,19 @@ export default function AnamnesisWindow({
     return () => {
       active = false;
     };
-  }, [activeOrgId]);
+  }, []);
 
   useEffect(() => {
-    if (!workflowLoaded || !activeOrgId) return;
+    if (!workflowLoaded) return;
 
-    writeWorkflowStagesCache(workflowStages, activeOrgId);
+    writeWorkflowStagesCache(workflowStages, null);
     setWorkflowSyncState("syncing");
 
     let active = true;
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          await saveWorkflowStagesToSupabase(workflowStages, activeOrgId);
+          await saveWorkflowStagesToSupabase(workflowStages, null);
           if (active) {
             setWorkflowSyncState("synced");
           }
@@ -1743,7 +1923,7 @@ export default function AnamnesisWindow({
       active = false;
       window.clearTimeout(timeoutId);
     };
-  }, [activeOrgId, workflowLoaded, workflowStages]);
+  }, [workflowLoaded, workflowStages]);
 
   useEffect(() => {
     if (!visibleStages.length) return;
@@ -1853,34 +2033,25 @@ export default function AnamnesisWindow({
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-stretch justify-center p-0"
-        style={{ background: "rgba(0,0,0,0.1)", backdropFilter: "blur(6px)" }}
+        className="premium-overlay fixed inset-0 z-50 flex items-stretch justify-center p-0"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
       >
         <motion.div
-          className="relative flex min-h-[var(--app-dvh)] w-full max-w-none flex-col overflow-hidden rounded-none"
-          style={{
-            background: "rgba(255, 255, 255, 0.6)",
-            backdropFilter: "blur(32px) saturate(1.8)",
-            WebkitBackdropFilter: "blur(32px) saturate(1.8)",
-            border: "none",
-            boxShadow: "none",
-          }}
+          className="premium-window relative flex min-h-[var(--app-dvh)] w-full max-w-none flex-col overflow-hidden rounded-none border-none shadow-none"
           initial={{ opacity: 0, scale: 0.9, y: 30 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* ── Compact Header ── */}
-          <div className="app-sticky-header flex shrink-0 flex-col border-b border-black/5 bg-[rgba(255,252,248,0.92)] backdrop-blur-xl" style={{ zIndex: 30 }}>
+          <div className="premium-window-header app-sticky-header flex shrink-0 flex-col" style={{ zIndex: 30 }}>
             {/* Top row: close + name + actions */}
-            <div className="flex items-center gap-2 px-3 py-2 sm:px-5 sm:py-2.5">
+            <div className="flex items-center gap-2 px-3 py-3 sm:px-5 sm:py-2.5">
               <button
                 onClick={onClose}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#ff5f57] text-[10px] font-semibold text-white shadow-sm transition hover:bg-[#e34940]"
+                className="ios-touch-target inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#ff5f57] text-[11px] font-semibold text-white shadow-sm transition hover:bg-[#e34940] sm:h-8 sm:w-8 sm:text-[10px]"
                 aria-label="Fechar janela"
               >
                 <X size={14} />
@@ -1893,7 +2064,7 @@ export default function AnamnesisWindow({
               <button
                 type="button"
                 onClick={() => setHeaderExpanded((prev) => !prev)}
-                className={`inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-[10px] font-bold uppercase tracking-[0.18em] transition-colors ${journeyToneClass}`}
+                className={`ios-touch-target inline-flex min-h-11 items-center gap-1 rounded-full px-3.5 text-[10px] font-bold uppercase tracking-[0.18em] transition-colors sm:h-8 sm:min-h-0 sm:px-2.5 ${journeyToneClass}`}
                 aria-label="Detalhes da jornada"
                 title="Ver informações da jornada"
               >
@@ -1905,7 +2076,7 @@ export default function AnamnesisWindow({
               <button
                 type="button"
                 onClick={() => setShowStageEditor(true)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-black/5 bg-white/60 text-[#6e6e73] transition hover:bg-white hover:text-[#1d1d1f]"
+                className="hidden h-11 w-11 items-center justify-center rounded-full border border-black/5 bg-white/60 text-[#6e6e73] transition hover:bg-white hover:text-[#1d1d1f] sm:inline-flex sm:h-8 sm:w-8"
                 aria-label="Personalizar etapas"
                 title="Personalizar etapas"
               >
@@ -1945,6 +2116,60 @@ export default function AnamnesisWindow({
               )}
             </AnimatePresence>
 
+            <div className="border-t border-black/5 px-3 py-3 md:hidden">
+              <div className="premium-card rounded-[1.35rem] p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Atendimento em curso</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${journeyToneClass}`}>
+                        {journey.stageLabel}
+                      </span>
+                      <span className="rounded-full bg-black/[0.05] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6e6e73]">
+                        {activeStageLabel}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                      Proxima acao: <strong className="text-[var(--color-text)]">{journey.nextActionLabel}</strong>
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMobileStagePicker(true)}
+                    className="premium-button-secondary ios-touch-target shrink-0 rounded-[1rem] px-3.5 py-2 text-xs font-semibold"
+                  >
+                    <span className="relative z-10">Etapas</span>
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(journeyTargetTab);
+                      setHeaderExpanded(false);
+                      setShowMobileStagePicker(false);
+                    }}
+                    disabled={activeTab === journeyTargetTab}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2.5 text-xs font-semibold text-[var(--color-brand-deep)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Proxima acao
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMobileStagePicker(false);
+                      setShowStageEditor(true);
+                    }}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-brand-line)] bg-white px-3 py-2.5 text-xs font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)]"
+                  >
+                    Organizar fluxo
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Desktop tab bar (hidden on mobile — bottom bar is used instead) */}
             <div className="hidden md:block">
               <div className="app-scroll-area overflow-x-auto px-3 pb-2 sm:px-5">
@@ -1967,7 +2192,7 @@ export default function AnamnesisWindow({
           </div>
 
           {/* ── Content Area ── */}
-          <div className="app-scroll-area custom-scrollbar flex-1 overflow-y-auto overflow-x-hidden pb-[calc(3.5rem+max(0.5rem,env(safe-area-inset-bottom)))] md:pb-0 md:safe-pb">
+          <div key={`tab-${activeTab}`} className="app-scroll-area custom-scrollbar flex-1 overflow-y-auto overflow-x-hidden pb-[calc(6rem+max(0.75rem,env(safe-area-inset-bottom)))] md:pb-0 md:safe-pb">
             {activeTab === "perfil" && (
               <ClientProfileTab
                 client={client}
@@ -1981,6 +2206,9 @@ export default function AnamnesisWindow({
                 onUpdate={onUpdate}
               />
             )}
+            {activeTab === "financeiro" && (
+              <ClientFinanceiroTab client={client} />
+            )}
             {activeTab === "agenda" && (
               <ClientAgendaTab
                 client={client}
@@ -1991,6 +2219,9 @@ export default function AnamnesisWindow({
             {activeTab === "pre-consulta" && (
               <ClientPreConsultationTab
                 client={client}
+                portalLink={portalLink}
+                onGeneratePreConsultationLink={onGeneratePreConsultationLink}
+                onDeactivatePreConsultationLink={onDeactivatePreConsultationLink}
               />
             )}
             {activeTab === "anamnese" && (
@@ -2000,7 +2231,7 @@ export default function AnamnesisWindow({
             {activeTab === "colorimetria" && (
               <ColorimetyTab client={client} onAddProcedimento={onAddProcedimento} />
             )}
-            {activeTab === "pos-venda" && <HomecareTab client={client} onAddHomecare={onAddHomecare} />}
+            {activeTab === "pos-venda" && <HomecareTab client={client} onAddHomecare={onAddHomecare} onConfirmarPagamento={onConfirmarPagamento} />}
             {activeTab === "galeria" && <GalleryTab client={client} onUpdate={onUpdate} onDeletePhoto={onDeletePhoto} />}
             {activeCustomStage && (
               <section className="space-y-5 p-4 sm:p-6">
@@ -2056,35 +2287,171 @@ export default function AnamnesisWindow({
           </div>
 
           {/* ── Mobile Bottom Navigation Bar ── */}
-          <nav
-            className="md:hidden fixed inset-x-0 bottom-0 z-[35] border-t border-black/5 bg-[rgba(255,252,248,0.94)] backdrop-blur-xl"
-            style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
-          >
-            <div className="app-scroll-area flex gap-0.5 overflow-x-auto px-1 py-1">
-              {visibleStages.map((stage) => {
-                const isActiveStage = activeTab === stage.id;
-                return (
-                  <button
-                    key={stage.id}
-                    onClick={() => setActiveTab(stage.id)}
-                    className={`flex shrink-0 flex-col items-center gap-0.5 rounded-xl px-2.5 py-1.5 transition-all ${
-                      isActiveStage
-                        ? "bg-[var(--color-brand-soft)] text-[var(--color-brand-deep)]"
-                        : "text-[#8e8e93] hover:text-[#1d1d1f]"
-                    }`}
-                    aria-current={isActiveStage ? "page" : undefined}
-                  >
-                    {renderWorkflowStageIcon(stage)}
-                    <span className={`text-[9px] font-semibold uppercase tracking-wider leading-tight ${
-                      isActiveStage ? "text-[var(--color-brand-deep)]" : ""
-                    }`}>
-                      {stage.label.trim().split(" ")[0] || "Aba"}
+          {!showStageEditor && !showMobileStagePicker && (
+            <nav
+              className="fixed inset-x-0 bottom-0 z-[35] px-3 pt-3 md:hidden"
+              style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+            >
+              <div className="ios-bottom-dock grid grid-cols-[auto_1fr_auto] gap-2 rounded-[1.8rem] p-2.5">
+                <button
+                  type="button"
+                  onClick={() => previousVisibleStage && setActiveTab(previousVisibleStage.id)}
+                  disabled={!previousVisibleStage}
+                  className="premium-button-secondary ios-touch-target inline-flex h-11 w-11 items-center justify-center rounded-[1.1rem] disabled:cursor-not-allowed disabled:opacity-35"
+                  aria-label="Etapa anterior"
+                >
+                  <span className="relative z-10">
+                    <ChevronLeft size={18} />
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMobileStagePicker(true)}
+                  className="premium-button-primary ios-touch-target rounded-[1.2rem] px-4 py-3 text-left"
+                  aria-expanded={showMobileStagePicker}
+                  aria-label="Abrir seletor de etapas"
+                >
+                  <span className="relative z-10 flex min-w-0 items-center gap-3">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/18 text-white/95">
+                      {activeDisplayStage ? renderWorkflowStageIcon(activeDisplayStage) : <ClipboardList size={16} />}
                     </span>
-                  </button>
-                );
-              })}
-            </div>
-          </nav>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/72">Etapa atual</span>
+                      <span className="block truncate text-sm font-semibold text-white">{activeStageLabel}</span>
+                    </span>
+                    <ChevronDown size={16} className="shrink-0 text-white/82" />
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => nextVisibleStage && setActiveTab(nextVisibleStage.id)}
+                  disabled={!nextVisibleStage}
+                  className="premium-button-secondary ios-touch-target inline-flex h-11 w-11 items-center justify-center rounded-[1.1rem] disabled:cursor-not-allowed disabled:opacity-35"
+                  aria-label="Próxima etapa"
+                >
+                  <span className="relative z-10">
+                    <ChevronRight size={18} />
+                  </span>
+                </button>
+              </div>
+            </nav>
+          )}
+
+          <AnimatePresence>
+            {showMobileStagePicker && (
+              <motion.div
+                className="absolute inset-0 z-[36] flex items-end justify-center bg-[rgba(17,17,17,0.22)] backdrop-blur-sm md:hidden"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowMobileStagePicker(false)}
+              >
+                <motion.div
+                  className="ios-bottom-sheet flex max-h-[calc(var(--app-dvh)-0.75rem)] w-full flex-col overflow-hidden rounded-t-[2rem]"
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 24 }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="mx-auto mt-2 h-1.5 w-14 rounded-full bg-black/10" />
+
+                  <div className="flex items-start justify-between gap-4 border-b border-black/5 px-4 py-4">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Etapas do atendimento</p>
+                      <h3 className="mt-2 text-xl font-semibold text-[var(--color-text)]">Troque de etapa sem apertar abas pequenas</h3>
+                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+                        Seletor pensado para iPhone, com leitura clara da etapa atual e navegação mais precisa no polegar.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowMobileStagePicker(false)}
+                      className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-brand-line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)]"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="app-scroll-area hide-scrollbar flex-1 overflow-y-auto px-4 py-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+                    <div className="space-y-3">
+                      {visibleStages.map((stage) => {
+                        const isActiveStage = activeTab === stage.id;
+                        const stageDescription =
+                          stage.source === "builtin"
+                            ? "Parte do fluxo clinico principal desta paciente."
+                            : stage.description?.trim() || CUSTOM_STAGE_TEMPLATE_HELP[stage.template];
+
+                        return (
+                          <button
+                            key={stage.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveTab(stage.id);
+                              setShowMobileStagePicker(false);
+                            }}
+                            className={`premium-card w-full rounded-[1.35rem] px-4 py-4 text-left transition ${
+                              isActiveStage
+                                ? "border-[var(--color-brand-accent)] bg-[rgba(244,230,211,0.92)] shadow-[0_20px_44px_rgba(94,58,28,0.12)]"
+                                : "hover:bg-white"
+                            }`}
+                            aria-current={isActiveStage ? "page" : undefined}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+                                  isActiveStage
+                                    ? "bg-[var(--color-brand-deep)] text-white"
+                                    : "bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-deep)]"
+                                }`}
+                              >
+                                {renderWorkflowStageIcon(stage)}
+                              </span>
+
+                              <span className="min-w-0 flex-1">
+                                <span className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-semibold text-[var(--color-text)]">
+                                    {stage.label.trim() || (stage.source === "builtin" ? "Etapa" : "Etapa extra")}
+                                  </span>
+                                  {stage.id === journeyTargetTab && (
+                                    <span className="rounded-full bg-[var(--color-brand-soft)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand-deep)]">
+                                      Sugerida
+                                    </span>
+                                  )}
+                                </span>
+
+                                <span className="mt-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-accent)]">
+                                  {stage.source === "builtin" ? "Etapa base" : WORKFLOW_STAGE_TEMPLATE_LABELS[stage.template]}
+                                </span>
+
+                                <span className="mt-2 block text-sm leading-6 text-[var(--color-text-secondary)]">
+                                  {stageDescription}
+                                </span>
+                              </span>
+
+                              {isActiveStage && <Check size={16} className="mt-1 shrink-0 text-[var(--color-brand-deep)]" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMobileStagePicker(false);
+                        setShowStageEditor(true);
+                      }}
+                      className="premium-button-secondary ios-touch-target mt-4 w-full rounded-[1.15rem] px-4 py-3 text-sm"
+                    >
+                      <span className="relative z-10">Personalizar ordem das etapas</span>
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence>
             {showStageEditor && (

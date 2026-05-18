@@ -1,22 +1,24 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients } from "@/hooks/useClients";
 import FolderIcon from "@/components/FolderIcon";
 import AppIcon from "@/components/AppIcon";
-import BrandingSettingsWindow from "@/components/BrandingSettingsWindow";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
-import BrandMark from "@/components/BrandMark";
 import BrandLogo from "@/components/BrandLogo";
-import AnamnesisWindow from "@/components/AnamnesisWindow";
-import DashboardWindow from "@/components/DashboardWindow";
-import DocumentsWindow from "@/components/DocumentsWindow";
-import NewClientForm from "@/components/NewClientForm";
+import { buildPreConsultationLink } from "@/lib/preConsultation";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
+
+const AnamnesisWindow = dynamic(() => import("@/components/AnamnesisWindow"), { ssr: false });
+const DashboardWindow = dynamic(() => import("@/components/DashboardWindow"), { ssr: false });
+const DocumentsWindow = dynamic(() => import("@/components/DocumentsWindow"), { ssr: false });
+const BrandingSettingsWindow = dynamic(() => import("@/components/BrandingSettingsWindow"), { ssr: false });
+const NewClientForm = dynamic(() => import("@/components/NewClientForm"), { ssr: false });
 
 const JOURNEY_FILTERS: Array<{ id: "todos" | ClientJourneyStage; label: string }> = [
   { id: "todos", label: "Tudo" },
@@ -45,11 +47,14 @@ export default function HomePage() {
     addDiagnostico,
     addProcedimento,
     addHomecare,
+    confirmarPagamentoHomecare,
     addAppointment,
     linkAppointmentToGoogle,
     saveFichaAnamnese,
     deletePhoto,
     deleteClient,
+    issuePreConsultationToken,
+    deactivatePreConsultationToken,
     syncWarning,
     lastSnapshotAt,
   } = useClients();
@@ -180,6 +185,17 @@ export default function HomePage() {
     });
   };
 
+  const handleGeneratePreConsultationLink = async (clientId: string) => {
+    const token = await issuePreConsultationToken(clientId);
+    const link = buildPreConsultationLink(token);
+    await navigator.clipboard.writeText(link);
+    return link;
+  };
+
+  const handleDeactivatePreConsultationLink = async (clientId: string) => {
+    await deactivatePreConsultationToken(clientId);
+  };
+
   const mergeOpenClientAppointment = (clientId: string, appointment: ClientAppointment) => {
     setOpenClientModal((prev) => {
       if (!prev || prev.client.id !== clientId) return prev;
@@ -282,6 +298,9 @@ export default function HomePage() {
       produtosRecomendados: string;
       obsCuidados?: string;
       dataRetornoSugerida?: string;
+      valorTotal?: number;
+      formaPagamento?: "avista" | "parcelado";
+      parcelas?: number;
     }
   ) => {
     const novo = await addHomecare(clientId, input);
@@ -292,6 +311,21 @@ export default function HomePage() {
         client: {
           ...openClientModal.client,
           homecare: [novo, ...openClientModal.client.homecare],
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+  };
+  const handleConfirmarPagamento = async (clientId: string, homecareId: string) => {
+    await confirmarPagamentoHomecare(clientId, homecareId);
+    if (openClientModal?.client.id === clientId) {
+      setOpenClientModal({
+        ...openClientModal,
+        client: {
+          ...openClientModal.client,
+          homecare: openClientModal.client.homecare.map((h) =>
+            h.id === homecareId ? { ...h, pago: true, confirmadoEm: new Date().toISOString() } : h
+          ),
           updatedAt: new Date().toISOString(),
         },
       });
@@ -329,103 +363,90 @@ export default function HomePage() {
 
   const formattedSnapshotAt =
     lastSnapshotAt ? new Date(lastSnapshotAt).toLocaleString("pt-BR") : null;
+  const activeJourneyLabel = JOURNEY_FILTERS.find((filter) => filter.id === journeyFilter)?.label ?? "Tudo";
+  const snapshotStatusLabel = syncWarning ? "Protegido" : formattedSnapshotAt ? "Pronto" : "Online";
+  const hasOverlayOpen = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showNewForm);
 
   return (
-    <div className="relative min-h-[var(--app-dvh)] bg-white/40" style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}>
-      {/* ---- Menubar — Liquid Glass White ---- */}
-      <header
-        className="app-sticky-header flex flex-wrap items-center gap-2.5 px-3 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))] sm:flex-nowrap sm:gap-3 sm:px-4"
-        style={{
-          background: "rgba(255, 255, 255, 0.4)",
-          backdropFilter: "blur(20px) saturate(1.6)",
-          WebkitBackdropFilter: "blur(20px) saturate(1.6)",
-          borderBottom: "1px solid rgba(255, 255, 255, 0.2)",
-          boxShadow: "0 1px 0 rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.7)",
-        }}
-      >
-        {/* Logo */}
-        <div className="mr-0 flex shrink-0 items-center gap-2 sm:mr-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#d7b289] to-[#7a4921] flex items-center justify-center shadow-md">
-            <BrandMark className="h-4 w-4" />
+    <div className="relative min-h-[var(--app-dvh)] pb-4">
+      <header className="app-sticky-header px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
+        <div className="premium-panel flex flex-wrap items-center gap-3 rounded-[2rem] px-4 py-3 sm:flex-nowrap sm:px-5">
+          <div className="mr-0 flex shrink-0 items-center gap-3 sm:mr-1">
+            <BrandLogo compact subtitle={false} className="hidden sm:flex" priority />
+            <p className="premium-kicker hidden sm:inline-flex">Painel da clinica</p>
           </div>
-          <BrandLogo compact className="hidden sm:flex" />
+
+          <div
+            className="order-3 flex w-full items-center gap-2 rounded-[1.4rem] px-3 py-2.5 transition-all duration-200 sm:order-none sm:mx-auto sm:max-w-xl sm:flex-1"
+            style={{
+              background: spotlightFocused ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.58)",
+              border: spotlightFocused ? "1px solid rgba(140,90,45,0.24)" : "1px solid rgba(113,76,43,0.08)",
+              boxShadow: spotlightFocused
+                ? "0 0 0 4px rgba(140,90,45,0.08), 0 16px 34px rgba(62,44,28,0.08)"
+                : "0 12px 24px rgba(62,44,28,0.05)",
+            }}
+          >
+            <Search size={14} className={`shrink-0 transition-colors ${spotlightFocused ? "text-[var(--color-brand-accent)]" : "text-[var(--color-text-tertiary)]"}`} />
+            <input
+              ref={searchRef}
+              id="search-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setSpotlightFocused(true)}
+              onBlur={() => setSpotlightFocused(false)}
+              placeholder="Buscar paciente, protocolo ou prontuario..."
+              className="min-h-6 flex-1 bg-transparent text-sm text-[var(--color-ink)] placeholder:text-[var(--color-text-tertiary)] outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="rounded-full p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text)]"
+                aria-label="Limpar busca"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="hidden lg:flex">
+            <span className="premium-chip text-xs font-semibold">
+              <Users size={14} />
+              {visibleClients.length} paciente{visibleClients.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          <button
+            id="new-client-btn"
+            onClick={() => setShowNewForm(true)}
+            className="premium-button-primary hidden items-center gap-2 px-4 py-3 text-sm md:flex"
+            title="Novo paciente"
+          >
+            <span className="relative z-10 flex items-center gap-2">
+              <FolderPlus size={15} />
+              Novo paciente
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenBrandingSettings}
+            className="premium-button-secondary hidden items-center gap-2 px-4 py-3 text-sm md:flex"
+            title="Personalizar a marca e os textos"
+          >
+            <span className="relative z-10">Personalizar</span>
+          </button>
+
+          <button
+            onClick={() => setShowMobileMenu((prev) => !prev)}
+            className="premium-button-secondary inline-flex h-11 w-11 items-center justify-center sm:hidden"
+            aria-label="Abrir menu"
+            aria-expanded={showMobileMenu}
+          >
+            <span className="relative z-10">
+              <Menu size={18} />
+            </span>
+          </button>
         </div>
-
-        {/* Spotlight search */}
-        <div
-          className={`order-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 transition-all duration-200 sm:order-none sm:mx-auto sm:max-w-sm sm:flex-1`}
-          style={{
-            background: spotlightFocused ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.55)",
-            border: spotlightFocused ? "1px solid rgba(140,90,45,0.38)" : "1px solid rgba(74,44,26,0.10)",
-            boxShadow: spotlightFocused ? "0 0 0 3px rgba(140,90,45,0.10)" : "none",
-          }}
-        >
-          <Search size={13} className={`flex-shrink-0 transition-colors ${spotlightFocused ? "text-[var(--color-brand-accent)]" : "text-[#aeaeb2]"}`} />
-          <input
-            ref={searchRef}
-            id="search-input"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setSpotlightFocused(true)}
-            onBlur={() => setSpotlightFocused(false)}
-            placeholder="Buscar paciente, protocolo ou prontuário..."
-            className="bg-transparent flex-1 text-sm text-[#1d1d1f] placeholder-[#aeaeb2] outline-none min-h-6"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="p-1.5 text-[#aeaeb2] hover:text-[#6e6e73] transition-colors"
-              aria-label="Limpar busca"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
-
-        {/* Stats */}
-        <div className="hidden lg:flex items-center gap-1 text-[#6e6e73] text-xs">
-          <Users size={12} />
-          <span>{visibleClients.length} paciente{visibleClients.length !== 1 ? "s" : ""}</span>
-        </div>
-
-        {/* New client button */}
-        <button
-          id="new-client-btn"
-          onClick={() => setShowNewForm(true)}
-          className="hidden md:flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
-          style={{
-            background: "rgba(140,90,45,0.10)",
-            border: "1px solid rgba(140,90,45,0.22)",
-            color: "#8c5a2d",
-          }}
-          title="Novo paciente"
-        >
-          <FolderPlus size={13} />
-          <span>Novo Paciente</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleOpenBrandingSettings}
-          className="hidden md:flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
-          style={{
-            background: "rgba(255,255,255,0.7)",
-            border: "1px solid rgba(74,44,26,0.10)",
-            color: "#6e6e73",
-          }}
-          title="Personalizar a marca e os textos"
-        >
-          <span>Personalizar</span>
-        </button>
-
-        <button
-          onClick={() => setShowMobileMenu((prev) => !prev)}
-          className="sm:hidden inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/60 text-[#1d1d1f]"
-          aria-label="Abrir menu"
-          aria-expanded={showMobileMenu}
-        >
-          <Menu size={18} />
-        </button>
       </header>
 
       <AnimatePresence>
@@ -434,10 +455,10 @@ export default function HomePage() {
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="sm:hidden sticky top-[calc(env(safe-area-inset-top)+4.9rem)] z-20 mx-3 mt-2 rounded-2xl border border-white/60 bg-white/70 p-3 shadow-[0_18px_45px_rgba(0,0,0,0.12)] backdrop-blur-xl"
+            className="premium-panel sticky top-[calc(env(safe-area-inset-top)+5.1rem)] z-20 mx-3 mt-2 rounded-[1.6rem] p-3 sm:hidden"
           >
-            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-[#6e6e73]">
-              <span>Ações</span>
+            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-text-secondary)]">
+              <span>Acoes</span>
               <span>{filteredClients.length} pacientes</span>
             </div>
             <button
@@ -445,56 +466,145 @@ export default function HomePage() {
                 setShowNewForm(true);
                 setShowMobileMenu(false);
               }}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#8c5a2d]/20 bg-[#f4e6d3] px-4 py-3 text-sm font-semibold text-[#8c5a2d]"
+              className="premium-button-primary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-sm"
             >
-              <FolderPlus size={15} /> Novo Paciente
+              <span className="relative z-10 flex items-center gap-2">
+                <FolderPlus size={15} />
+                Novo paciente
+              </span>
             </button>
             <button
               onClick={handleOpenBrandingSettings}
-              className="mt-3 flex w-full items-center justify-center rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-[#6e6e73]"
+              className="premium-button-secondary mt-3 flex w-full items-center justify-center px-4 py-3 text-sm"
             >
-              Personalizar marca e textos
+              <span className="relative z-10">Personalizar marca e textos</span>
             </button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {syncWarning && (
-        <div className="mx-3 mt-3 rounded-2xl border border-amber-300/70 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 shadow-[0_10px_30px_rgba(180,83,9,0.10)] sm:mx-8">
-          <p className="font-semibold">Protecao de dados ativada</p>
-          <p className="mt-1 text-amber-900/90">{syncWarning}</p>
-          {formattedSnapshotAt && (
-            <p className="mt-1 text-xs text-amber-800/80">Ultima copia local salva: {formattedSnapshotAt}</p>
-          )}
-        </div>
-      )}
-
-      {pageFeedback && (
-        <div
-          className={`mx-3 mt-3 flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-sm shadow-[0_10px_30px_rgba(0,0,0,0.08)] sm:mx-8 ${
-            pageFeedback.tone === "error"
-              ? "border-rose-200 bg-rose-50 text-rose-900"
-              : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          }`}
-        >
-          <div className="flex items-start gap-2">
-            {pageFeedback.tone === "error" ? <AlertTriangle size={16} className="mt-0.5" /> : <CheckCircle2 size={16} className="mt-0.5" />}
-            <p>{pageFeedback.message}</p>
-          </div>
-          <button type="button" onClick={() => setPageFeedback(null)} className="rounded-full p-1 opacity-70 transition hover:opacity-100" aria-label="Fechar aviso">
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* ---- Desktop area ---- */}
       <main
-        className="relative min-h-[calc(var(--app-dvh)-4.5rem)] px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:p-8"
+        className="relative px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] sm:pt-5"
         onClick={() => setSelectedId(null)}
       >
-        {/* Search result hint */}
+        <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="premium-kicker">Workspace mobile</p>
+              <h1 className="premium-title mt-3 text-[2.35rem] font-semibold leading-none text-[var(--color-ink)]">
+                {baseTitle}
+              </h1>
+              <p className="premium-subtitle mt-3 max-w-xs text-sm">
+                Fluxo adaptado para iPhone, com leitura objetiva, acoes no alcance do polegar e menos ruído visual na primeira dobra.
+              </p>
+            </div>
+
+            <span className="premium-chip shrink-0 text-[11px] font-semibold">{snapshotStatusLabel}</span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="premium-stat rounded-[1.3rem] p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Pacientes</p>
+              <p className="mt-2 text-2xl font-semibold text-[var(--color-ink)]">{visibleClients.length}</p>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Na tela agora</p>
+            </div>
+            <div className="premium-stat rounded-[1.3rem] p-3.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Filtro</p>
+              <p className="mt-2 text-lg font-semibold text-[var(--color-ink)]">{activeJourneyLabel}</p>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Jornada ativa</p>
+            </div>
+          </div>
+
+          <div className="hide-scrollbar -mx-1 mt-4 flex gap-2 overflow-x-auto px-1">
+            <button
+              type="button"
+              onClick={() => setShowDashboard(true)}
+              className="premium-button-secondary ios-touch-target shrink-0 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10">Financeiro</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenDocuments}
+              className="premium-button-secondary ios-touch-target shrink-0 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10">Arquivos</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenBrandingSettings}
+              className="premium-button-secondary ios-touch-target shrink-0 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10">Personalizar</span>
+            </button>
+          </div>
+        </section>
+
+        <section className="premium-grid-board mb-4 hidden px-4 py-5 sm:block sm:px-6 sm:py-6">
+          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="premium-kicker">Workspace clinico</p>
+              <h1 className="premium-title mt-3 text-4xl font-semibold leading-none sm:text-[3.35rem]">{baseTitle}</h1>
+              <p className="premium-subtitle mt-4 max-w-xl text-sm sm:text-base">
+                Centralize pacientes, documentos e operacao visual em uma unica mesa de comando com leitura limpa, ritmo premium e foco na jornada clinica.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">
+              <div className="premium-stat rounded-[1.5rem] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Pacientes visiveis</p>
+                <p className="mt-3 text-3xl font-semibold text-[var(--color-ink)]">{visibleClients.length}</p>
+                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Prontuarios no recorte atual.</p>
+              </div>
+              <div className="premium-stat rounded-[1.5rem] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Filtro atual</p>
+                <p className="mt-3 text-2xl font-semibold text-[var(--color-ink)]">{activeJourneyLabel}</p>
+                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Jornada selecionada para a grade principal.</p>
+              </div>
+              <div className="premium-stat rounded-[1.5rem] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Snapshot local</p>
+                <p className="mt-3 text-2xl font-semibold text-[var(--color-ink)]">{snapshotStatusLabel}</p>
+                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+                  {formattedSnapshotAt ? `Ultima copia em ${formattedSnapshotAt}` : "Sem alerta de sincronizacao no momento."}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {syncWarning && (
+          <div className="premium-card mb-4 flex items-start gap-3 rounded-[1.6rem] border-amber-300/60 bg-amber-50/85 px-4 py-4 text-sm text-amber-950">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold">Protecao de dados ativada</p>
+              <p className="mt-1 text-amber-900/90">{syncWarning}</p>
+              {formattedSnapshotAt && (
+                <p className="mt-1 text-xs text-amber-900/70">Ultima copia local salva: {formattedSnapshotAt}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {pageFeedback && (
+          <div
+            className={`premium-card mb-4 flex items-start justify-between gap-3 rounded-[1.6rem] px-4 py-4 text-sm ${
+              pageFeedback.tone === "error"
+                ? "border-rose-200 bg-rose-50/85 text-rose-900"
+                : "border-emerald-200 bg-emerald-50/85 text-emerald-900"
+            }`}
+          >
+            <div className="flex items-start gap-2">
+              {pageFeedback.tone === "error" ? <AlertTriangle size={16} className="mt-0.5" /> : <CheckCircle2 size={16} className="mt-0.5" />}
+              <p>{pageFeedback.message}</p>
+            </div>
+            <button type="button" onClick={() => setPageFeedback(null)} className="rounded-full p-1 opacity-70 transition hover:opacity-100" aria-label="Fechar aviso">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {searchQuery && (
-          <div className="mb-4 flex items-center gap-2 text-[#6e6e73] text-sm spotlight-appear">
+          <div className="spotlight-appear mb-4 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
             <Search size={13} />
             <span>
               {visibleClients.length} resultado{visibleClients.length !== 1 ? "s" : ""} para &quot;{searchQuery}&quot;
@@ -503,7 +613,7 @@ export default function HomePage() {
         )}
 
         {filteredClients.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="hide-scrollbar -mx-1 mb-4 flex gap-2 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
             {JOURNEY_FILTERS.map((filter) => {
               const count = filter.id === "todos" ? filteredClients.length : journeyCounts[filter.id];
               const active = journeyFilter === filter.id;
@@ -512,14 +622,11 @@ export default function HomePage() {
                   key={filter.id}
                   type="button"
                   onClick={() => setJourneyFilter(filter.id)}
-                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-                    active
-                      ? "bg-[#7a4921] text-white"
-                      : "bg-white/65 text-[#6e6e73] hover:bg-white"
-                  }`}
+                  className={`premium-chip ios-touch-target shrink-0 gap-2 px-4 py-2.5 text-xs font-semibold ${active ? "is-active" : ""}`}
+                  data-active={active}
                 >
                   <span>{filter.label}</span>
-                  <span className={`rounded-full px-2 py-0.5 ${active ? "bg-white/15 text-white" : "bg-black/5 text-[#8c5a2d]"}`}>
+                  <span className={`rounded-full px-2 py-0.5 ${active ? "bg-white/15 text-white" : "bg-black/5 text-[var(--color-brand-accent)]"}`}>
                     {count}
                   </span>
                 </button>
@@ -529,57 +636,105 @@ export default function HomePage() {
         )}
 
         {visibleClients.length === 0 ? (
-          <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 text-[#aeaeb2] sm:min-h-[16rem]">
-            <BrandMark className="h-14 w-14 opacity-80" />
-            <p className="text-sm">
+          <div className="premium-panel flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded-[2rem] px-6 py-10 text-center text-[var(--color-text-secondary)] sm:min-h-[18rem]">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-accent)]">
+              <Users size={28} className="opacity-90" />
+            </div>
+            <p className="text-base font-semibold text-[var(--color-ink)]">
               {journeyFilter === "todos" ? "Nenhum paciente encontrado" : "Nenhum paciente neste estagio"}
+            </p>
+            <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
+              Ajuste a busca, mude o recorte da jornada ou cadastre um novo prontuario para manter o fluxo da clinica organizado.
             </p>
             {!searchQuery && journeyFilter === "todos" && (
               <button
                 onClick={() => setShowNewForm(true)}
-                className="mt-2 px-4 py-2 rounded-xl text-[#8c5a2d] text-sm font-medium transition-colors"
-                style={{ background: "rgba(140,90,45,0.08)", border: "1px solid rgba(140,90,45,0.18)" }}
+                className="premium-button-primary mt-2 px-5 py-3 text-sm"
               >
-                + Adicionar primeiro paciente
+                <span className="relative z-10">Adicionar primeiro paciente</span>
               </button>
             )}
           </div>
         ) : (
-          <div
-            className="grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GenericFolderIcon
-              label={branding.documentsLabel}
-              selected={selectedId === "documents"}
-              onClick={() => setSelectedId("documents")}
-              onDoubleClick={handleOpenDocuments}
-            />
-            <AppIcon
-              label={branding.dashboardLabel}
-              selected={selectedId === "dashboard"}
-              onClick={() => setSelectedId("dashboard")}
-              onDoubleClick={() => setShowDashboard(true)}
-            />
-            {visibleClients.map((client) => (
-              <motion.div
-                key={client.id}
-                layout
-                initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.22 }}
-              >
-                <FolderIcon
-                  client={client}
-                  selected={openClientModal?.client.id === client.id}
-                  onClick={() => handleOpenClient(client, "perfil")}
-                  onDoubleClick={() => handleOpenClient(client, "perfil")}
-                />
-              </motion.div>
-            ))}
+          <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
+              <GenericFolderIcon
+                label={branding.documentsLabel}
+                selected={selectedId === "documents"}
+                onClick={() => setSelectedId("documents")}
+                onDoubleClick={handleOpenDocuments}
+              />
+              <AppIcon
+                label={branding.dashboardLabel}
+                selected={selectedId === "dashboard"}
+                onClick={() => setSelectedId("dashboard")}
+                onDoubleClick={() => setShowDashboard(true)}
+              />
+              {visibleClients.map((client) => (
+                <motion.div
+                  key={client.id}
+                  layout
+                  initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.22 }}
+                >
+                  <FolderIcon
+                    client={client}
+                    selected={openClientModal?.client.id === client.id}
+                    onClick={() => handleOpenClient(client, "perfil")}
+                    onDoubleClick={() => handleOpenClient(client, "perfil")}
+                  />
+                </motion.div>
+              ))}
+            </div>
           </div>
         )}
       </main>
+
+      <AnimatePresence>
+        {!hasOverlayOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 18 }}
+            className="fixed inset-x-0 bottom-0 z-20 px-3 pt-3 sm:hidden"
+            style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+          >
+            <div className="ios-bottom-dock grid grid-cols-[1.2fr_1fr_auto] gap-2 rounded-[1.8rem] p-2.5">
+              <button
+                type="button"
+                onClick={() => setShowNewForm(true)}
+                className="premium-button-primary ios-touch-target px-4 py-3 text-sm"
+              >
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  <FolderPlus size={16} />
+                  Novo paciente
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenDocuments}
+                className="premium-button-secondary ios-touch-target px-4 py-3 text-sm"
+              >
+                <span className="relative z-10">Arquivos</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowMobileMenu((prev) => !prev)}
+                className="premium-button-secondary ios-touch-target inline-flex h-11 w-11 items-center justify-center"
+                aria-label="Mais ações"
+                aria-expanded={showMobileMenu}
+              >
+                <span className="relative z-10">
+                  <Menu size={18} />
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ---- Modals ---- */}
       <AnimatePresence>
@@ -587,17 +742,21 @@ export default function HomePage() {
           <AnamnesisWindow
             key={openClientModal.client.id}
             client={openClientModal.client}
+            portalLink={openClientModal.client.portalLink}
             initialTab={openClientModal.initialTab}
             onClose={() => setOpenClientModal(null)}
             onUpdate={handleClientUpdate}
             onAddDiagnostico={handleAddDiagnostico}
             onAddProcedimento={handleAddProcedimento}
             onAddHomecare={handleAddHomecare}
+            onConfirmarPagamento={handleConfirmarPagamento}
             onAddAppointment={handleAddAppointment}
             onLinkAppointmentToGoogle={handleLinkAppointmentToGoogle}
             onSaveFichaAnamnese={handleSaveFichaAnamnese}
             onDeletePhoto={handleDeletePhoto}
             onDeleteClient={handleDeleteClient}
+            onGeneratePreConsultationLink={handleGeneratePreConsultationLink}
+            onDeactivatePreConsultationLink={handleDeactivatePreConsultationLink}
           />
         )}
       </AnimatePresence>

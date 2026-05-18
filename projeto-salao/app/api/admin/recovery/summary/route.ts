@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { BackupRunHistory, DeletedRecordSummary, RecoverySummary, RestoreDrillHistory } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { requireAdminRequest } from "@/lib/server/requestGuards";
+import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 type BackupRunRow = {
   id: string;
@@ -109,9 +109,9 @@ function mapRestoreDrill(row: RestoreDrillRow): RestoreDrillHistory {
 }
 
 export async function GET(request: Request) {
-  const authResponse = requireAdminRequest(request);
-  if (authResponse) {
-    return authResponse;
+  const authContext = await requireAuthorizedStaff(request);
+  if (authContext instanceof NextResponse) {
+    return authContext;
   }
 
   const supabase = createSupabaseAdminClient();

@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { runRestoreDrill } from "@/lib/server/backup";
 import { requireCronOrAdminRequest } from "@/lib/server/requestGuards";
+import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 async function handleRequest(request: Request) {
-  const authResponse = requireCronOrAdminRequest(request);
-  if (authResponse) {
-    return authResponse;
+  const staffContext = await requireAuthorizedStaff(request).catch(() => null);
+  if (staffContext instanceof NextResponse) {
+    const authResponse = requireCronOrAdminRequest(request);
+    if (authResponse) {
+      return authResponse;
+    }
   }
 
   try {

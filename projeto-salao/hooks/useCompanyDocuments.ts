@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompanyDocument, CompanyDocumentFolder } from "@/types";
-import { adminPostJson } from "@/lib/adminApi";
-import { useOrganizations } from "@/components/OrganizationProvider";
+
 import { supabase } from "@/lib/supabaseClient";
 
 const COMPANY_DOCUMENT_BUCKET = "company-documents";
@@ -98,23 +97,21 @@ type CompanyDocumentMutationResponse = {
   error?: string;
 };
 
+type CompanyDocumentsWorkspaceResponse = {
+  folders?: unknown[];
+  documents?: unknown[];
+  error?: string;
+};
+
 async function runCompanyDocumentMutation(
   method: "POST" | "PUT",
   payload: Record<string, unknown>,
   fallbackMessage: string
 ) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
-
   const response = await fetch("/api/company-documents", {
     method,
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
   });
@@ -135,22 +132,12 @@ async function removeUploadedCompanyDocument(storagePath: string) {
 }
 
 export function useCompanyDocuments() {
-  const { activeOrgId } = useOrganizations();
-  const organizationId = activeOrgId ?? null;
   const [folders, setFolders] = useState<CompanyDocumentFolder[]>([]);
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const requireOrganizationId = useCallback(() => {
-    if (!organizationId) {
-      throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-    }
-
-    return organizationId;
-  }, [organizationId]);
 
   const loadWorkspace = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     try {
@@ -159,32 +146,18 @@ export function useCompanyDocuments() {
       }
       setError(null);
 
-      if (!organizationId) {
-        setFolders([]);
-        setDocuments([]);
-        return;
+      const response = await fetch("/api/company-documents", { method: "GET", cache: "no-store" });
+      const payload = (await response.json().catch(() => null)) as CompanyDocumentsWorkspaceResponse | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Nao foi possivel carregar a central de arquivos agora.");
       }
 
-      const [foldersResult, documentsResult] = await Promise.all([
-        supabase
-          .from("company_document_folders")
-          .select("*")
-          .eq("user_id", organizationId)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("company_documents")
-          .select(
-            "id, folder_id, nome, arquivo_nome, mime_type, tamanho_bytes, storage_path, public_url, created_at, updated_at, company_document_folders(nome)"
-          )
-          .eq("user_id", organizationId)
-          .order("created_at", { ascending: false }),
-      ]);
+      const folders = Array.isArray(payload?.folders) ? payload.folders : [];
+      const documents = Array.isArray(payload?.documents) ? payload.documents : [];
 
-      if (foldersResult.error) throw foldersResult.error;
-      if (documentsResult.error) throw documentsResult.error;
-
-      setFolders(sortFolders((foldersResult.data || []).map(mapFolder)));
-      setDocuments(sortDocuments((documentsResult.data || []).map(mapDocument)));
+      setFolders(sortFolders(folders.map(mapFolder)));
+      setDocuments(sortDocuments(documents.map(mapDocument)));
     } catch (loadError) {
       console.error(loadError);
       setError(buildErrorMessage(loadError, "Nao foi possivel carregar a central de arquivos agora."));
@@ -193,19 +166,13 @@ export function useCompanyDocuments() {
         setLoading(false);
       }
     }
-  }, [organizationId]);
+  }, []);
 
   useEffect(() => {
     void loadWorkspace();
-  }, [loadWorkspace, organizationId]);
+  }, [loadWorkspace]);
 
   useEffect(() => {
-    if (!organizationId) {
-      return;
-    }
-
-    const tenantFilter = `user_id=eq.${organizationId}`;
-
     const scheduleRefresh = () => {
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
@@ -218,25 +185,25 @@ export function useCompanyDocuments() {
     };
 
     const channel = supabase
-      .channel(`company-documents-sync-${organizationId}-${crypto.randomUUID()}`)
+      .channel(`company-documents-sync-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "company_document_folders", filter: tenantFilter },
+        { event: "INSERT", schema: "public", table: "company_document_folders" },
         scheduleRefresh
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "company_document_folders", filter: tenantFilter },
+        { event: "UPDATE", schema: "public", table: "company_document_folders" },
         scheduleRefresh
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "company_documents", filter: tenantFilter },
+        { event: "INSERT", schema: "public", table: "company_documents" },
         scheduleRefresh
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "company_documents", filter: tenantFilter },
+        { event: "UPDATE", schema: "public", table: "company_documents" },
         scheduleRefresh
       );
 
@@ -249,10 +216,9 @@ export function useCompanyDocuments() {
       }
       void supabase.removeChannel(channel);
     };
-  }, [loadWorkspace, organizationId]);
+  }, [loadWorkspace]);
 
   const createFolder = useCallback(async (name: string, notes = "") => {
-    requireOrganizationId();
     const trimmedName = name.trim();
     if (!trimmedName) {
       throw new Error("Informe o nome da pasta antes de salvar.");
@@ -285,10 +251,9 @@ export function useCompanyDocuments() {
     } finally {
       setSyncing(false);
     }
-  }, [requireOrganizationId]);
+  }, []);
 
   const updateFolderNotes = useCallback(async (folderId: string, notes: string) => {
-    requireOrganizationId();
     if (!folderId) {
       throw new Error("Selecione uma pasta antes de salvar o texto.");
     }
@@ -322,10 +287,9 @@ export function useCompanyDocuments() {
     } finally {
       setSyncing(false);
     }
-  }, [requireOrganizationId]);
+  }, []);
 
   const uploadDocuments = useCallback(async (folderId: string, files: File[]) => {
-    requireOrganizationId();
     if (!folderId) {
       throw new Error("Selecione uma pasta para receber os arquivos.");
     }
@@ -350,8 +314,6 @@ export function useCompanyDocuments() {
           throw uploadError;
         }
 
-        const { data: publicUrlData } = supabase.storage.from(COMPANY_DOCUMENT_BUCKET).getPublicUrl(storagePath);
-
         let data: unknown = null;
 
         try {
@@ -366,7 +328,6 @@ export function useCompanyDocuments() {
               sizeBytes: file.size,
               storageBucket: COMPANY_DOCUMENT_BUCKET,
               storagePath,
-              publicUrl: publicUrlData.publicUrl,
             },
             `Nao foi possivel registrar ${file.name} agora.`
           );
@@ -390,7 +351,7 @@ export function useCompanyDocuments() {
     } finally {
       setSyncing(false);
     }
-  }, [requireOrganizationId]);
+  }, []);
 
   const deleteDocument = useCallback(
     async (documentId: string) => {
@@ -403,14 +364,23 @@ export function useCompanyDocuments() {
         setSyncing(true);
         setError(null);
 
-        await adminPostJson(
-          "/api/admin/archive/document",
-          {
+        const response = await fetch("/api/admin/archive/document", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
             documentId,
             reason: `Arquivamento do documento ${document.fileName} na central da empresa.`,
-          },
-          "Informe a chave administrativa para arquivar este documento em quarentena privada."
-        );
+          }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(
+            payload?.error && typeof payload.error === "string"
+              ? payload.error
+              : "Nao foi possivel remover o documento agora."
+          );
+        }
 
         setDocuments((current) => current.filter((entry) => entry.id !== documentId));
       } catch (removeError) {

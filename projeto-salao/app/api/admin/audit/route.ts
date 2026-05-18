@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { listAuditEntries } from "@/lib/server/recovery";
-import { requireAdminRequest } from "@/lib/server/requestGuards";
+import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 export async function GET(request: Request) {
-  const authResponse = requireAdminRequest(request);
-  if (authResponse) {
-    return authResponse;
+  const authContext = await requireAuthorizedStaff(request);
+  if (authContext instanceof NextResponse) {
+    return authContext;
   }
 
   try {

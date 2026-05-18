@@ -1,13 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Inter } from "next/font/google";
+import localFont from "next/font/local";
+import { Cormorant_Garamond } from "next/font/google";
 import { BrandingConfigProvider } from "@/components/BrandingConfigProvider";
-import OrganizationProvider from "@/components/OrganizationProvider";
 import AuthGuard from "@/components/AuthGuard";
+import VercelAnalytics from "@/components/VercelAnalytics";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+const geist = localFont({
+  src: "../fonts/GeistVF.woff",
+  variable: "--font-sans",
   display: "swap",
 });
 
@@ -26,6 +27,15 @@ export const metadata: Metadata = {
   description:
     "Prontuário clínico, evolução fotográfica, anamnese capilar e gestão operacional da Al'maré Saúde Capilar.",
   keywords: ["saude capilar", "anamnese", "prontuario", "tricologia", "paciente"],
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+    },
+  },
 };
 
 export const viewport: Viewport = {
@@ -33,7 +43,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#f7eee4",
+  themeColor: "#f4ecdf",
 };
 
 export default function RootLayout({
@@ -42,17 +52,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${cormorant.variable}`} suppressHydrationWarning>
-      <body className="antialiased">
-        <OrganizationProvider>
-          <BrandingConfigProvider>
-            <AuthGuard>
-              <div className="min-h-screen">
-                <main>{children}</main>
-              </div>
-            </AuthGuard>
-          </BrandingConfigProvider>
-        </OrganizationProvider>
+    <html lang="pt-BR" className={`${geist.variable} ${cormorant.variable}`} suppressHydrationWarning>
+      <body className="antialiased text-[var(--color-text)]">
+        <BrandingConfigProvider>
+          <VercelAnalytics />
+          <AuthGuard>
+            <div className="relative min-h-screen">
+              <main>{children}</main>
+            </div>
+          </AuthGuard>
+        </BrandingConfigProvider>
       </body>
     </html>
   );

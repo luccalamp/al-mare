@@ -1,5 +1,6 @@
 "use client";
 
+import NextImage from "next/image";
 import { useState, useRef, ChangeEvent } from "react";
 import { Download, Image as ImageIcon, Upload, Trash2 } from "lucide-react";
 
@@ -148,7 +149,14 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
             <div className="group relative aspect-square overflow-hidden rounded-[16px] border border-dashed border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] transition-colors hover:border-[var(--color-brand-deep)]">
               {images[index] ? (
                 <>
-                  <img src={images[index]!} alt={label} className="h-full w-full object-cover" />
+                  <NextImage
+                    src={images[index]!}
+                    alt={label}
+                    fill
+                    unoptimized
+                    sizes="(min-width: 640px) 12rem, 45vw"
+                    className="object-cover"
+                  />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
                       onClick={() => removeImage(index)}
@@ -208,7 +216,16 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
               Resultado Final
             </span>
           </div>
-          <img src={compositeUrl} alt="Mosaico gerado" className="w-full object-contain" />
+          <div className="relative aspect-square w-full">
+            <NextImage
+              src={compositeUrl}
+              alt="Mosaico gerado"
+              fill
+              unoptimized
+              sizes="(min-width: 1024px) 32rem, 100vw"
+              className="object-contain"
+            />
+          </div>
         </div>
       )}
     </div>

@@ -10,7 +10,6 @@ import {
   saveBrandingConfigToSupabase,
   writeBrandingConfigCache,
 } from "@/lib/brandingConfig";
-import { useOrganizations } from "@/components/OrganizationProvider";
 import { supabase } from "@/lib/supabaseClient";
 
 type BrandingConfigContextValue = {
@@ -23,8 +22,7 @@ type BrandingConfigContextValue = {
 const BrandingConfigContext = createContext<BrandingConfigContextValue | null>(null);
 
 export function BrandingConfigProvider({ children }: { children: React.ReactNode }) {
-  const { activeOrgId } = useOrganizations();
-  const [config, setConfig] = useState<BrandingConfig>(() => readBrandingConfigCache(activeOrgId));
+  const [config, setConfig] = useState<BrandingConfig>(() => readBrandingConfigCache(null));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -37,27 +35,27 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         setLoading(true);
       }
 
-      setConfig(readBrandingConfigCache(activeOrgId));
+      setConfig(readBrandingConfigCache(null));
 
       try {
-        const remoteConfig = await fetchBrandingConfigFromSupabase(activeOrgId);
+        const remoteConfig = await fetchBrandingConfigFromSupabase(null);
         if (!active) {
           return;
         }
 
         if (remoteConfig) {
           setConfig(remoteConfig);
-          writeBrandingConfigCache(remoteConfig, activeOrgId);
+          writeBrandingConfigCache(remoteConfig, null);
           return;
         }
 
-        const cachedConfig = readBrandingConfigCache(activeOrgId);
+        const cachedConfig = readBrandingConfigCache(null);
         setConfig(cachedConfig);
-        writeBrandingConfigCache(cachedConfig, activeOrgId);
+        writeBrandingConfigCache(cachedConfig, null);
       } catch (error) {
         console.error(error);
         if (active) {
-          const cachedConfig = readBrandingConfigCache(activeOrgId);
+          const cachedConfig = readBrandingConfigCache(null);
           setConfig(cachedConfig.clinicName ? cachedConfig : { ...DEFAULT_BRANDING_CONFIG });
         }
       } finally {
@@ -69,48 +67,44 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
 
     void syncRemoteConfig();
 
-    const channel = activeOrgId
-      ? supabase
-          .channel(`branding-config-sync-${activeOrgId}-${crypto.randomUUID()}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "clinic_preferences",
-              filter: `user_id=eq.${activeOrgId}`,
-            },
-            () => {
-              if (refreshTimer) {
-                clearTimeout(refreshTimer);
-              }
+    const channel = supabase
+      .channel(`branding-config-sync-${crypto.randomUUID()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "clinic_preferences",
+        },
+        () => {
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+          }
 
-              refreshTimer = setTimeout(() => {
-                refreshTimer = null;
-                void syncRemoteConfig({ background: true });
-              }, 300);
-            }
-          )
-          .on(
-            "postgres_changes",
-            {
-              event: "UPDATE",
-              schema: "public",
-              table: "clinic_preferences",
-              filter: `user_id=eq.${activeOrgId}`,
-            },
-            () => {
-              if (refreshTimer) {
-                clearTimeout(refreshTimer);
-              }
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            void syncRemoteConfig({ background: true });
+          }, 300);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "clinic_preferences",
+        },
+        () => {
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+          }
 
-              refreshTimer = setTimeout(() => {
-                refreshTimer = null;
-                void syncRemoteConfig({ background: true });
-              }, 300);
-            }
-          )
-      : null;
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            void syncRemoteConfig({ background: true });
+          }, 300);
+        }
+      );
 
     if (channel) {
       channel.subscribe();
@@ -125,7 +119,7 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         void supabase.removeChannel(channel);
       }
     };
-  }, [activeOrgId]);
+  }, []);
 
   const saveConfig = useCallback(
     async (nextConfig: BrandingConfig) => {
@@ -133,15 +127,15 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
       setSaving(true);
 
       try {
-        await saveBrandingConfigToSupabase(mergedConfig, activeOrgId);
+        await saveBrandingConfigToSupabase(mergedConfig, null);
         setConfig(mergedConfig);
-        writeBrandingConfigCache(mergedConfig, activeOrgId);
+        writeBrandingConfigCache(mergedConfig, null);
         return mergedConfig;
       } finally {
         setSaving(false);
       }
     },
-    [activeOrgId]
+    []
   );
 
   const value = useMemo(

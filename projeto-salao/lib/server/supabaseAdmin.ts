@@ -4,6 +4,23 @@ import path from "path";
 
 type RequiredEnvKey = "NEXT_PUBLIC_SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY";
 
+function createSecretKeySafeFetch(apiKey: string): typeof fetch {
+  return async (input, init) => {
+    const headers = new Headers(init?.headers);
+    const authorizationHeader = headers.get("Authorization");
+
+    if (authorizationHeader === `Bearer ${apiKey}` || authorizationHeader === "") {
+      headers.delete("Authorization");
+    }
+
+    if (!headers.has("apikey")) {
+      headers.set("apikey", apiKey);
+    }
+
+    return fetch(input, { ...init, headers });
+  };
+}
+
 function readEnvFromDotenv(name: string): string | null {
   const candidates = [
     path.resolve(process.cwd(), ".env.local"),
@@ -34,22 +51,41 @@ function readEnvFromDotenv(name: string): string | null {
   return null;
 }
 
-function readRequiredEnv(name: RequiredEnvKey) {
+export function readServerEnv(name: string): string | null {
   const value = process.env[name]?.trim();
   if (value) return value;
 
   const fromDotenv = readEnvFromDotenv(name);
-  if (fromDotenv) return fromDotenv;
+  return fromDotenv?.trim() || null;
+}
+
+function readRequiredEnv(name: RequiredEnvKey) {
+  const value = readServerEnv(name);
+  if (value) return value;
 
   throw new Error(`Missing required environment variable: ${name}`);
 }
 
 export function createSupabaseAdminClient() {
-  return createClient(readRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"), readRequiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+  const supabaseUrl = readRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const serviceKey = readRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const isSecretKey = serviceKey.startsWith("sb_secret_");
+
+  return createClient(supabaseUrl, serviceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
+    ...(isSecretKey
+      ? {
+          global: {
+            fetch: createSecretKeySafeFetch(serviceKey),
+            headers: {
+              Authorization: "",
+            },
+          },
+        }
+      : {}),
   });
 }
 

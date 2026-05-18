@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { buildStorageObjectPublicUrl, createSignedStorageUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
   isMissingColumnError,
@@ -72,6 +74,100 @@ function buildClientMutationError(error: { message?: string } | null | undefined
   return buildJsonError(fallback, 500);
 }
 
+function buildClientReadError(error: { message?: string } | null | undefined) {
+  const message = error?.message || "";
+
+  if (isMissingColumnError(message)) {
+    return buildJsonError("O cadastro de pacientes ainda não está disponível neste ambiente.", 503);
+  }
+
+  console.error("Failed to load clients:", error);
+  return buildJsonError("Não foi possível carregar os pacientes agora.", 500);
+}
+
+type ClientMediaPhotoRow = {
+  deleted_at?: string | null;
+  url?: string | null;
+  storage_bucket?: string | null;
+  storage_path?: string | null;
+  [key: string]: unknown;
+};
+
+type ClientMediaRow = {
+  photo_url?: string | null;
+  profile_photo_storage_bucket?: string | null;
+  profile_photo_storage_path?: string | null;
+  client_photos?: ClientMediaPhotoRow[] | null;
+  [key: string]: unknown;
+};
+
+async function signClientMediaUrls(rows: ClientMediaRow[]) {
+  const storageAdmin = createSupabaseAdminClient();
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const signedProfilePhotoUrl = await createSignedStorageUrl(storageAdmin, {
+        storageBucket: row.profile_photo_storage_bucket,
+        storagePath: row.profile_photo_storage_path,
+        fallbackUrl: row.photo_url,
+      });
+
+      const signedGallery = Array.isArray(row.client_photos)
+        ? await Promise.all(
+            row.client_photos
+              .filter((photo) => !photo.deleted_at)
+              .map(async (photo) => ({
+              ...photo,
+              url: await createSignedStorageUrl(storageAdmin, {
+                storageBucket: photo.storage_bucket,
+                storagePath: photo.storage_path,
+                fallbackUrl: photo.url,
+              }),
+              }))
+          )
+        : row.client_photos;
+
+      return {
+        ...row,
+        photo_url: signedProfilePhotoUrl,
+        client_photos: signedGallery,
+      };
+    })
+  );
+}
+
+export async function GET(request: Request) {
+  const authContext = await requireAuthorizedStaff(request, {
+    forbiddenMessage: "Seu acesso não permite carregar pacientes.",
+  });
+  if (authContext instanceof NextResponse) {
+    return authContext;
+  }
+
+  const { data, error } = await authContext.admin
+    .from("clientes")
+    .select(`
+      *,
+      diagnostico_capilar (*),
+      historico_procedimentos (*),
+      manutencao_homecare (*),
+      client_photos (*),
+      agendamentos (*),
+      ficha_anamnese_capilar (*)
+    `)
+    .eq("user_id", authContext.userId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return buildClientReadError(error);
+  }
+
+  const signedClients = await signClientMediaUrls(Array.isArray(data) ? data : []);
+
+  return NextResponse.json({ clients: signedClients });
+}
+
 export async function POST(request: Request) {
   const authContext = await requireAuthorizedStaff(request, {
     forbiddenMessage: "Seu acesso não permite cadastrar pacientes.",
@@ -126,12 +222,37 @@ export async function PUT(request: Request) {
     return response || buildJsonError("Cliente inválido para esta operação.", 404);
   }
 
+  const { data: existingClient, error: existingClientError } = await authContext.admin
+    .from("clientes")
+    .select("photo_url, profile_photo_storage_bucket, profile_photo_storage_path")
+    .eq("id", parsedBody.data.id)
+    .eq("user_id", authContext.userId)
+    .single();
+
+  if (existingClientError || !existingClient) {
+    return buildClientMutationError(existingClientError, "Não foi possível validar a foto do paciente agora.");
+  }
+
+  const effectiveProfilePhotoBucket =
+    parsedBody.data.profilePhotoStorageBucket !== undefined
+      ? parsedBody.data.profilePhotoStorageBucket
+      : existingClient.profile_photo_storage_bucket;
+  const effectiveProfilePhotoPath =
+    parsedBody.data.profilePhotoStoragePath !== undefined
+      ? parsedBody.data.profilePhotoStoragePath
+      : existingClient.profile_photo_storage_path;
+  const resolvedPhotoUrl = effectiveProfilePhotoPath
+    ? buildStorageObjectPublicUrl(effectiveProfilePhotoBucket, effectiveProfilePhotoPath)
+    : parsedBody.data.profilePhotoStoragePath === null
+      ? null
+      : existingClient.photo_url || parsedBody.data.photoUrl;
+
   const updatePayload = {
     nome: parsedBody.data.nome,
     whatsapp: parsedBody.data.whatsapp,
     instagram_handle: parsedBody.data.instagramHandle,
     data_aniversario: parsedBody.data.dataAniversario,
-    photo_url: parsedBody.data.photoUrl,
+    photo_url: resolvedPhotoUrl,
     canal_aquisicao: parsedBody.data.acquisitionChannel,
     perfil_complementar: parsedBody.data.perfilComplementar,
     updated_at: new Date().toISOString(),

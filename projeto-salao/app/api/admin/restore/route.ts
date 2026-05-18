@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { restoreRecord, restoreTransaction } from "@/lib/server/recovery";
-import { requireAdminRequest, resolveOperationActor } from "@/lib/server/requestGuards";
+import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 const restoreSchema = z
   .object({
@@ -14,9 +14,11 @@ const restoreSchema = z
   });
 
 export async function POST(request: Request) {
-  const authResponse = requireAdminRequest(request);
-  if (authResponse) {
-    return authResponse;
+  const authContext = await requireAuthorizedStaff(request, {
+    forbiddenMessage: "Seu acesso não permite operacoes de restauracao.",
+  });
+  if (authContext instanceof NextResponse) {
+    return authContext;
   }
 
   const rawBody = await request.json().catch(() => null);
@@ -30,10 +32,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const actor = resolveOperationActor(request);
     const results = parsedBody.data.transactionId
-      ? await restoreTransaction(parsedBody.data.transactionId, actor)
-      : [await restoreRecord(parsedBody.data.tableName!, parsedBody.data.recordId!, actor)];
+      ? await restoreTransaction(parsedBody.data.transactionId, authContext.userId)
+      : [await restoreRecord(parsedBody.data.tableName!, parsedBody.data.recordId!, authContext.userId)];
 
     return NextResponse.json({ results }, { status: 200 });
   } catch (error) {

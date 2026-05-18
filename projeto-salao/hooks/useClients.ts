@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colorimetria, FichaAnamneseCapilarDados, ManutencaoHomecare } from "@/types";
-import { adminPostJson } from "@/lib/adminApi";
 import { normalizePhotoCategory, resolvePhotoCategory, sanitizePhotoCaption } from "@/lib/photos";
-import { useOrganizations } from "@/components/OrganizationProvider";
 import { supabase } from "@/lib/supabaseClient";
 import { sanitizeObject } from "@/lib/sanitize";
 
@@ -26,7 +24,7 @@ type ClientsSnapshot = {
 };
 
 type UploadedImageAsset = {
-  publicUrl: string;
+  signedUrl: string;
   storagePath: string;
 };
 
@@ -47,8 +45,13 @@ type ClientRecordMutationResponse = {
   error?: string;
 };
 
-function getClientsSnapshotKey(organizationId: string | null) {
-  return organizationId ? `${CLIENTS_SNAPSHOT_KEY}:${organizationId}` : null;
+type ClientListResponse = {
+  clients?: unknown[];
+  error?: string;
+};
+
+function getClientsSnapshotKey() {
+  return CLIENTS_SNAPSHOT_KEY;
 }
 
 const serializeProfilePayload = (profile: Client["profile"]) => ({
@@ -197,7 +200,24 @@ function enrichClient(client: Client): Client {
 
 const mapDbClients = (dbClients: any[]): Client[] =>
   (dbClients || []).map((row) => {
-    const ficha = row.ficha_anamnese_capilar;
+    const diagnosticosRows = Array.isArray(row.diagnostico_capilar)
+      ? row.diagnostico_capilar.filter((item: any) => !item?.deleted_at)
+      : [];
+    const colorimetriasRows = Array.isArray(row.historico_procedimentos)
+      ? row.historico_procedimentos.filter((item: any) => !item?.deleted_at)
+      : [];
+    const homecareRows = Array.isArray(row.manutencao_homecare)
+      ? row.manutencao_homecare.filter((item: any) => !item?.deleted_at)
+      : [];
+    const galleryRows = Array.isArray(row.client_photos)
+      ? row.client_photos.filter((item: any) => !item?.deleted_at)
+      : [];
+    const appointmentsRows = Array.isArray(row.agendamentos)
+      ? row.agendamentos.filter((item: any) => !item?.deleted_at)
+      : [];
+    const ficha = Array.isArray(row.ficha_anamnese_capilar)
+      ? row.ficha_anamnese_capilar.filter((item: any) => !item?.deleted_at)
+      : row.ficha_anamnese_capilar;
     const record = Array.isArray(ficha) ? ficha[0] : ficha;
     const fichaDados = (record?.dados as FichaAnamneseCapilarDados | undefined) ?? null;
     const extraProfile = row.perfil_complementar || {};
@@ -230,7 +250,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
               }
             : undefined,
       },
-      diagnosticos: (row.diagnostico_capilar || []).map((d: any) => ({
+      diagnosticos: diagnosticosRows.map((d: any) => ({
         id: d.id,
         data: d.created_at,
         elasticidade: d.elasticidade,
@@ -239,7 +259,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         presencaMetais: d.presenca_metais,
         resultadoTesteMecha: d.resultado_teste_mecha,
       })),
-      colorimetrias: (row.historico_procedimentos || []).map((c: any) => ({
+      colorimetrias: colorimetriasRows.map((c: any) => ({
         id: c.id,
         data: c.created_at,
         tecnicaUtilizada: c.tecnica_utilizada,
@@ -249,14 +269,19 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         volumagemOx: c.volumagem_ox,
         valor: c.valor_procedimento,
       })),
-      homecare: (row.manutencao_homecare || []).map((m: any) => ({
+      homecare: homecareRows.map((m: any) => ({
         id: m.id,
         data: m.created_at,
         produtosRecomendados: m.produtos_recomendados,
         dataRetornoSugerida: m.data_retorno_sugerida,
         obsCuidados: m.obs_cuidados,
+        valorTotal: m.valor_total ?? undefined,
+        formaPagamento: m.forma_pagamento ?? undefined,
+        parcelas: m.parcelas ?? undefined,
+        pago: m.pago ?? undefined,
+        confirmadoEm: m.confirmado_em ?? undefined,
       })),
-      gallery: (row.client_photos || []).map((p: any) => ({
+      gallery: galleryRows.map((p: any) => ({
         id: p.id,
         date: p.created_at,
         url: p.url,
@@ -264,11 +289,15 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         caption: sanitizePhotoCaption(p.caption),
         technicalNote: p.anotacao_tecnica || undefined,
       })),
-      appointments: sortAppointments((row.agendamentos || []).map((appointment: any) => mapDbAppointment(appointment))),
+      appointments: sortAppointments(appointmentsRows.map((appointment: any) => mapDbAppointment(appointment))),
       preConsultation: {
         token: row.token_pre_consulta || undefined,
         linkActive: row.link_ativo ?? undefined,
         respondedAt: row.pre_consulta_respondida_em || undefined,
+      },
+      portalLink: {
+        token: row.portal_token || undefined,
+        linkActive: row.portal_active ?? undefined,
       },
       fichaAnamnese: fichaDados,
       createdAt: row.created_at,
@@ -276,9 +305,9 @@ const mapDbClients = (dbClients: any[]): Client[] =>
     });
   });
 
-const readClientsSnapshot = (organizationId: string | null): ClientsSnapshot | null => {
+const readClientsSnapshot = (): ClientsSnapshot | null => {
   if (typeof window === "undefined") return null;
-  const snapshotKey = getClientsSnapshotKey(organizationId);
+  const snapshotKey = getClientsSnapshotKey();
   if (!snapshotKey) return null;
 
   try {
@@ -308,10 +337,9 @@ const readClientsSnapshot = (organizationId: string | null): ClientsSnapshot | n
   }
 };
 
-const persistClientsSnapshot = (clients: Client[], organizationId: string | null): string | null => {
+const persistClientsSnapshot = (clients: Client[]): string | null => {
   if (typeof window === "undefined") return null;
-  if (!organizationId) return null;
-  const snapshotKey = getClientsSnapshotKey(organizationId);
+  const snapshotKey = getClientsSnapshotKey();
   if (!snapshotKey) return null;
 
   try {
@@ -327,23 +355,37 @@ const persistClientsSnapshot = (clients: Client[], organizationId: string | null
   }
 };
 
+async function runPreConsultationLinkMutation(method: "POST" | "PUT", clientId: string) {
+  const response = await fetch("/api/pre-consultation/link", {
+    method,
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ clientId }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as PreConsultationLinkMutationResponse | null;
+  if (!response.ok) {
+    const fallbackMessage =
+      method === "POST"
+        ? "Não foi possível gerar o link de triagem agora."
+        : "Não foi possível invalidar o link de triagem agora.";
+
+    throw new Error(payload?.error && typeof payload.error === "string" ? payload.error : fallbackMessage);
+  }
+
+  return payload ?? {};
+}
+
 async function runClientMutation(
   method: "POST" | "PUT",
   payload: Record<string, unknown>,
   fallbackMessage: string
 ) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
-
   const response = await fetch("/api/clients", {
     method,
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
   });
@@ -361,18 +403,10 @@ async function runClientRecordMutation(
   payload: Record<string, unknown>,
   fallbackMessage: string
 ) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
-
   const response = await fetch("/api/clients/records", {
     method,
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
   });
@@ -393,8 +427,6 @@ async function removeUploadedClientAsset(storagePath: string) {
 }
 
 export function useClients() {
-  const { activeOrgId } = useOrganizations();
-  const organizationId = activeOrgId ?? null;
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -403,27 +435,20 @@ export function useClients() {
   const clientsRef = useRef<Client[]>([]);
   const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeAllowShrinkRef = useRef(false);
-
-  const requireOrganizationId = useCallback(() => {
-    if (!organizationId) {
-      throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-    }
-
-    return organizationId;
-  }, [organizationId]);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const commitClients = useCallback((nextClients: Client[]) => {
     const enrichedClients = nextClients.map(enrichClient);
     clientsRef.current = enrichedClients;
     setClients(enrichedClients);
-    const savedAt = persistClientsSnapshot(enrichedClients, organizationId);
+    const savedAt = persistClientsSnapshot(enrichedClients);
     if (savedAt) {
       setLastSnapshotAt(savedAt);
     }
-  }, [organizationId]);
+  }, []);
 
   const restoreSnapshot = useCallback((warning: string) => {
-    const snapshot = readClientsSnapshot(organizationId);
+    const snapshot = readClientsSnapshot();
     if (!snapshot?.clients.length) return false;
 
     clientsRef.current = snapshot.clients;
@@ -431,7 +456,7 @@ export function useClients() {
     setLastSnapshotAt(snapshot.savedAt);
     setSyncWarning(warning);
     return true;
-  }, [organizationId]);
+  }, []);
 
   // 1. Loader Principal - Consome os 4 módulos do Iluminare Studio
   const loadClients = useCallback(async ({ allowShrink = false, background = false }: { allowShrink?: boolean; background?: boolean } = {}) => {
@@ -440,29 +465,14 @@ export function useClients() {
         setLoading(true);
       }
 
-      if (!organizationId) {
-        clientsRef.current = [];
-        setClients([]);
-        setLastSnapshotAt(null);
-        setSyncWarning(null);
-        return [];
+      const response = await fetch("/api/clients", { method: "GET", cache: "no-store" });
+      const payload = (await response.json().catch(() => null)) as ClientListResponse | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Nao foi possivel carregar os pacientes agora.");
       }
 
-      const { data: dbClients, error } = await supabase
-        .from('clientes')
-        .select(`
-          *,
-          diagnostico_capilar (*),
-          historico_procedimentos (*),
-          manutencao_homecare (*),
-          client_photos (*),
-          agendamentos (*),
-          ficha_anamnese_capilar (*)
-        `)
-        .eq("user_id", organizationId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
+      const dbClients = Array.isArray(payload?.clients) ? payload.clients : [];
 
       const formatted = mapDbClients(dbClients || []);
       const previousCount = clientsRef.current.length;
@@ -486,35 +496,20 @@ export function useClients() {
         setLoading(false);
       }
     }
-  }, [commitClients, organizationId, restoreSnapshot]);
+  }, [commitClients, restoreSnapshot]);
 
   useEffect(() => {
-    const snapshot = readClientsSnapshot(organizationId);
+    const snapshot = readClientsSnapshot();
     if (snapshot?.clients.length) {
       clientsRef.current = snapshot.clients;
       setClients(snapshot.clients);
       setLastSnapshotAt(snapshot.savedAt);
-    } else if (!organizationId) {
-      clientsRef.current = [];
-      setClients([]);
-      setLastSnapshotAt(null);
-      setSyncWarning(null);
-    } else {
-      clientsRef.current = [];
-      setClients([]);
-      setLastSnapshotAt(null);
     }
 
     void loadClients();
-  }, [loadClients, organizationId]);
+  }, [loadClients]);
 
   useEffect(() => {
-    if (!organizationId) {
-      return;
-    }
-
-    const tenantFilter = `user_id=eq.${organizationId}`;
-
     const scheduleRefresh = ({ allowShrink = false }: { allowShrink?: boolean } = {}) => {
       realtimeAllowShrinkRef.current = realtimeAllowShrinkRef.current || allowShrink;
 
@@ -534,13 +529,13 @@ export function useClients() {
       (currentChannel, table) =>
         currentChannel.on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table, filter: tenantFilter },
+          { event: "INSERT", schema: "public", table },
           () => {
             scheduleRefresh();
           }
         ).on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table, filter: tenantFilter },
+          { event: "UPDATE", schema: "public", table },
           (payload) => {
             const allowShrink =
               table === "clientes" &&
@@ -549,7 +544,7 @@ export function useClients() {
             scheduleRefresh({ allowShrink });
           }
         ),
-      supabase.channel(`clients-sync-${organizationId}-${crypto.randomUUID()}`)
+      supabase.channel(`clients-sync-${crypto.randomUUID()}`)
     );
 
     channel.subscribe();
@@ -562,17 +557,17 @@ export function useClients() {
       }
       void supabase.removeChannel(channel);
     };
-  }, [loadClients, organizationId]);
+  }, [loadClients]);
 
   const filteredClients = useMemo(() => {
-    if (!searchQuery.trim()) return clients;
-    const q = searchQuery.toLowerCase();
+    if (!deferredSearchQuery.trim()) return clients;
+    const q = deferredSearchQuery.toLowerCase();
     return clients.filter(
       (c) =>
         c.profile.nome.toLowerCase().includes(q) ||
         c.profile.whatsapp.includes(q)
     );
-  }, [clients, searchQuery]);
+  }, [clients, deferredSearchQuery]);
 
   const uploadImage = async (clientId: string, file: File, type?: string): Promise<UploadedImageAsset | null> => {
     const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -580,32 +575,34 @@ export function useClients() {
     const fileName = `${clientId}/${folder}/${crypto.randomUUID()}.${extension}`;
     const { error } = await supabase.storage.from('anamnese-fotos').upload(fileName, file);
     if (error) return null;
-    const { data } = supabase.storage.from('anamnese-fotos').getPublicUrl(fileName);
+
+    const fallbackUrl = supabase.storage.from('anamnese-fotos').getPublicUrl(fileName).data.publicUrl;
+    const { data, error: signedUrlError } = await supabase.storage.from('anamnese-fotos').createSignedUrl(fileName, 60 * 60);
+
     return {
-      publicUrl: data.publicUrl,
+      signedUrl: signedUrlError ? fallbackUrl : data?.signedUrl || fallbackUrl,
       storagePath: fileName,
     };
   };
 
   const addClient = async (client: Client) => {
-    requireOrganizationId();
     const sanitized = sanitizeObject(client);
     await runClientMutation(
       "POST",
       {
-      id: sanitized.id,
-      nome: sanitized.profile.nome,
-      whatsapp: sanitized.profile.whatsapp,
-      instagram_handle: sanitized.profile.instagramHandle,
-      instagramHandle: sanitized.profile.instagramHandle || null,
-      data_aniversario: sanitized.profile.dataAniversario || null,
-      dataAniversario: sanitized.profile.dataAniversario || null,
-      photo_url: sanitized.profile.photoUrl || null,
-      photoUrl: sanitized.profile.photoUrl || null,
-      canal_aquisicao: sanitized.profile.acquisitionChannel || null,
-      acquisitionChannel: sanitized.profile.acquisitionChannel || null,
-      perfil_complementar: serializeProfilePayload(sanitized.profile),
-      perfilComplementar: serializeProfilePayload(sanitized.profile),
+        id: sanitized.id,
+        nome: sanitized.profile.nome,
+        whatsapp: sanitized.profile.whatsapp,
+        instagram_handle: sanitized.profile.instagramHandle,
+        instagramHandle: sanitized.profile.instagramHandle || null,
+        data_aniversario: sanitized.profile.dataAniversario || null,
+        dataAniversario: sanitized.profile.dataAniversario || null,
+        photo_url: sanitized.profile.photoUrl || null,
+        photoUrl: sanitized.profile.photoUrl || null,
+        canal_aquisicao: sanitized.profile.acquisitionChannel || null,
+        acquisitionChannel: sanitized.profile.acquisitionChannel || null,
+        perfil_complementar: serializeProfilePayload(sanitized.profile),
+        perfilComplementar: serializeProfilePayload(sanitized.profile),
       },
       "Nao foi possivel cadastrar o paciente no banco."
     );
@@ -615,7 +612,6 @@ export function useClients() {
   };
 
   const updateClient = async (updated: Client, photoFiles?: { file: File, type: string }[]) => {
-    requireOrganizationId();
     const sanitized = sanitizeObject(updated);
     const avatarFile = photoFiles?.find((item) => item.type === "avatar");
     const galleryFiles = (photoFiles || []).filter((item) => item.type !== "avatar");
@@ -630,7 +626,7 @@ export function useClients() {
       avatarStoragePath = avatarUpload.storagePath;
       nextProfile = {
         ...nextProfile,
-        photoUrl: avatarUpload.publicUrl,
+        photoUrl: avatarUpload.signedUrl,
       };
     }
 
@@ -677,7 +673,6 @@ export function useClients() {
             {
               action: "gallery-photo",
               clientId: sanitized.id,
-              url: uploadedPhoto.publicUrl,
               type: category,
               categoria: category,
               caption: null,
@@ -718,14 +713,23 @@ export function useClients() {
       throw new Error("A foto selecionada nao foi encontrada.");
     }
 
-    await adminPostJson(
-      "/api/admin/archive/photo",
-      {
+    const response = await fetch("/api/admin/archive/photo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
         photoId,
         reason: `Arquivamento da foto ${normalizePhotoCategory(photo.type)} via galeria da paciente.`,
-      },
-      "Informe a chave administrativa para arquivar esta foto em quarentena privada."
-    );
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(
+        payload?.error && typeof payload.error === "string"
+          ? payload.error
+          : "Falha ao arquivar a foto."
+      );
+    }
 
     commitClients(
       clientsRef.current.map((entry) =>
@@ -749,7 +753,6 @@ export function useClients() {
       resultadoTesteMecha: string;
     }
   ): Promise<DiagnosticoCapilar> => {
-    requireOrganizationId();
     const response = await runClientRecordMutation(
       "POST",
       {
@@ -809,7 +812,6 @@ export function useClients() {
       misturaTonalizante?: string;
     }
   ): Promise<Colorimetria> => {
-    requireOrganizationId();
     const response = await runClientRecordMutation(
       "POST",
       {
@@ -867,9 +869,11 @@ export function useClients() {
       produtosRecomendados: string;
       obsCuidados?: string;
       dataRetornoSugerida?: string;
+      valorTotal?: number;
+      formaPagamento?: "avista" | "parcelado";
+      parcelas?: number;
     }
   ): Promise<ManutencaoHomecare> => {
-    requireOrganizationId();
     const response = await runClientRecordMutation(
       "POST",
       {
@@ -878,6 +882,9 @@ export function useClients() {
         produtosRecomendados: input.produtosRecomendados,
         obsCuidados: input.obsCuidados || null,
         dataRetornoSugerida: input.dataRetornoSugerida || null,
+        valorTotal: input.valorTotal || null,
+        formaPagamento: input.formaPagamento || null,
+        parcelas: input.parcelas || null,
       },
       "Falha ao salvar homecare."
     );
@@ -888,6 +895,11 @@ export function useClients() {
       produtos_recomendados?: string | null;
       obs_cuidados?: string | null;
       data_retorno_sugerida?: string | null;
+      valor_total?: number | null;
+      forma_pagamento?: string | null;
+      parcelas?: number | null;
+      pago?: boolean | null;
+      confirmado_em?: string | null;
     } | undefined;
 
     if (!data) {
@@ -900,6 +912,11 @@ export function useClients() {
       produtosRecomendados: data.produtos_recomendados || "",
       obsCuidados: data.obs_cuidados || undefined,
       dataRetornoSugerida: data.data_retorno_sugerida || undefined,
+      valorTotal: data.valor_total ?? undefined,
+      formaPagamento: (data.forma_pagamento as "avista" | "parcelado") ?? undefined,
+      parcelas: data.parcelas ?? undefined,
+      pago: data.pago ?? undefined,
+      confirmadoEm: data.confirmado_em ?? undefined,
     };
 
     const nextClients = clientsRef.current.map((client) =>
@@ -912,8 +929,32 @@ export function useClients() {
     return novoHomecare;
   };
 
+  const confirmarPagamentoHomecare = async (clientId: string, homecareId: string): Promise<{ pago: boolean; confirmadoEm?: string }> => {
+    const response = await runClientRecordMutation(
+      "POST",
+      { action: "confirmar-pagamento", clientId, homecareId },
+      "Falha ao confirmar pagamento."
+    );
+    const data = response.record as { pago?: boolean; confirmado_em?: string } | undefined;
+    commitClients(
+      clientsRef.current.map((client) =>
+        client.id === clientId
+          ? {
+              ...client,
+              homecare: client.homecare.map((h) =>
+                h.id === homecareId
+                  ? { ...h, pago: data?.pago ?? true, confirmadoEm: data?.confirmado_em ?? new Date().toISOString() }
+                  : h
+              ),
+              updatedAt: new Date().toISOString(),
+            }
+          : client
+      )
+    );
+    return { pago: data?.pago ?? true, confirmadoEm: data?.confirmado_em };
+  };
+
   const saveFichaAnamnese = async (clientId: string, dados: FichaAnamneseCapilarDados): Promise<FichaAnamneseCapilarDados> => {
-    requireOrganizationId();
     const sanitized = sanitizeObject(dados);
     const response = await runClientRecordMutation(
       "POST",
@@ -936,7 +977,6 @@ export function useClients() {
   };
 
   const addAppointment = async (clientId: string, input: AppointmentDraft): Promise<ClientAppointment> => {
-    requireOrganizationId();
     const payload = sanitizeObject({
       action: "appointment",
       clientId,
@@ -977,7 +1017,6 @@ export function useClients() {
     appointmentId: string,
     input: Pick<AppointmentDraft, "googleEventId" | "googleCalendarId" | "metadata">
   ): Promise<ClientAppointment> => {
-    requireOrganizationId();
     const payload = sanitizeObject({
       action: "link-google-appointment",
       clientId,
@@ -1013,17 +1052,69 @@ export function useClients() {
   };
 
   const deleteClient = async (id: string) => {
-    await adminPostJson(
-      "/api/admin/archive/client",
-      {
+    const response = await fetch("/api/admin/archive/client", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
         clientId: id,
         reason: "Arquivamento administrativo da paciente com recuperacao posterior disponivel.",
-      },
-      "Informe a chave administrativa para arquivar esta paciente com recuperacao posterior."
-    );
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(
+        payload?.error && typeof payload.error === "string"
+          ? payload.error
+          : "Falha ao arquivar a paciente."
+      );
+    }
 
     commitClients(clientsRef.current.filter((client) => client.id !== id));
     await loadClients({ allowShrink: true });
+  };
+
+  const issuePreConsultationToken = async (clientId: string) => {
+    const row = await runPreConsultationLinkMutation("POST", clientId);
+    const token = row.token;
+
+    if (!token) {
+      throw new Error("O link de triagem não retornou um código válido.");
+    }
+
+    commitClients(
+      clientsRef.current.map((client) =>
+        client.id === clientId
+          ? {
+              ...client,
+              preConsultation: { token, linkActive: row.linkActive ?? true, respondedAt: row.respondedAt ?? undefined },
+              updatedAt: new Date().toISOString(),
+            }
+          : client
+      )
+    );
+
+    return token;
+  };
+
+  const deactivatePreConsultationToken = async (clientId: string) => {
+    const row = await runPreConsultationLinkMutation("PUT", clientId);
+
+    commitClients(
+      clientsRef.current.map((client) =>
+        client.id === clientId
+          ? {
+              ...client,
+              preConsultation: {
+                token: row.token ?? client.preConsultation?.token,
+                linkActive: row.linkActive ?? false,
+                respondedAt: row.respondedAt ?? client.preConsultation?.respondedAt,
+              },
+              updatedAt: new Date().toISOString(),
+            }
+          : client
+      )
+    );
   };
 
   return {
@@ -1036,11 +1127,14 @@ export function useClients() {
     addDiagnostico,
     addProcedimento,
     addHomecare,
+    confirmarPagamentoHomecare,
     saveFichaAnamnese,
     addAppointment,
     linkAppointmentToGoogle,
     deletePhoto,
     deleteClient,
+    issuePreConsultationToken,
+    deactivatePreConsultationToken,
     loading,
     syncWarning,
     lastSnapshotAt,

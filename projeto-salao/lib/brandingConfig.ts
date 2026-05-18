@@ -1,5 +1,3 @@
-import { supabase } from "@/lib/supabaseClient";
-
 export type BrandingConfig = {
   clinicName: string;
   clinicSubtitle: string;
@@ -128,16 +126,9 @@ export async function fetchBrandingConfigFromSupabase(organizationId: string | n
     return null;
   }
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
-
   const res = await fetch(
     `/api/clinic-preferences?key=${encodeURIComponent(BRANDING_CONFIG_PREFERENCE_KEY)}`,
-    { method: "GET", headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" }
+    { method: "GET", cache: "no-store" }
   );
 
   if (!res.ok) {
@@ -156,21 +147,13 @@ export async function fetchBrandingConfigFromSupabase(organizationId: string | n
 
 export async function saveBrandingConfigToSupabase(config: BrandingConfig, organizationId: string | null) {
   if (!organizationId) {
-    throw new Error("Sua sessão expirou. Entre novamente antes de salvar a personalização.");
+    return;
   }
   const payload = mergeBrandingConfig(config);
-
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
 
   const res = await fetch(`/api/clinic-preferences`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({ key: BRANDING_CONFIG_PREFERENCE_KEY, payload }),

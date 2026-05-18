@@ -13,6 +13,15 @@ function storeToken(token: string) {
   window.sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, token);
 }
 
+export function setAdminOperationsToken(token: string) {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    throw new Error("A chave administrativa não pode estar vazia.");
+  }
+
+  storeToken(normalizedToken);
+}
+
 export function clearAdminOperationsToken() {
   if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(ADMIN_TOKEN_SESSION_KEY);
@@ -98,4 +107,8 @@ export function adminGetJson<T>(path: string, promptMessage?: string) {
 
 export function adminPostJson<T>(path: string, body: unknown, promptMessage?: string) {
   return performAdminRequest<T>(path, { method: "POST", body: JSON.stringify(body) }, promptMessage);
+}
+
+export function adminPutJson<T>(path: string, body: unknown, promptMessage?: string) {
+  return performAdminRequest<T>(path, { method: "PUT", body: JSON.stringify(body) }, promptMessage);
 }

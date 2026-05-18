@@ -1,13 +1,21 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { User } from "@supabase/supabase-js";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import BrandMark from "./BrandMark";
 import BrandLogo from "./BrandLogo";
-import { Mail, ArrowRight, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
+import AlmareLayout from "./AlmareLayout";
+import {
+  Mail,
+  ArrowRight,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  LockKeyhole,
+  ShieldCheck,
+} from "lucide-react";
 
 type PublicAuthError = {
   message?: string;
@@ -16,10 +24,13 @@ type PublicAuthError = {
   status?: number;
 };
 
+
 const LOCAL_AUTH_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
 function logAuthError(scope: string, error: unknown) {
-  console.error(`[auth] ${scope}`, error);
+  if (process.env.NODE_ENV !== "production") {
+    console.error(`[auth] ${scope}`, error);
+  }
 }
 
 function getSafeRedirectTo() {
@@ -33,7 +44,7 @@ function getSafeRedirectTo() {
 
     if (!isSecureOrigin) return undefined;
 
-    return new URL("/", origin).toString();
+    return new URL("/login", origin).toString();
   } catch {
     return undefined;
   }
@@ -43,7 +54,7 @@ function getPublicAuthMessage(error: PublicAuthError | null | undefined, provide
   const errorText = `${error?.message ?? ""} ${error?.code ?? ""} ${error?.name ?? ""}`.toLowerCase();
 
   if (errorText.includes("provider is not enabled") || errorText.includes("unsupported provider")) {
-    return "O login com Google está temporariamente indisponível. Use o link mágico ou fale com o suporte.";
+    return "O login com Google está temporariamente indisponível. Tente novamente mais tarde.";
   }
 
   if (errorText.includes("rate limit") || errorText.includes("too many requests")) {
@@ -57,33 +68,56 @@ function getPublicAuthMessage(error: PublicAuthError | null | undefined, provide
   }
 
   return provider === "email"
-    ? "Não foi possível enviar o link de acesso agora. Tente novamente em instantes."
-    : "Não foi possível iniciar o login com Google agora. Use o link mágico ou tente novamente mais tarde.";
+    ? "Não foi possível enviar o código de acesso agora. Tente novamente em instantes."
+    : "Não foi possível iniciar o login com Google agora. Tente novamente mais tarde.";
+}
+
+function getPublicOtpMessage(error: PublicAuthError | null | undefined) {
+  const errorText = `${error?.message ?? ""} ${error?.code ?? ""} ${error?.name ?? ""}`.toLowerCase();
+
+  if (errorText.includes("expired") || errorText.includes("token") || errorText.includes("otp")) {
+    return "Código inválido ou expirado. Solicite um novo acesso e tente novamente.";
+  }
+
+  if (errorText.includes("rate limit") || errorText.includes("too many requests")) {
+    return "Muitas tentativas de verificação. Aguarde um instante e tente novamente.";
+  }
+
+  return "Não foi possível validar o código agora. Tente novamente em instantes.";
 }
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
+  const router = useRouter();
 
-  // Hook calls must be unconditional
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [allowed, setAllowed] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
+  const [passwordSignIn, setPasswordSignIn] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-  const googleOAuthConfigured = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim());
+  const [authBusy, setAuthBusy] = useState(false);
+  const [show2FA, setShow2FA] = useState(false);
+  const [pending2FAEmail, setPending2FAEmail] = useState("");
+  const [pending2FAActive, setPending2FAActive] = useState(false);
+  const pending2FAActiveRef = useRef(false);
+  const [twoFACode, setTwoFACode] = useState("");
+  const [twoFAMessage, setTwoFAMessage] = useState<string | null>(null);
+  const [twoFABusy, setTwoFABusy] = useState(false);
+  const pendingPasswordRef = useRef("");
+  const checkingAuthRef = useRef(false);
 
-  // Keep pre-consultation links public
   async function checkAuth() {
+    if (checkingAuthRef.current) return;
+    checkingAuthRef.current = true;
     setLoading(true);
-    setAllowed(null);
     try {
       const { data } = await supabase.auth.getSession();
-      const sessionUser = data?.session?.user ?? null;
+      const session = data?.session ?? null;
+      const sessionUser = session?.user ?? null;
       setUser(sessionUser);
-      setAllowed(Boolean(sessionUser));
     } finally {
       setLoading(false);
+      checkingAuthRef.current = false;
     }
   }
 
@@ -129,13 +163,33 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
           if (access_token || refresh_token || code) {
             try {
-              window.history.replaceState({}, document.title, window.location.pathname);
+              const cleanUrl = new URL(window.location.href);
+              const authParamNames = [
+                "access_token",
+                "refresh_token",
+                "expires_in",
+                "expires_at",
+                "token_type",
+                "type",
+                "code",
+                "provider_token",
+                "provider_refresh_token",
+              ];
+
+              for (const paramName of authParamNames) {
+                cleanUrl.searchParams.delete(paramName);
+              }
+
+              cleanUrl.hash = "";
+              window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}`);
             } catch {
               /* ignore */
             }
           }
         } catch (err) {
-          console.warn("auth callback handling failed:", err);
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("auth callback handling failed:", err);
+          }
           await supabase.auth.signOut();
         }
       } catch {
@@ -152,6 +206,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (pending2FAActiveRef.current && _event === "SIGNED_IN") {
+        return;
+      }
       void checkAuth();
     });
 
@@ -165,42 +222,115 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!loading && pathname === "/login" && user && !pending2FAActive) {
+      router.replace("/");
+    }
+  }, [loading, pathname, pending2FAActive, router, user]);
+
   // Keep pre-consultation links public
   if (pathname.startsWith("/pre-consulta")) {
     return <>{children}</>;
   }
 
-  async function sendMagicLink(e?: React.FormEvent) {
+  async function signInWithPassword(e?: React.FormEvent) {
     if (e) e.preventDefault();
+
     setMessage(null);
-    setSending(true);
+    setTwoFAMessage(null);
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (!normalizedEmail || !passwordSignIn) {
+      setMessage("Informe e-mail e senha para entrar dessa forma.");
+      pending2FAActiveRef.current = false;
+      setPending2FAActive(false);
+      return;
+    }
+
+    setAuthBusy(true);
+
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: getSafeRedirectTo(),
-        },
+      pending2FAActiveRef.current = true;
+      setPending2FAActive(true);
+      pendingPasswordRef.current = passwordSignIn;
+      const res = await fetch("/api/auth/2fa/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, password: passwordSignIn }),
+        credentials: "include",
       });
-      if (error) {
-        logAuthError("magic_link_start", error);
-        setMessage(getPublicAuthMessage(error, "email"));
-      } else {
-        setMessage("Um link de acesso foi enviado para seu e-mail. Verifique sua caixa de entrada.");
+      const sendData = await res.json().catch(() => null);
+      if (!res.ok) {
+        setMessage(sendData?.error || "Não foi possível enviar o código de verificação.");
+        pending2FAActiveRef.current = false;
+        setPending2FAActive(false);
+        pendingPasswordRef.current = "";
+        return;
       }
+
+      setPending2FAEmail(normalizedEmail);
+      setShow2FA(true);
+      setTwoFACode("");
+      setTwoFAMessage(null);
+      setPasswordSignIn("");
     } finally {
-      setSending(false);
+      setAuthBusy(false);
+    }
+  }
+
+  async function verify2FA(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!twoFACode || twoFACode.length < 6) {
+      setTwoFAMessage("Digite o código de 6 dígitos.");
+      return;
+    }
+    setTwoFABusy(true);
+    setTwoFAMessage(null);
+    try {
+      const res = await fetch("/api/auth/2fa/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: twoFACode }),
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setTwoFAMessage(data?.error || "Código inválido ou expirado.");
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: pending2FAEmail,
+        password: pendingPasswordRef.current,
+      });
+
+      if (signInError) {
+        throw signInError;
+      }
+
+      setShow2FA(false);
+      pending2FAActiveRef.current = false;
+      setPending2FAActive(false);
+      setTwoFACode("");
+      setTwoFAMessage(null);
+      pendingPasswordRef.current = "";
+      setMessage(null);
+    } catch (err) {
+      logAuthError("verify_2fa", err);
+      setTwoFAMessage(
+        err && typeof err === "object" ? getPublicOtpMessage(err as PublicAuthError) : "Código inválido ou expirado."
+      );
+    } finally {
+      setTwoFABusy(false);
     }
   }
 
   async function signInWithGoogle() {
     setMessage(null);
 
-    if (!googleOAuthConfigured) {
-      setMessage("O login com Google ainda não está disponível neste ambiente. Use o link mágico para entrar.");
-      return;
-    }
-
-    setSending(true);
+    setAuthBusy(true);
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -224,16 +354,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setMessage("Não foi possível iniciar o login com Google agora. Use o link mágico e tente novamente mais tarde.");
+      setMessage("Não foi possível iniciar o login com Google agora. Tente novamente mais tarde.");
     } finally {
-      setSending(false);
+      setAuthBusy(false);
     }
-  }
-
-  async function signOut() {
-    setLoading(true);
-    await supabase.auth.signOut();
-    setLoading(false);
   }
 
   if (loading) {
@@ -243,7 +367,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           animate={{ scale: [0.9, 1, 0.9], opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         >
-          <BrandMark className="w-16 h-16 opacity-70" />
+          <BrandLogo compact className="opacity-70" />
         </motion.div>
       </div>
     );
@@ -251,85 +375,149 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="relative min-h-[var(--app-dvh)] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-        {/* Animated background elements */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden flex items-center justify-center">
-          <motion.div
-            animate={{ 
-              rotate: [0, 360],
-              scale: [1, 1.2, 1],
-            }}
-            transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
-            className="absolute -top-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[800px] max-h-[800px] rounded-full bg-gradient-to-br from-[#dcb992]/20 to-[#7a4921]/10 blur-3xl"
-          />
-          <motion.div
-            animate={{ 
-              rotate: [360, 0],
-              scale: [1, 1.5, 1],
-            }}
-            transition={{ duration: 50, repeat: Infinity, ease: "linear" }}
-            className="absolute -bottom-[20%] -left-[10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] rounded-full bg-gradient-to-tr from-[#f4e6d3]/30 to-[#bea184]/20 blur-3xl"
-          />
-        </div>
-
-        <motion.div 
-          initial={{ opacity: 0, y: 20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: "spring", bounce: 0.4, duration: 0.8 }}
-          className="relative w-full max-w-md z-10"
-        >
-          {/* Glass Card */}
-          <div className="glass-dark rounded-3xl p-8 sm:p-10 shadow-2xl relative overflow-hidden">
-            {/* Shimmer effect */}
-            <motion.div 
-              animate={{ x: ["-200%", "200%"] }}
-              transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
-              className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 pointer-events-none"
-            />
-            
-            <div className="flex flex-col items-center mb-8 relative">
-              <motion.div 
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", bounce: 0.5, delay: 0.2 }}
-                className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#dcb992] to-[#7a4921] flex items-center justify-center shadow-lg mb-6 relative group"
-              >
-                <BrandMark className="w-10 h-10 text-white" />
-                <motion.div 
-                  animate={{ opacity: [0.5, 1, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  className="absolute inset-0 rounded-2xl ring-2 ring-white/40 ring-offset-2 ring-offset-transparent pointer-events-none"
-                />
-              </motion.div>
-              <BrandLogo className="h-8" />
-              <motion.p 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="text-sm text-[#7d624d] mt-3 text-center font-medium"
-              >
-                Acesso exclusivo para profissionais
-              </motion.p>
+      <AlmareLayout>
+            <div className="flex items-center justify-between gap-3">
+              <BrandLogo compact subtitle={false} />
+              <div className="flex items-center gap-2">
+                <span className="premium-chip text-xs font-semibold">
+                  <ShieldCheck size={14} />
+                  Ambiente reservado
+                </span>
+              </div>
             </div>
 
-            <form onSubmit={sendMagicLink} className="space-y-5 relative z-10">
+            <div className="mt-10">
+              <p className="premium-kicker">
+                <Sparkles size={14} />
+                Acesso
+              </p>
+              <h2 className="premium-title mt-4 text-4xl font-semibold leading-none sm:text-[3.2rem]">
+                Entrar.
+              </h2>
+              <p className="premium-subtitle mt-4 text-sm sm:text-base">
+                {show2FA
+                  ? "Código enviado para seu e-mail."
+                  : "Informe seus dados para acessar."}
+              </p>
+            </div>
+
+            {show2FA ? (
+              <form onSubmit={verify2FA} className="relative z-10 mt-8 space-y-5">
+                <div className="space-y-1.5">
+                  <label htmlFor="2fa-code" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                    Código de verificação
+                  </label>
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
+                      <ShieldCheck size={18} />
+                    </div>
+                    <input
+                      id="2fa-code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      className="input-light !py-3.5 !pl-11 !pr-4 text-center text-2xl tracking-[0.3em] font-bold"
+                      placeholder="000000"
+                      maxLength={6}
+                      value={twoFACode}
+                      onChange={(e) => setTwoFACode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      disabled={twoFABusy}
+                      required
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--color-text-secondary)] ml-1">
+                    Enviamos um código de 6 dígitos para <strong>{pending2FAEmail}</strong>
+                  </p>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  {twoFAMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -8 }}
+                      className="premium-card flex items-start gap-3 overflow-hidden rounded-[1.4rem] border-[var(--color-destructive)]/20 bg-[rgba(255,59,48,0.08)] p-4 text-sm text-[var(--color-destructive)]"
+                    >
+                      <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                      <p className="leading-relaxed">{twoFAMessage}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="grid gap-3 pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    type="submit"
+                    className="premium-button-primary flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm disabled:cursor-not-allowed"
+                    disabled={twoFABusy || twoFACode.length < 6}
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {twoFABusy ? (
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white"
+                        />
+                      ) : (
+                        <>
+                          <ShieldCheck size={18} />
+                          Verificar código
+                        </>
+                      )}
+                    </span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    type="button"
+                    className="premium-button-secondary flex w-full items-center justify-center gap-2 px-5 py-3 text-xs disabled:cursor-not-allowed"
+                    onClick={() => { setShow2FA(false); pending2FAActiveRef.current = false; setPending2FAActive(false); setTwoFAMessage(null); pendingPasswordRef.current = ""; }}
+                    disabled={twoFABusy}
+                  >
+                    Voltar ao login
+                  </motion.button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={signInWithPassword} className="relative z-10 mt-8 space-y-5">
               <div className="space-y-1.5">
-                <label htmlFor="email" className="text-sm font-semibold text-[#4f2f19] ml-1 block">
-                  E-mail de Acesso
+                <label htmlFor="email" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                  E-mail de acesso
                 </label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#ab917a] group-focus-within:text-[#8c5a2d] transition-colors">
+                <div className="group relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
                     <Mail size={18} />
                   </div>
                   <input
                     id="email"
                     type="email"
-                    className="w-full bg-white/70 border border-[#ab917a]/30 rounded-xl py-3.5 pl-11 pr-4 text-[#4f2f19] placeholder-[#ab917a] focus:outline-none focus:ring-2 focus:ring-[#8c5a2d]/40 focus:border-[#8c5a2d] transition-all shadow-sm backdrop-blur-sm"
+                    className="input-light !py-3.5 !pl-11 !pr-4"
                     placeholder="seu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    disabled={sending}
+                    disabled={authBusy}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="password" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                  Senha
+                </label>
+                <div className="group relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
+                    <LockKeyhole size={18} />
+                  </div>
+                  <input
+                    id="password"
+                    type="password"
+                    className="input-light !py-3.5 !pl-11 !pr-4"
+                    placeholder="Digite sua senha"
+                    value={passwordSignIn}
+                    onChange={(e) => setPasswordSignIn(e.target.value)}
+                    disabled={authBusy}
                   />
                 </div>
               </div>
@@ -337,168 +525,103 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
               <AnimatePresence mode="wait">
                 {message && (
                   <motion.div
-                    initial={{ opacity: 0, height: 0, y: -10 }}
+                    initial={{ opacity: 0, height: 0, y: -8 }}
                     animate={{ opacity: 1, height: "auto", y: 0 }}
-                    exit={{ opacity: 0, height: 0, y: -10 }}
-                    className={`flex items-start gap-3 p-4 rounded-xl text-sm overflow-hidden ${
-                      message.includes("enviado") 
-                        ? "bg-[#5c8b65]/10 text-[#5c8b65] border border-[#5c8b65]/20" 
-                        : "bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/20"
+                    exit={{ opacity: 0, height: 0, y: -8 }}
+                    className={`premium-card flex items-start gap-3 overflow-hidden rounded-[1.4rem] p-4 text-sm ${
+                      message.includes("enviado")
+                        ? "border-[var(--color-success)]/20 bg-[rgba(92,139,101,0.08)] text-[var(--color-success)]"
+                        : "border-[var(--color-destructive)]/20 bg-[rgba(255,59,48,0.08)] text-[var(--color-destructive)]"
                     }`}
                   >
                     {message.includes("enviado") ? (
-                      <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                      <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
                     ) : (
-                      <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                      <AlertCircle size={18} className="mt-0.5 shrink-0" />
                     )}
                     <p className="leading-relaxed">{message}</p>
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              <div className="flex flex-col gap-3 pt-2">
+              <div className="grid gap-3 pt-2">
                 <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full relative group overflow-hidden bg-gradient-to-r from-[#8c5a2d] to-[#7a4921] hover:from-[#7a4921] hover:to-[#6f431e] text-white font-medium py-3.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.985 }}
+                  className="premium-button-primary flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm disabled:cursor-not-allowed"
                   type="submit"
-                  disabled={sending || !email}
+                  disabled={authBusy || !email || !passwordSignIn}
                 >
                   <span className="relative z-10 flex items-center gap-2">
-                    {sending ? (
+                    {authBusy ? (
                       <motion.div
                         animate={{ rotate: 360 }}
                         transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                        className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white"
                       />
                     ) : (
                       <>
-                        <Sparkles size={18} className="text-white/80" />
-                        Receber Link Mágico
-                        <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                        <LockKeyhole size={18} className="text-white/85" />
+                        Entrar com senha
+                        <ArrowRight size={17} className="transition-transform group-hover:translate-x-0.5" />
                       </>
                     )}
                   </span>
-                  <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </motion.button>
 
-                <div className="relative flex items-center py-2">
-                  <div className="flex-grow border-t border-[#ab917a]/20"></div>
-                  <span className="flex-shrink-0 mx-4 text-[#ab917a] text-xs uppercase font-medium tracking-wider">Ou</span>
-                  <div className="flex-grow border-t border-[#ab917a]/20"></div>
+                <div className="relative flex items-center py-1">
+                  <div className="h-px flex-1 bg-[linear-gradient(90deg,transparent,rgba(113,76,43,0.18),transparent)]" />
+                  <span className="px-4 text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-text-tertiary)]">
+                    ou
+                  </span>
+                  <div className="h-px flex-1 bg-[linear-gradient(90deg,transparent,rgba(113,76,43,0.18),transparent)]" />
                 </div>
 
                 <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.985 }}
                   type="button"
-                  className="w-full bg-white/60 hover:bg-white/90 border border-[#ab917a]/20 text-[#4f2f19] font-medium py-3.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-3 backdrop-blur-sm disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="premium-button-secondary flex w-full items-center justify-center gap-3 px-5 py-3.5 text-sm disabled:cursor-not-allowed"
                   onClick={() => void signInWithGoogle()}
-                  disabled={sending}
+                  disabled={authBusy}
                 >
-                  <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
-                    <path
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      fill="#4285F4"
-                    />
-                    <path
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      fill="#34A853"
-                    />
-                    <path
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                      fill="#FBBC05"
-                    />
-                    <path
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                      fill="#EA4335"
-                    />
-                  </svg>
-                  Continuar com Google
+                  <span className="relative z-10 flex items-center gap-3">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+                      <path
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        fill="#4285F4"
+                      />
+                      <path
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        fill="#34A853"
+                      />
+                      <path
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                        fill="#FBBC05"
+                      />
+                      <path
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        fill="#EA4335"
+                      />
+                    </svg>
+                    Continuar com Google
+                  </span>
                 </motion.button>
-
-                {!googleOAuthConfigured && (
-                  <p className="text-xs text-[#7d624d] text-center leading-relaxed">
-                    O login com Google será liberado assim que a ativação institucional deste ambiente for concluída.
-                  </p>
-                )}
               </div>
             </form>
-          </div>
-          
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8 }}
-            className="mt-6 text-center"
-          >
-            <p className="text-xs text-[#7d624d]/80 font-medium">
-              Ambiente seguro e criptografado <br/> Al&apos;maré Saúde Capilar &copy; {new Date().getFullYear()}
+            )}
+
+            <div className="mt-8 flex flex-wrap gap-2 text-xs text-[var(--color-text-secondary)]">
+              <span className="premium-chip text-[11px] font-medium">Autenticacao criptografada</span>
+              <span className="premium-chip text-[11px] font-medium">Acesso exclusivo para profissionais</span>
+            </div>
+
+            <p className="mt-6 text-xs font-medium text-[var(--color-text-secondary)]/80">
+              Al&apos;mare Saude Capilar © {new Date().getFullYear()}.
             </p>
-          </motion.div>
-        </motion.div>
-      </div>
+        </AlmareLayout>
     );
   }
 
-  if (allowed) {
-    return <>{children}</>;
-  }
-
-  const adminEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "suporte@clinica.local";
-  const mailTo = `mailto:${adminEmail}?subject=Solicitar%20Acesso&body=Olá,%0D%0A%0D%0APeço%20liberar%20o%20acesso%20para%20o%20email%20${encodeURIComponent(
-    user.email || ""
-  )}%0D%0A%0D%0AObrigado.`;
-
-  return (
-    <div className="relative min-h-[var(--app-dvh)] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none overflow-hidden flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: [0, 360], scale: [1, 1.1, 1] }}
-          transition={{ duration: 50, repeat: Infinity, ease: "linear" }}
-          className="absolute -top-[10%] -right-[10%] w-[60vw] h-[60vw] max-w-[600px] max-h-[600px] rounded-full bg-gradient-to-br from-[#ff3b30]/10 to-[#b97536]/10 blur-3xl"
-        />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: "spring", bounce: 0.4 }}
-        className="relative w-full max-w-lg z-10 glass-dark rounded-3xl p-8 sm:p-10 shadow-2xl text-center"
-      >
-        <motion.div 
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: "spring", bounce: 0.5, delay: 0.1 }}
-          className="mx-auto w-16 h-16 rounded-2xl bg-[#ff3b30]/10 flex items-center justify-center mb-6 border border-[#ff3b30]/20"
-        >
-          <AlertCircle className="w-8 h-8 text-[#ff3b30]" />
-        </motion.div>
-        
-        <h2 className="text-xl font-bold text-[#4f2f19] mb-3">Acesso Restrito</h2>
-        <p className="text-[#7d624d] mb-8 leading-relaxed">
-          Seu e-mail <span className="font-semibold text-[#8c5a2d]">{user.email}</span> foi autenticado com sucesso, mas ainda não possui permissão para acessar o sistema.
-        </p>
-
-        <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
-          <motion.a 
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            href={mailTo}
-            className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-[#8c5a2d] to-[#7a4921] hover:from-[#7a4921] hover:to-[#6f431e] text-white rounded-xl font-medium shadow-md transition-all flex items-center justify-center gap-2"
-          >
-            <Mail size={18} /> Solicitar Acesso
-          </motion.a>
-          <motion.button 
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={signOut}
-            className="w-full sm:w-auto px-6 py-3 bg-white/60 hover:bg-white/90 border border-[#ab917a]/20 text-[#4f2f19] rounded-xl font-medium shadow-sm transition-all flex items-center justify-center"
-          >
-            Sair da conta
-          </motion.button>
-        </div>
-      </motion.div>
-    </div>
-  );
+  return <>{children}</>;
 }

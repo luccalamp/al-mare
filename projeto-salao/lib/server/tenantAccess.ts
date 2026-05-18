@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
-import { SupabaseClient, createClient } from "@supabase/supabase-js";
-import fs from "fs";
-import path from "path";
+import { type User, SupabaseClient, createClient } from "@supabase/supabase-js";
+import { getSupabasePublicConfig } from "@/lib/supabase/config";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+export type AuthenticatedUserContext = {
+  client: SupabaseClient;
+  user: User;
+  userId: string;
+};
 
 export type AuthorizedStaffContext = {
   admin: SupabaseClient;
   userId: string;
+  user: User;
 };
 
 export function buildJsonError(message: string, status: number) {
@@ -13,41 +20,9 @@ export function buildJsonError(message: string, status: number) {
 }
 
 function createServerUserClient(token: string) {
-  const readEnvFromDotenv = (name: string) => {
-    const candidates = [
-      path.resolve(process.cwd(), ".env.local"),
-      path.resolve(process.cwd(), "projeto salao", ".env.local"),
-      path.resolve(process.cwd(), "projeto-salao", ".env.local"),
-      path.resolve(__dirname, "..", "..", ".env.local"),
-    ];
+  const { supabaseUrl, supabasePublishableKey } = getSupabasePublicConfig();
 
-    for (const p of candidates) {
-      try {
-        if (!fs.existsSync(p)) continue;
-        const content = fs.readFileSync(p, "utf8");
-        const re = new RegExp(`^${name.replace(/[\\-\\/\\^$*+?.()|[\\]{}]/g, "\\$&")}\\s*=\\s*(.*)$`, "mi");
-        const m = content.match(re);
-        if (m && m[1]) {
-          let v = m[1].trim();
-          if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-          return v;
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    return null;
-  };
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || readEnvFromDotenv("NEXT_PUBLIC_SUPABASE_URL") || "";
-  const publishable = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() || readEnvFromDotenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") || "";
-
-  if (!supabaseUrl || !publishable) {
-    console.error("Missing Supabase URL or publishable key for server-side client. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
-  }
-
-  return createClient(supabaseUrl, publishable, {
+  return createClient(supabaseUrl, supabasePublishableKey, {
     global: {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -58,6 +33,15 @@ function createServerUserClient(token: string) {
       persistSession: false,
     },
   });
+}
+
+function createRequestUserClient(request: Request) {
+  const bearerToken = readBearerToken(request);
+  if (bearerToken) {
+    return createServerUserClient(bearerToken);
+  }
+
+  return createServerSupabaseClient();
 }
 
 export function readBearerToken(request: Request) {
@@ -78,6 +62,21 @@ export function isMissingColumnError(message?: string) {
   return /column .* does not exist/i.test(message || "");
 }
 
+export async function requireAuthenticatedUser(request: Request) {
+  const client = createRequestUserClient(request);
+  const { data: userData, error: userError } = await client.auth.getUser();
+
+  if (userError || !userData?.user) {
+    return buildJsonError("Sua sessão expirou. Entre novamente para continuar.", 401);
+  }
+
+  return {
+    client,
+    user: userData.user,
+    userId: userData.user.id,
+  } satisfies AuthenticatedUserContext;
+}
+
 export async function requireAuthorizedStaff(
   request: Request,
   options?: {
@@ -86,34 +85,16 @@ export async function requireAuthorizedStaff(
 ) {
   void options;
 
-  const bearerToken = readBearerToken(request);
-  if (!bearerToken) {
-    return buildJsonError("Sua sessão expirou. Entre novamente para continuar.", 401);
-  }
-
-  const userClient = createServerUserClient(bearerToken);
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-
-  if (userError || !userData?.user) {
-    return buildJsonError("Sua sessão expirou. Entre novamente para continuar.", 401);
+  const authContext = await requireAuthenticatedUser(request);
+  if (authContext instanceof NextResponse) {
+    return authContext;
   }
 
   return {
-    admin: userClient,
-    userId: userData.user.id,
+    admin: authContext.client,
+    userId: authContext.userId,
+    user: authContext.user,
   } satisfies AuthorizedStaffContext;
-}
-
-export async function requireOrganizationMembership(
-  context: AuthorizedStaffContext,
-  organizationId: string,
-  forbiddenMessage = "Seu acesso não permite gerenciar dados desta empresa."
-) {
-  if (organizationId !== context.userId) {
-    return buildJsonError(forbiddenMessage, 403);
-  }
-
-  return null;
 }
 
 async function loadOwnedRowUserId(
@@ -129,6 +110,7 @@ async function loadOwnedRowUserId(
     .from(table)
     .select("user_id")
     .eq("id", rowId)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (error) {
@@ -195,47 +177,14 @@ async function requireOwnedRowAccess(
   };
 }
 
-export async function loadClientOrganizationId(context: AuthorizedStaffContext, clientId: string) {
-  const { userId, response } = await loadOwnedRowUserId(
+export async function loadClientUserId(context: AuthorizedStaffContext, clientId: string) {
+  return loadOwnedRowUserId(
     context,
     "clientes",
     clientId,
     "Cliente inválido para esta operação.",
     "Não foi possível validar o cliente agora."
   );
-
-  return {
-    organizationId: userId,
-    response,
-  };
-}
-
-export async function requireClientOrganizationAccess(
-  context: AuthorizedStaffContext,
-  clientId: string,
-  forbiddenMessage = "Seu acesso não permite gerenciar este paciente.",
-  notFoundMessage = "Cliente inválido para esta operação."
-) {
-  const { userId, response } = await requireOwnedRowAccess(
-    context,
-    "clientes",
-    clientId,
-    forbiddenMessage,
-    notFoundMessage,
-    "Não foi possível validar o cliente agora."
-  );
-
-  if (response || !userId) {
-    return {
-      organizationId: null,
-      response: response || buildJsonError(notFoundMessage, 404),
-    };
-  }
-
-  return {
-    organizationId: userId,
-    response: null,
-  };
 }
 
 export async function requireClientAccess(
@@ -254,19 +203,14 @@ export async function requireClientAccess(
   );
 }
 
-export async function loadCompanyDocumentFolderOrganizationId(context: AuthorizedStaffContext, folderId: string) {
-  const { userId, response } = await loadOwnedRowUserId(
+export async function loadCompanyDocumentFolderUserId(context: AuthorizedStaffContext, folderId: string) {
+  return loadOwnedRowUserId(
     context,
     "company_document_folders",
     folderId,
     "Pasta inválida para esta operação.",
     "Não foi possível validar a pasta agora."
   );
-
-  return {
-    organizationId: userId,
-    response,
-  };
 }
 
 export async function requireCompanyDocumentFolderAccess(
@@ -275,7 +219,7 @@ export async function requireCompanyDocumentFolderAccess(
   forbiddenMessage = "Seu acesso não permite gerenciar os documentos desta pasta.",
   notFoundMessage = "Pasta inválida para esta operação."
 ) {
-  const { userId, response } = await requireOwnedRowAccess(
+  return requireOwnedRowAccess(
     context,
     "company_document_folders",
     folderId,
@@ -283,16 +227,4 @@ export async function requireCompanyDocumentFolderAccess(
     notFoundMessage,
     "Não foi possível validar a pasta agora."
   );
-
-  if (response || !userId) {
-    return {
-      organizationId: null,
-      response: response || buildJsonError(notFoundMessage, 404),
-    };
-  }
-
-  return {
-    organizationId: userId,
-    response: null,
-  };
 }

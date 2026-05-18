@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Client } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { Save, UserPlus } from "lucide-react";
+import { useBrandingConfig } from "@/components/BrandingConfigProvider";
+import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 
 interface NewClientFormProps {
   onClose: () => void;
@@ -11,6 +13,8 @@ interface NewClientFormProps {
 }
 
 export default function NewClientForm({ onClose, onSave }: NewClientFormProps) {
+  const { config: branding } = useBrandingConfig();
+  const brandTitle = getBrandDisplayTitle(branding);
   const [form, setForm] = useState({
     nome: "",
     whatsapp: "",
@@ -89,41 +93,32 @@ export default function NewClientForm({ onClose, onSave }: NewClientFormProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.15)", backdropFilter: "blur(4px)" }}
+        className="premium-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       >
         <motion.div
-          className="relative w-full max-w-md rounded-2xl overflow-hidden"
-          style={{
-            background: "rgba(255,255,255,0.85)",
-            backdropFilter: "blur(24px) saturate(1.8)",
-            WebkitBackdropFilter: "blur(24px) saturate(1.8)",
-            border: "1px solid rgba(255,255,255,0.5)",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.12)",
-          }}
+          className="premium-window relative w-full max-w-md overflow-hidden rounded-[2rem]"
           initial={{ opacity: 0, scale: 0.88, y: 24 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 12 }}
           transition={{ type: "spring", stiffness: 380, damping: 28 }}
         >
-          {/* Title bar */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid rgba(0,0,0,0.07)", background: "rgba(255,255,255,0.4)" }}>
+          <div className="premium-window-header flex items-center gap-3 px-4 py-3">
             <div className="flex items-center gap-2">
               <button onClick={onClose} className="w-5 h-5 rounded-full bg-[#ff5f57] sm:w-3 sm:h-3" />
             </div>
             <div className="flex-1 text-center">
-                <span className="text-[#1d1d1f] text-sm font-semibold">Novo Paciente — Al&apos;maré</span>
+                <span className="text-sm font-semibold text-[var(--color-ink)]">Novo paciente — {brandTitle}</span>
             </div>
             <div className="w-8" />
           </div>
 
           <div className="p-4 sm:p-6 space-y-4">
             <div className="flex justify-center mb-2">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#d7b289] to-[#7a4921] flex items-center justify-center shadow-lg text-white">
+              <div className="premium-card flex h-16 w-16 items-center justify-center rounded-[1.35rem] bg-gradient-to-br from-[#d7b289] to-[#7a4921] text-white shadow-lg">
                 <UserPlus size={32} />
               </div>
             </div>
@@ -142,9 +137,11 @@ export default function NewClientForm({ onClose, onSave }: NewClientFormProps) {
               <button
                 onClick={handleSave}
                 disabled={!form.nome || !form.whatsapp || saving}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#1d1d1f] hover:bg-black disabled:opacity-30 rounded-xl text-white text-sm font-medium transition-all shadow-md min-h-11"
+                className="premium-button-primary flex min-h-11 flex-1 items-center justify-center gap-2 px-4 py-3.5 text-sm disabled:opacity-30"
               >
-                <Save size={14} /> {saving ? "Salvando..." : "Cadastrar no prontuário"}
+                <span className="relative z-10 flex items-center gap-2">
+                  <Save size={14} /> {saving ? "Salvando..." : "Cadastrar no prontuario"}
+                </span>
               </button>
             </div>
           </div>

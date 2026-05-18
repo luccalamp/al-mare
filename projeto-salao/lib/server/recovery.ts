@@ -195,6 +195,7 @@ async function restoreDocumentStorage(
 function buildClientPayload(snapshot: Record<string, unknown>, actor: string) {
   return {
     id: resolveSnapshotId(snapshot),
+    user_id: asNullableString(snapshot.user_id),
     nome: asString(snapshot.nome) || "Paciente restaurado",
     whatsapp: asString(snapshot.whatsapp) || "Nao informado",
     instagram_handle: asNullableString(snapshot.instagram_handle),
@@ -223,6 +224,8 @@ function buildClientPayload(snapshot: Record<string, unknown>, actor: string) {
 function buildClientPhotoPayload(snapshot: Record<string, unknown>, actor: string) {
   return {
     id: resolveSnapshotId(snapshot),
+    organization_id: asNullableString(snapshot.organization_id),
+    user_id: asNullableString(snapshot.user_id),
     cliente_id: asString(snapshot.cliente_id),
     url: asString(snapshot.url) || "",
     type: asNullableString(snapshot.type),
@@ -247,6 +250,8 @@ function buildClientPhotoPayload(snapshot: Record<string, unknown>, actor: strin
 function buildCompanyDocumentPayload(snapshot: Record<string, unknown>, actor: string) {
   return {
     id: resolveSnapshotId(snapshot),
+    organization_id: asNullableString(snapshot.organization_id),
+    user_id: asNullableString(snapshot.user_id),
     folder_id: asString(snapshot.folder_id),
     nome: asString(snapshot.nome) || "Documento restaurado",
     arquivo_nome: asString(snapshot.arquivo_nome) || "arquivo-restaurado",
@@ -502,7 +507,9 @@ async function archiveClientPhotoRow(
     throw new Error("A foto selecionada nao possui id valido.");
   }
 
-  const { error: markDeletedError } = await supabase
+  console.log("archiveClientPhotoRow: marking photo as deleted", photoId);
+
+  const { error: markDeletedError, count } = await supabase
     .from("client_photos")
     .update({
       deleted_at: new Date().toISOString(),
@@ -511,17 +518,30 @@ async function archiveClientPhotoRow(
       restored_at: null,
       restored_by: null,
     })
-    .eq("id", photoId);
+    .eq("id", photoId)
+    .select("id")
+    .single();
 
   if (markDeletedError) {
+    console.error("archiveClientPhotoRow: mark deleted error", markDeletedError);
     throw markDeletedError;
   }
+
+  if (count === 0) {
+    console.error("archiveClientPhotoRow: update affected 0 rows", photoId);
+    throw new Error("A foto nao foi encontrada ou nao pode ser arquivada.");
+  }
+
+  console.log("archiveClientPhotoRow: photo marked as deleted", photoId);
 
   const storageBucket = asString(photoRow.storage_bucket) || "anamnese-fotos";
   const storagePath = asString(photoRow.storage_path);
   if (!storagePath) {
+    console.log("archiveClientPhotoRow: no storage path, skipping quarantine", photoId);
     return;
   }
+
+  console.log("archiveClientPhotoRow: moving photo to quarantine", photoId, storageBucket, storagePath);
 
   const quarantineResult = await moveObject(
     supabase,
@@ -531,6 +551,8 @@ async function archiveClientPhotoRow(
     buildQuarantinePath("client-photos", photoId, storagePath)
   );
 
+  console.log("archiveClientPhotoRow: quarantine result", quarantineResult);
+
   const { error: quarantineUpdateError } = await supabase
     .from("client_photos")
     .update({
@@ -538,29 +560,42 @@ async function archiveClientPhotoRow(
       quarantined_storage_path: quarantineResult.targetPath || null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", photoId);
+    .eq("id", photoId)
+    .select("id")
+    .single();
 
   if (quarantineUpdateError) {
+    console.error("archiveClientPhotoRow: quarantine update error", quarantineUpdateError);
     throw quarantineUpdateError;
   }
+
+  console.log("archiveClientPhotoRow: photo quarantine metadata updated", photoId);
 }
 
 export async function archivePhoto(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
+  console.log("archivePhoto: fetching photo", recordId);
   const { data, error } = await supabase.from("client_photos").select("*").eq("id", recordId).maybeSingle();
   if (error) {
+    console.error("archivePhoto: select error", error);
     throw error;
   }
 
   if (!data) {
+    console.error("archivePhoto: photo not found", recordId);
     throw new Error("A foto selecionada nao foi encontrada.");
   }
 
+  console.log("archivePhoto: photo found", data.id, "deleted_at:", data.deleted_at);
+
   if (data.deleted_at) {
+    console.log("archivePhoto: photo already archived", recordId);
     return { archived: true, recordId };
   }
 
+  console.log("archivePhoto: archiving photo", recordId);
   await archiveClientPhotoRow(supabase, data, actor, reason);
+  console.log("archivePhoto: photo archived successfully", recordId);
   return { archived: true, recordId };
 }
 
@@ -624,18 +659,24 @@ export async function archiveDocument(recordId: string, actor: string, reason: s
 
 export async function archiveClient(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
+  console.log("archiveClient: fetching client", recordId);
   const clientResult = await supabase.from("clientes").select("*").eq("id", recordId).maybeSingle();
   if (clientResult.error) {
+    console.error("archiveClient: select error", clientResult.error);
     throw clientResult.error;
   }
 
   const clientRow = clientResult.data;
   if (!clientRow) {
+    console.error("archiveClient: client not found", recordId);
     throw new Error("A paciente selecionada nao foi encontrada.");
   }
 
+  console.log("archiveClient: client found", clientRow.id, "deleted_at:", clientRow.deleted_at);
+
   if (!clientRow.deleted_at) {
-    const { error: markClientDeletedError } = await supabase
+    console.log("archiveClient: marking client as deleted", recordId);
+    const { error: markClientDeletedError, count: clientCount } = await supabase
       .from("clientes")
       .update({
         deleted_at: new Date().toISOString(),
@@ -645,16 +686,25 @@ export async function archiveClient(recordId: string, actor: string, reason: str
         restored_by: null,
         link_ativo: false,
       })
-      .eq("id", recordId);
+      .eq("id", recordId)
+      .select("id")
+      .single();
 
     if (markClientDeletedError) {
+      console.error("archiveClient: mark deleted error", markClientDeletedError);
       throw markClientDeletedError;
     }
+    if (clientCount === 0) {
+      console.error("archiveClient: update affected 0 rows", recordId);
+      throw new Error("A paciente nao foi encontrada ou nao pode ser arquivada.");
+    }
+    console.log("archiveClient: client marked as deleted", recordId);
   }
 
   const avatarStorageBucket = asString(clientRow.profile_photo_storage_bucket) || "anamnese-fotos";
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
+    console.log("archiveClient: moving avatar to quarantine", recordId);
     const quarantineResult = await moveObject(
       supabase,
       avatarStorageBucket,
@@ -670,13 +720,17 @@ export async function archiveClient(recordId: string, actor: string, reason: str
         profile_photo_quarantined_path: quarantineResult.targetPath || null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", recordId);
+      .eq("id", recordId)
+      .select("id")
+      .single();
 
     if (avatarUpdateError) {
+      console.error("archiveClient: avatar update error", avatarUpdateError);
       throw avatarUpdateError;
     }
   }
 
+  console.log("archiveClient: fetching photos for client", recordId);
   const photosResult = await supabase
     .from("client_photos")
     .select("*")
@@ -684,12 +738,17 @@ export async function archiveClient(recordId: string, actor: string, reason: str
     .is("deleted_at", null);
 
   if (photosResult.error) {
+    console.error("archiveClient: photos select error", photosResult.error);
     throw photosResult.error;
   }
+
+  console.log("archiveClient: found", (photosResult.data || []).length, "photos to archive");
 
   for (const photoRow of photosResult.data || []) {
     await archiveClientPhotoRow(supabase, photoRow, actor, reason);
   }
+
+  console.log("archiveClient: client archived successfully", recordId);
 
   return {
     archived: true,

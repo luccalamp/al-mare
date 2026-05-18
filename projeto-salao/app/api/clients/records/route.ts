@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
   isMissingColumnError,
@@ -25,7 +26,6 @@ const payloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("gallery-photo"),
     clientId: z.string().uuid(),
-    url: z.string().url(),
     type: z.string().trim().min(1),
     categoria: nullableTrimmedString,
     caption: nullableTrimmedString,
@@ -56,11 +56,21 @@ const payloadSchema = z.discriminatedUnion("action", [
     produtosRecomendados: z.string().trim().min(1),
     obsCuidados: nullableTrimmedString,
     dataRetornoSugerida: nullableTrimmedString,
+    valorTotal: z.number().positive().nullish(),
+    formaPagamento: z.enum(["avista", "parcelado"]).nullish(),
+    parcelas: z.number().int().positive().nullish(),
+    pago: z.boolean().nullish(),
+    confirmadoEm: nullableTrimmedString,
   }),
   z.object({
     action: z.literal("ficha-anamnese"),
     clientId: z.string().uuid(),
     dados: z.unknown(),
+  }),
+  z.object({
+    action: z.literal("confirmar-pagamento"),
+    clientId: z.string().uuid(),
+    homecareId: z.string().uuid(),
   }),
   z.object({
     action: z.literal("appointment"),
@@ -123,11 +133,14 @@ export async function POST(request: Request) {
 
   switch (parsedBody.data.action) {
     case "gallery-photo": {
+      const canonicalUrl =
+        buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) || "";
+
       const { data, error } = await authContext.admin
         .from("client_photos")
         .insert({
           cliente_id: clientId,
-          url: parsedBody.data.url,
+          url: canonicalUrl,
           type: parsedBody.data.type,
           categoria: parsedBody.data.categoria || parsedBody.data.type,
           caption: parsedBody.data.caption,
@@ -194,8 +207,13 @@ export async function POST(request: Request) {
           produtos_recomendados: parsedBody.data.produtosRecomendados,
           obs_cuidados: parsedBody.data.obsCuidados,
           data_retorno_sugerida: parsedBody.data.dataRetornoSugerida,
+          valor_total: parsedBody.data.valorTotal,
+          forma_pagamento: parsedBody.data.formaPagamento,
+          parcelas: parsedBody.data.parcelas,
+          pago: parsedBody.data.pago ?? false,
+          confirmado_em: parsedBody.data.confirmadoEm || null,
         })
-        .select("id, created_at, produtos_recomendados, obs_cuidados, data_retorno_sugerida")
+        .select("id, created_at, produtos_recomendados, obs_cuidados, data_retorno_sugerida, valor_total, forma_pagamento, parcelas, pago, confirmado_em")
         .single();
 
       if (error || !data) {
@@ -221,6 +239,24 @@ export async function POST(request: Request) {
 
       if (error || !data) {
         return buildRecordError(error, "Não foi possível salvar a ficha clínica agora.");
+      }
+
+      return NextResponse.json({ record: data });
+    }
+
+    case "confirmar-pagamento": {
+      const { data, error } = await authContext.admin
+        .from("manutencao_homecare")
+        .update({
+          pago: true,
+          confirmado_em: new Date().toISOString(),
+        })
+        .eq("id", parsedBody.data.homecareId)
+        .select("id, created_at, pago, confirmado_em")
+        .single();
+
+      if (error || !data) {
+        return buildRecordError(error, "Não foi possível confirmar o pagamento.");
       }
 
       return NextResponse.json({ record: data });

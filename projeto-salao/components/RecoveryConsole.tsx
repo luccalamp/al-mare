@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BackupRunHistory,
   DeletedRecordSummary,
@@ -9,16 +9,13 @@ import {
   RestoreOperationResult,
   RowChangeAuditEntry,
 } from "@/types";
-import { adminGetJson, adminPostJson, clearAdminOperationsToken, refreshAdminOperationsToken } from "@/lib/adminApi";
 import {
   ArchiveRestore,
   DatabaseBackup,
-  KeyRound,
   Loader2,
   RefreshCcw,
   RotateCcw,
   Search,
-  ShieldCheck,
 } from "lucide-react";
 
 type AuditResponse = {
@@ -29,7 +26,6 @@ function formatDateTime(value?: string) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-
   return date.toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -47,15 +43,7 @@ function formatPayloadSize(bytes?: number) {
   return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
 }
 
-function SummaryCard({
-  title,
-  value,
-  subtitle,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-}) {
+function SummaryCard({ title, value, subtitle }: { title: string; value: string; subtitle: string }) {
   return (
     <div className="rounded-[26px] border border-white bg-white/70 p-4 shadow-[0_12px_30px_rgba(94,58,28,0.06)]">
       <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{title}</p>
@@ -84,7 +72,6 @@ function DeletedRecordList({
           {items.length}
         </span>
       </div>
-
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-4 text-sm text-[var(--color-text-secondary)]">
@@ -114,8 +101,23 @@ function DeletedRecordList({
   );
 }
 
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    headers: { "content-type": "application/json" },
+    ...options,
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(
+      payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+        ? payload.error
+        : "Falha na operacao."
+    );
+  }
+  return payload as T;
+}
+
 export default function RecoveryConsole() {
-  const [isUnlocked, setIsUnlocked] = useState(false);
   const [summary, setSummary] = useState<RecoverySummary | null>(null);
   const [auditEntries, setAuditEntries] = useState<RowChangeAuditEntry[]>([]);
   const [auditTable, setAuditTable] = useState<string>("clientes");
@@ -142,12 +144,8 @@ export default function RecoveryConsole() {
     try {
       setLoadingSummary(true);
       setError(null);
-      const nextSummary = await adminGetJson<RecoverySummary>(
-        "/api/admin/recovery/summary",
-        "Informe a chave administrativa para carregar a console de protecao e recuperacao."
-      );
+      const nextSummary = await fetchJson<RecoverySummary>("/api/admin/recovery/summary");
       setSummary(nextSummary);
-      setIsUnlocked(true);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Nao foi possivel carregar o resumo de recuperacao.");
     } finally {
@@ -165,33 +163,12 @@ export default function RecoveryConsole() {
       if (auditTransactionId.trim()) searchParams.set("transactionId", auditTransactionId.trim());
       searchParams.set("limit", "60");
 
-      const response = await adminGetJson<AuditResponse>(
-        `/api/admin/audit?${searchParams.toString()}`,
-        "Informe a chave administrativa para consultar o log de auditoria."
-      );
+      const response = await fetchJson<AuditResponse>(`/api/admin/audit?${searchParams.toString()}`);
       setAuditEntries(response.entries);
-      setIsUnlocked(true);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Nao foi possivel carregar o log de auditoria.");
     } finally {
       setLoadingAudit(false);
-    }
-  }
-
-  async function handleUnlock() {
-    setFeedback(null);
-    await refreshAdminOperationsToken("Informe a chave administrativa para destravar a console de recuperacao desta sessao.");
-    await loadSummary();
-  }
-
-  async function handleRotateKey() {
-    try {
-      setFeedback(null);
-      await refreshAdminOperationsToken("Atualize a chave administrativa desta sessao para continuar.");
-      await loadSummary();
-      setFeedback("Chave administrativa atualizada e console recarregada.");
-    } catch (rotateError) {
-      setError(rotateError instanceof Error ? rotateError.message : "Nao foi possivel atualizar a chave administrativa.");
     }
   }
 
@@ -200,24 +177,18 @@ export default function RecoveryConsole() {
       setRestoringRecordId(item.recordId);
       setFeedback(null);
       setError(null);
-      const response = await adminPostJson<{ results: RestoreOperationResult[] }>(
-        "/api/admin/restore",
-        {
-          tableName: item.tableName,
-          recordId: item.recordId,
-        },
-        "Informe a chave administrativa para restaurar este registro arquivado."
-      );
+      const response = await fetchJson<{ results: RestoreOperationResult[] }>("/api/admin/restore", {
+        method: "POST",
+        body: JSON.stringify({ tableName: item.tableName, recordId: item.recordId }),
+      });
       const restored = response.results[0];
       setFeedback(
         restored.restoredStorage
-          ? `Registro restaurado com sucesso e mídia devolvida ao bucket ativo.`
-          : `Registro restaurado com sucesso. Nao houve midia para retornar do quarantine.`
+          ? "Registro restaurado com sucesso e midia devolvida ao bucket ativo."
+          : "Registro restaurado com sucesso. Nao houve midia para retornar do quarantine."
       );
       await loadSummary();
-      if (auditEntries.length > 0) {
-        await loadAudit();
-      }
+      if (auditEntries.length > 0) await loadAudit();
     } catch (restoreError) {
       setError(restoreError instanceof Error ? restoreError.message : "Nao foi possivel restaurar o registro selecionado.");
     } finally {
@@ -230,19 +201,14 @@ export default function RecoveryConsole() {
       setError("Informe um transaction_id para restaurar todos os registros relacionados.");
       return;
     }
-
     try {
       setRestoringTransaction(true);
       setFeedback(null);
       setError(null);
-      const response = await adminPostJson<{ results: RestoreOperationResult[] }>(
-        "/api/admin/restore",
-        {
-          transactionId: Number(auditTransactionId),
-        },
-        "Informe a chave administrativa para restaurar a transacao selecionada."
-      );
-
+      const response = await fetchJson<{ results: RestoreOperationResult[] }>("/api/admin/restore", {
+        method: "POST",
+        body: JSON.stringify({ transactionId: Number(auditTransactionId) }),
+      });
       setFeedback(`${response.results.length} registro(s) restaurado(s) a partir da transacao informada.`);
       await loadSummary();
       await loadAudit();
@@ -258,12 +224,8 @@ export default function RecoveryConsole() {
       setRunningBackup(true);
       setFeedback(null);
       setError(null);
-      await adminPostJson(
-        "/api/internal/backups/export",
-        {},
-        "Informe a chave administrativa para executar o backup manual agora."
-      );
-      setFeedback("Backup clínico executado com sucesso.");
+      await fetchJson("/api/internal/backups/export", { method: "POST" });
+      setFeedback("Backup clinico executado com sucesso.");
       await loadSummary();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Nao foi possivel executar o backup agora.");
@@ -277,11 +239,7 @@ export default function RecoveryConsole() {
       setRunningDrill(true);
       setFeedback(null);
       setError(null);
-      await adminPostJson(
-        "/api/internal/backups/drill",
-        {},
-        "Informe a chave administrativa para executar o drill de restauracao agora."
-      );
+      await fetchJson("/api/internal/backups/drill", { method: "POST" });
       setFeedback("Drill de restauracao executado com sucesso.");
       await loadSummary();
     } catch (runError) {
@@ -290,6 +248,8 @@ export default function RecoveryConsole() {
       setRunningDrill(false);
     }
   }
+
+  useEffect(() => { void loadSummary(); }, []);
 
   return (
     <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.78)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
@@ -303,50 +263,15 @@ export default function RecoveryConsole() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {!isUnlocked ? (
-            <button
-              type="button"
-              onClick={() => void handleUnlock()}
-              disabled={loadingSummary}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#7a4921] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#623915] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loadingSummary ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-              Desbloquear console
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => void loadSummary()}
-                disabled={loadingSummary}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loadingSummary ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
-                Atualizar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleRotateKey()}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)]"
-              >
-                <KeyRound size={16} /> Trocar chave
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  clearAdminOperationsToken();
-                  setIsUnlocked(false);
-                  setSummary(null);
-                  setAuditEntries([]);
-                }}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-              >
-                <ShieldCheck size={16} /> Bloquear
-              </button>
-            </>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => void loadSummary()}
+          disabled={loadingSummary}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loadingSummary ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
+          Atualizar
+        </button>
       </div>
 
       {(error || feedback) && (
@@ -359,10 +284,10 @@ export default function RecoveryConsole() {
         </div>
       )}
 
-      {!isUnlocked ? (
-        <div className="mt-5 rounded-[26px] border border-dashed border-[var(--color-brand-line)] bg-white/70 p-5 text-sm leading-6 text-[var(--color-text-secondary)]">
-          O acesso administrativo fica bloqueado até você informar a chave de operações. Essa chave é exigida para restore,
-          execução manual de backup, consulta de auditoria e arquivamento sensível.
+      {loadingSummary && !summary ? (
+        <div className="mt-5 flex items-center justify-center gap-3 py-12 text-sm text-[var(--color-text-secondary)]">
+          <Loader2 size={18} className="animate-spin" />
+          Carregando console de recuperação…
         </div>
       ) : (
         <div className="mt-6 space-y-6">
@@ -380,12 +305,12 @@ export default function RecoveryConsole() {
             <SummaryCard
               title="Fila clientes"
               value={String(summary?.deletedClients.length || 0)}
-              subtitle="Pacientes arquivados via soft delete, prontos para restauração controlada." 
+              subtitle="Pacientes arquivados via soft delete, prontos para restauração controlada."
             />
             <SummaryCard
               title="Fila documentos"
               value={String((summary?.deletedDocuments.length || 0) + (summary?.deletedPhotos.length || 0))}
-              subtitle="Fotos e documentos enviados para área protegida com trilha completa de auditoria." 
+              subtitle="Fotos e documentos enviados para área protegida com trilha completa de auditoria."
             />
           </div>
 

@@ -462,6 +462,11 @@ function buildPrintHtml(client: Client, dados: FichaAnamneseCapilarDados, brandi
             align-items: center;
             gap: 8px;
           }
+          .print-logo {
+            max-width: 180px;
+            height: auto;
+            margin-bottom: 4px;
+          }
           .brand-wordmark {
             color: #7a4921;
             font-family: "Georgia", "Times New Roman", serif;
@@ -577,6 +582,7 @@ function buildPrintHtml(client: Client, dados: FichaAnamneseCapilarDados, brandi
         <main class="print-shell">
           <header class="print-header">
             <div class="print-brand">
+              <img src="${escapeHtml(window.location.origin + "/logo-al.png")}" alt="Logo" class="print-logo" />
               <div class="brand-wordmark">${escapeHtml(branding.clinicName)}</div>
               <div class="brand-subtitle">${escapeHtml(branding.clinicSubtitle)}</div>
               <p class="print-eyebrow">${escapeHtml(branding.clinicalRecordLabel)}</p>

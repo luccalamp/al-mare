@@ -1,5 +1,4 @@
 import { WindowTab } from "@/types";
-import { supabase } from "@/lib/supabaseClient";
 
 export type WorkflowStageId = WindowTab | `custom:${string}`;
 export type WorkflowStageTemplate = "livre" | "checklist" | "orientacao" | "retorno";
@@ -35,6 +34,7 @@ const BUILTIN_WORKFLOW_STAGE_DEFINITIONS: Array<Omit<WorkflowStageDefinition, "v
   { id: "diagnostico", source: "builtin", label: "Saúde", template: "orientacao" },
   { id: "colorimetria", source: "builtin", label: "Procedimentos", template: "orientacao" },
   { id: "evolucao", source: "builtin", label: "Evolução", template: "livre" },
+  { id: "financeiro", source: "builtin", label: "Financeiro", template: "livre" },
   { id: "pos-venda", source: "builtin", label: "Homecare", template: "retorno" },
   { id: "galeria", source: "builtin", label: "Galeria", template: "livre" },
 ];
@@ -163,16 +163,10 @@ export async function fetchWorkflowStagesFromSupabase(organizationId: string | n
   if (!organizationId) {
     return null;
   }
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
 
   const res = await fetch(
     `/api/clinic-preferences?key=${encodeURIComponent(WORKFLOW_STAGE_PREFERENCE_KEY)}`,
-    { method: "GET", headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" }
+    { method: "GET", cache: "no-store" }
   );
 
   if (!res.ok) {
@@ -191,21 +185,13 @@ export async function fetchWorkflowStagesFromSupabase(organizationId: string | n
 
 export async function saveWorkflowStagesToSupabase(stages: WorkflowStageDefinition[], organizationId: string | null) {
   if (!organizationId) {
-    throw new Error("Sua sessão expirou. Entre novamente antes de salvar o fluxo.");
+    return;
   }
   const payload = serializeWorkflowStages(stages);
-
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token?.trim();
-
-  if (!accessToken) {
-    throw new Error("Sua sessão expirou. Entre novamente para continuar.");
-  }
 
   const res = await fetch(`/api/clinic-preferences`, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({ key: WORKFLOW_STAGE_PREFERENCE_KEY, payload }),

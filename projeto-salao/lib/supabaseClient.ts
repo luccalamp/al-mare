@@ -1,12 +1,41 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserSupabaseClient } from "@/lib/supabase/client";
 
-// Usando variáveis de ambiente (conforme Next.js .env.local)
-// O prefixo NEXT_PUBLIC_ é necessário para que as variáveis fiquem acessíveis no lado do cliente (browser)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
+type BrowserSupabaseClient = ReturnType<typeof createBrowserSupabaseClient>;
 
-if (!supabaseUrl || !supabasePublishableKey) {
-  console.warn("Credenciais de conexão ausentes. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+let supabaseClient: BrowserSupabaseClient | null = null;
+let realtimeAuthBound = false;
+
+function bindRealtimeAuth(client: BrowserSupabaseClient) {
+	if (realtimeAuthBound || typeof window === "undefined") {
+		return;
+	}
+
+	realtimeAuthBound = true;
+
+	void client.auth.getSession().then(({ data }) => {
+		void client.realtime.setAuth(data.session?.access_token ?? null);
+	});
+
+	client.auth.onAuthStateChange((_event, session) => {
+		void client.realtime.setAuth(session?.access_token ?? null);
+	});
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey);
+export function getSupabaseBrowserClient(): BrowserSupabaseClient {
+	if (!supabaseClient) {
+		supabaseClient = createBrowserSupabaseClient();
+	}
+
+	bindRealtimeAuth(supabaseClient);
+
+	return supabaseClient;
+}
+
+export const supabase = new Proxy({} as BrowserSupabaseClient, {
+	get(_target, property) {
+		const client = getSupabaseBrowserClient();
+		const value = Reflect.get(client, property, client);
+
+		return typeof value === "function" ? value.bind(client) : value;
+	},
+});
