@@ -24,6 +24,9 @@ type PublicAuthError = {
   status?: number;
 };
 
+const GOOGLE_LOGIN_INTENT_STORAGE_KEY = "auth:google-login-intent-at";
+const GOOGLE_LOGIN_INTENT_MAX_AGE_MS = 10 * 60 * 1000;
+
 function logAuthError(scope: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {
     console.error(`[auth] ${scope}`, error);
@@ -64,6 +67,45 @@ function getPublicOtpMessage(error: PublicAuthError | null | undefined) {
   }
 
   return "Não foi possível validar o código agora. Tente novamente em instantes.";
+}
+
+function setGoogleLoginIntent() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY, String(Date.now()));
+  } catch {
+    /* ignore */
+  }
+}
+
+function hasFreshGoogleLoginIntent() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const storedAt = window.sessionStorage.getItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
+    if (!storedAt) return false;
+
+    const startedAt = Number(storedAt);
+    if (!Number.isFinite(startedAt) || Date.now() - startedAt > GOOGLE_LOGIN_INTENT_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearGoogleLoginIntent() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.removeItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -211,8 +253,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       if (_event === "SIGNED_IN" && session?.user) {
         const isGoogleLogin = session.user.app_metadata?.provider === "google";
         const hasProviderToken = !!session.provider_token;
+        const shouldTriggerGoogle2FA = (isGoogleLogin || hasProviderToken) && hasFreshGoogleLoginIntent();
 
-        if ((isGoogleLogin || hasProviderToken) && !pending2FAActiveRef.current && !googleLoginPendingRef.current) {
+        if (shouldTriggerGoogle2FA && !pending2FAActiveRef.current && !googleLoginPendingRef.current) {
           googleLoginPendingRef.current = true;
           isGoogleOAuthRef.current = true;
           const userEmail = session.user.email?.toLowerCase().trim() || "";
@@ -243,15 +286,19 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
               if (process.env.NODE_ENV !== "production") {
                 console.error("[auth] 2FA send failed:", sendData);
               }
+              clearGoogleLoginIntent();
             }
           } catch (err) {
             if (process.env.NODE_ENV !== "production") {
               console.error("[auth] 2FA trigger error:", err);
             }
+            clearGoogleLoginIntent();
           }
 
           googleLoginPendingRef.current = false;
           isGoogleOAuthRef.current = false;
+        } else if (isGoogleLogin || hasProviderToken) {
+          clearGoogleLoginIntent();
         }
       }
 
@@ -371,6 +418,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setMessage(null);
       isGoogleOAuthRef.current = false;
       googleLoginPendingRef.current = false;
+      clearGoogleLoginIntent();
     } catch (err) {
       logAuthError("verify_2fa", err);
       setTwoFAMessage(
@@ -385,6 +433,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setMessage(null);
 
     setAuthBusy(true);
+    setGoogleLoginIntent();
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -399,8 +448,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       if (error) {
         logAuthError("google_oauth_start", error);
         setMessage(getPublicAuthMessage(error, "google"));
+        clearGoogleLoginIntent();
         return;
       }
+    } catch (error) {
+      clearGoogleLoginIntent();
+      throw error;
     } finally {
       setAuthBusy(false);
     }
