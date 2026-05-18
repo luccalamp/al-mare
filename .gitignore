@@ -1,9 +1,14 @@
-/instrucoes/token.md
 node_modules/
 
+# Environment
 .vercel
 .env
+.env.*
 .env*.local
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
 
 # IDE
 .vscode/
@@ -22,3 +27,7 @@ npm-debug.log*
 # temp
 .tmp-*
 scratch/
+*.txt
+
+# AI tools
+skills-lock.json
