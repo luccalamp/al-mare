@@ -2365,9 +2365,6 @@ export default function AnamnesisWindow({
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Etapas do atendimento</p>
                       <h3 className="mt-2 text-xl font-semibold text-[var(--color-text)]">Troque de etapa sem apertar abas pequenas</h3>
-                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-                        Seletor pensado para iPhone, com leitura clara da etapa atual e navegação mais precisa no polegar.
-                      </p>
                     </div>
                     <button
                       type="button"

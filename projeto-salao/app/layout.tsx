@@ -36,6 +36,12 @@ export const metadata: Metadata = {
       noimageindex: true,
     },
   },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Al'maré",
+  },
 };
 
 export const viewport: Viewport = {
@@ -43,7 +49,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#f4ecdf",
+  themeColor: "#8c5a2d",
 };
 
 export default function RootLayout({
@@ -53,6 +59,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" className={`${geist.variable} ${cormorant.variable}`} suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Al'maré" />
+        <meta name="theme-color" content="#8c5a2d" />
+      </head>
       <body className="antialiased text-[var(--color-text)]">
         <BrandingConfigProvider>
           <VercelAnalytics />

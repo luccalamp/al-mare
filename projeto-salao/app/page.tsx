@@ -500,9 +500,6 @@ export default function HomePage() {
               <h1 className="premium-title mt-3 text-[2.35rem] font-semibold leading-none text-[var(--color-ink)]">
                 {baseTitle}
               </h1>
-              <p className="premium-subtitle mt-3 max-w-xs text-sm">
-                Fluxo adaptado para iPhone, com leitura objetiva, acoes no alcance do polegar e menos ruído visual na primeira dobra.
-              </p>
             </div>
 
             <div className="premium-chip shrink-0 flex items-center gap-2">
@@ -566,9 +563,6 @@ export default function HomePage() {
             <div className="max-w-2xl">
               <p className="premium-kicker">Workspace clinico</p>
               <h1 className="premium-title mt-3 text-4xl font-semibold leading-none sm:text-[3.35rem]">{baseTitle}</h1>
-              <p className="premium-subtitle mt-4 max-w-xl text-sm sm:text-base">
-                Centralize pacientes, documentos e operacao visual em uma unica mesa de comando com leitura limpa, ritmo premium e foco na jornada clinica.
-              </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">

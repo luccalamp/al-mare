@@ -1,0 +1,37 @@
+{
+  "name": "Al'maré Saúde Capilar",
+  "short_name": "Al'maré",
+  "description": "Prontuário clínico e gestão de saúde capilar",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#f4ecdf",
+  "theme_color": "#8c5a2d",
+  "categories": ["medical", "health", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "apple": {
+    "webAppCapable": true,
+    "webAppStatusBarStyle": "black-translucent",
+    "webAppTitle": "Al'maré"
+  }
+}
