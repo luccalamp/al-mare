@@ -1,4 +1,14 @@
 {
+  "crons": [
+    {
+      "path": "/api/internal/backups/export",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/internal/backups/drill",
+      "schedule": "0 6 1 * *"
+    }
+  ],
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
