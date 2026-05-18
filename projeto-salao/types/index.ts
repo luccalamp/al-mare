@@ -269,7 +269,7 @@ export type PortalSessionData = {
   upcomingAppointments: readonly ClientAppointment[];
 };
 
-export type WindowTab = "perfil" | "agenda" | "pre-consulta" | "anamnese" | "diagnostico" | "colorimetria" | "evolucao" | "pos-venda" | "galeria" | "financeiro";
+export type WindowTab = "perfil" | "agenda" | "pre-consulta" | "anamnese" | "diagnostico" | "colorimetria" | "evolucao" | "pos-venda" | "galeria" | "financeiro" | "assinaturas";
 
 export type ClientJourneyStage =
   | "cadastro-inicial"
@@ -279,6 +279,13 @@ export type ClientJourneyStage =
   | "em-acompanhamento";
 
 export type ClientJourneyTone = "neutral" | "warning" | "accent" | "success";
+
+export type ClientSignature = {
+  readonly id: string;
+  readonly label: string;
+  readonly imageDataUrl: string;
+  readonly signedAt: string;
+};
 
 export type ClientJourney = {
   readonly stage: ClientJourneyStage;
@@ -301,6 +308,7 @@ export type Client = {
   readonly portalLink?: PortalLink;
   readonly journey?: ClientJourney;
   readonly fichaAnamnese: FichaAnamneseCapilarDados | null;
+  readonly signatures: readonly ClientSignature[];
   readonly createdAt: string;
   readonly updatedAt: string;
 };

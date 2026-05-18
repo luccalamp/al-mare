@@ -223,6 +223,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
     const extraProfile = row.perfil_complementar || {};
     const savedSignature = extraProfile.assinatura || {};
     const legacySignature = fichaDados?.assinatura;
+    const savedSignatures = Array.isArray(extraProfile.signatures) ? extraProfile.signatures : [];
 
     return enrichClient({
       id: row.id,
@@ -300,6 +301,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         linkActive: row.portal_active ?? undefined,
       },
       fichaAnamnese: fichaDados,
+      signatures: savedSignatures,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     });
@@ -641,7 +643,10 @@ export function useClients() {
           dataAniversario: nextProfile.dataAniversario || null,
           photoUrl: nextProfile.photoUrl || null,
           acquisitionChannel: nextProfile.acquisitionChannel || null,
-          perfilComplementar: serializeProfilePayload(nextProfile),
+          perfilComplementar: {
+            ...serializeProfilePayload(nextProfile),
+            signatures: sanitized.signatures || [],
+          },
           ...(avatarStoragePath
             ? {
                 profilePhotoStorageBucket: "anamnese-fotos",
@@ -696,6 +701,7 @@ export function useClients() {
               ...client.profile,
               ...nextProfile,
             },
+            signatures: sanitized.signatures || client.signatures,
             updatedAt: new Date().toISOString(),
           }
         : client

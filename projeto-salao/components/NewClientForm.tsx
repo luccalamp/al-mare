@@ -42,6 +42,7 @@ export default function NewClientForm({ onClose, onSave }: NewClientFormProps) {
       gallery: [],
       appointments: [],
       fichaAnamnese: null,
+      signatures: [],
       createdAt: now,
       updatedAt: now,
     };

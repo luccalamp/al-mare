@@ -35,6 +35,7 @@ const BUILTIN_WORKFLOW_STAGE_DEFINITIONS: Array<Omit<WorkflowStageDefinition, "v
   { id: "colorimetria", source: "builtin", label: "Procedimentos", template: "orientacao" },
   { id: "evolucao", source: "builtin", label: "Evolução", template: "livre" },
   { id: "financeiro", source: "builtin", label: "Financeiro", template: "livre" },
+  { id: "assinaturas", source: "builtin", label: "Assinaturas", template: "livre" },
   { id: "pos-venda", source: "builtin", label: "Homecare", template: "retorno" },
   { id: "galeria", source: "builtin", label: "Galeria", template: "livre" },
 ];

@@ -14,6 +14,7 @@ import ClientEvolutionTab from "@/components/ClientEvolutionTab";
 import ClientAgendaTab from "@/components/ClientAgendaTab";
 import ClientPreConsultationTab from "@/components/ClientPreConsultationTab";
 import ClientFinanceiroTab from "@/components/ClientFinanceiroTab";
+import ClientAssinaturasTab from "@/components/ClientAssinaturasTab";
 import { getPhotoCategoryLabel, normalizePhotoCategory } from "@/lib/photos";
 import {
   WORKFLOW_STAGE_TEMPLATE_LABELS,
@@ -55,6 +56,7 @@ import {
   Settings,
   Info,
   Check,
+  PenTool,
 } from "lucide-react";
 
 interface AnamnesisWindowProps {
@@ -209,6 +211,8 @@ function renderWorkflowStageIcon(stage: WorkflowStageDefinition) {
       return <Activity size={14} />;
     case "financeiro":
       return <Banknote size={14} />;
+    case "assinaturas":
+      return <PenTool size={14} />;
     default:
       return <ClipboardList size={14} />;
   }
@@ -2208,6 +2212,9 @@ export default function AnamnesisWindow({
             )}
             {activeTab === "financeiro" && (
               <ClientFinanceiroTab client={client} />
+            )}
+            {activeTab === "assinaturas" && (
+              <ClientAssinaturasTab client={client} onUpdate={onUpdate} />
             )}
             {activeTab === "agenda" && (
               <ClientAgendaTab
