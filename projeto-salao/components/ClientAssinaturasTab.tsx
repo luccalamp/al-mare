@@ -220,7 +220,22 @@ export default function ClientAssinaturasTab({ client, onUpdate }: ClientAssinat
             {editingId ? "Editar assinatura" : "Nova assinatura"}
           </h3>
         </div>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white p-3">
+          <img
+            src="/icons/resp-ass.png"
+            alt="Responsável pela consulta"
+            className="h-10 w-10 rounded-full object-cover"
+          />
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-brand-accent)]">
+              Responsável pela consulta
+            </p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              A assinatura abaixo vincula o cliente ao termo de responsabilidade da consulta.
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
           {editingId ? "Altere a assinatura e o nome abaixo." : "Desenhe a assinatura da paciente e dê um nome para identificá-la."}
         </p>
 
