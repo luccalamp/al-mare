@@ -1195,7 +1195,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
     : 0;
   const parcelasCalculadas = parcelas > 1 ? calcularParcelas(valorTotalHomecare, parcelas) : [];
 
-  const selectedText = produtosSelecionados.map((p) => `${p.name} (R$ ${p.price.toFixed(2)})`).join(", ");
+  const selectedText = produtosSelecionados.map((p) => `${p.name} (${p.priceLabel ?? `R$ ${p.price.toFixed(2)}`})`).join(", ");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1232,9 +1232,9 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
       {/* Catálogo de Produtos Home Care */}
       <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
         <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Catálogo Home Care</p>
-        <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Produtos Profissionais</h3>
+        <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Kit Home Care</h3>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Selecione os produtos para incluir na prescrição. {CAPILLARY_THERAPY_PAYMENT_POLICY.creditLabel} ou {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontLabel.toLowerCase()}.
+          Selecione o kit para incluir na prescrição. {CAPILLARY_THERAPY_PAYMENT_POLICY.creditLabel} ou {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontLabel.toLowerCase()}.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1259,7 +1259,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
                     )}
                   </div>
                   <span className="text-sm font-black text-[var(--color-brand-deep)] flex-shrink-0">
-                    R$ {product.price.toFixed(0)}
+                    {product.priceLabel ?? `R$ ${product.price.toFixed(0)}`}
                   </span>
                 </div>
                 {isSelected && (
@@ -1530,13 +1530,13 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
                         required
                         value={produtosRecomendados}
                         onChange={(e) => setProdutosRecomendados(e.target.value)}
-                        placeholder="Ex: Shampoo hidratante, Máscara reconstrutora..."
+                        placeholder="Ex: Kit Home Care"
                         rows={3}
                         className="input-light min-h-24"
                       />
                       {selectedProducts.length > 0 && (
                         <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">
-                          Itens do catálogo: {selectedText}
+                          Item do catálogo: {selectedText}
                         </p>
                       )}
                     </div>

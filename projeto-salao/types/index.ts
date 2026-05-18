@@ -92,15 +92,16 @@ export type HomeCareProduct = {
   readonly name: string;
   readonly price: number;
   readonly description?: string;
+  readonly priceLabel?: string;
 };
 
 export const HOME_CARE_PRODUCTS: readonly HomeCareProduct[] = [
-  { name: "Kit Home Care Jak Oliveira", price: 580, description: "Shampoo, condicionador, tônico e máscara" },
-  { name: "Shampoo Profissional", price: 89, description: "Limpeza suave para cabelos quimicamente tratados" },
-  { name: "Condicionador Reconstrutor", price: 97, description: "Reposição de massa capilar" },
-  { name: "Tônico Capilar Estimulante", price: 129, description: "Estimula o crescimento saudável" },
-  { name: "Máscara de Hidratação Intensiva", price: 145, description: "Hidratação profunda com queratina" },
-  { name: "Leave In Protetor Térmico", price: 78, description: "Proteção contra calor e poluição" },
+  {
+    name: "Kit Home Care",
+    price: 580,
+    description: "Shampoo + condicionador + tônico + máscara de tratamento",
+    priceLabel: "Média R$ 580",
+  },
 ];
 
 export type ManutencaoHomecare = {
