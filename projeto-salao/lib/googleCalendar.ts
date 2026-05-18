@@ -29,12 +29,16 @@ export async function getGoogleCalendarSession(): Promise<GoogleCalendarSession>
   try {
     console.log("[gcal-session-client] Fetching session...");
     const res = await fetch("/api/google-calendar/session", { cache: "no-store" });
+    const text = await res.text();
+    console.log("[gcal-session-client] Status:", res.status);
+    console.log("[gcal-session-client] Body:", text);
+
     if (!res.ok) {
-      console.log("[gcal-session-client] API error:", res.status);
+      console.log("[gcal-session-client] API error");
       return { connected: false };
     }
-    const data = await res.json();
-    console.log("[gcal-session-client] Session:", data);
+    const data = JSON.parse(text);
+    console.log("[gcal-session-client] Parsed session:", data);
     return data;
   } catch (err) {
     console.error("[gcal-session-client] Fetch failed:", err);

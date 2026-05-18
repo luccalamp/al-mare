@@ -205,17 +205,22 @@ export function readStoredTokens(): StoredTokens | null {
   const cookieStore = cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-read] Cookie present:", !!raw);
-  }
+  console.log("[gcal-read] Cookie name:", GOOGLE_TOKEN_COOKIE);
+  console.log("[gcal-read] Cookie present:", !!raw);
+  console.log("[gcal-read] Cookie length:", raw?.length || 0);
 
   if (!raw) return null;
 
   try {
     const parsed = JSON.parse(raw) as StoredTokens;
-    if (!parsed.access_token || !parsed.refresh_token || !parsed.expires_at) return null;
+    if (!parsed.access_token || !parsed.refresh_token || !parsed.expires_at) {
+      console.log("[gcal-read] Parsed but missing fields");
+      return null;
+    }
+    console.log("[gcal-read] Successfully read tokens for:", parsed.email);
     return parsed;
-  } catch {
+  } catch (err) {
+    console.error("[gcal-read] Parse/Decrypt failed:", err);
     return null;
   }
 }
