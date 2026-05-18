@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2, RefreshCw, CircleHelp } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
@@ -17,6 +17,7 @@ const AnamnesisWindow = dynamic(() => import("@/components/AnamnesisWindow"), { 
 const DashboardWindow = dynamic(() => import("@/components/DashboardWindow"), { ssr: false });
 const DocumentsWindow = dynamic(() => import("@/components/DocumentsWindow"), { ssr: false });
 const BrandingSettingsWindow = dynamic(() => import("@/components/BrandingSettingsWindow"), { ssr: false });
+const GuideWindow = dynamic(() => import("@/components/GuideWindow"), { ssr: false });
 const NewClientForm = dynamic(() => import("@/components/NewClientForm"), { ssr: false });
 
 const JOURNEY_FILTERS: Array<{ id: "todos" | ClientJourneyStage; label: string }> = [
@@ -62,6 +63,7 @@ export default function HomePage() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [showDocuments, setShowDocuments] = useState(false);
   const [showBrandingSettings, setShowBrandingSettings] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [spotlightFocused, setSpotlightFocused] = useState(false);
@@ -103,6 +105,7 @@ export default function HomePage() {
         setShowDashboard(false);
         setShowDocuments(false);
         setShowBrandingSettings(false);
+        setShowGuide(false);
         setShowNewForm(false);
         setShowMobileMenu(false);
         setJourneyFilter("todos");
@@ -124,7 +127,7 @@ export default function HomePage() {
   }, [clients]);
 
   useEffect(() => {
-    const hasOverlay = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showNewForm);
+    const hasOverlay = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showGuide || showNewForm);
 
     if (hasOverlay) {
       document.body.dataset.overlayOpen = "true";
@@ -135,18 +138,19 @@ export default function HomePage() {
     return () => {
       delete document.body.dataset.overlayOpen;
     };
-  }, [openClientModal, showDashboard, showDocuments, showBrandingSettings, showNewForm]);
+  }, [openClientModal, showDashboard, showDocuments, showBrandingSettings, showGuide, showNewForm]);
 
   useEffect(() => {
     const sections: string[] = [];
     if (showDashboard) sections.push(branding.dashboardLabel);
     if (showDocuments) sections.push(branding.documentsTitle);
     if (showBrandingSettings) sections.push("Personalização");
+    if (showGuide) sections.push("Guia de uso");
     if (showNewForm) sections.push("Novo Paciente");
     if (openClientModal?.client.profile.nome) sections.push(openClientModal.client.profile.nome);
     sections.push(baseTitle);
     document.title = sections.join(" | ");
-  }, [baseTitle, branding.dashboardLabel, branding.documentsTitle, openClientModal?.client.profile.nome, showDashboard, showDocuments, showBrandingSettings, showNewForm]);
+  }, [baseTitle, branding.dashboardLabel, branding.documentsTitle, openClientModal?.client.profile.nome, showDashboard, showDocuments, showBrandingSettings, showGuide, showNewForm]);
 
   const handleOpenDocuments = () => {
     setSelectedId("documents");
@@ -157,6 +161,12 @@ export default function HomePage() {
   const handleOpenBrandingSettings = () => {
     setSelectedId(null);
     setShowBrandingSettings(true);
+    setShowMobileMenu(false);
+  };
+
+  const handleOpenGuide = () => {
+    setSelectedId(null);
+    setShowGuide(true);
     setShowMobileMenu(false);
   };
 
@@ -371,7 +381,7 @@ export default function HomePage() {
     if (syncStatus === "syncing") return;
     await refreshClients();
   };
-  const hasOverlayOpen = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showNewForm);
+  const hasOverlayOpen = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showGuide || showNewForm);
 
   return (
     <div className="relative min-h-[var(--app-dvh)] pb-4">
@@ -443,6 +453,30 @@ export default function HomePage() {
           </button>
 
           <button
+            type="button"
+            onClick={handleOpenGuide}
+            className="premium-button-secondary hidden h-11 w-11 items-center justify-center md:inline-flex"
+            aria-label="Abrir guia de uso"
+            title="Dúvidas e como cada área funciona"
+          >
+            <span className="relative z-10">
+              <CircleHelp size={18} />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenGuide}
+            className="premium-button-secondary inline-flex h-11 w-11 items-center justify-center sm:hidden"
+            aria-label="Abrir guia de uso"
+            title="Dúvidas e como cada área funciona"
+          >
+            <span className="relative z-10">
+              <CircleHelp size={18} />
+            </span>
+          </button>
+
+          <button
             onClick={() => setShowMobileMenu((prev) => !prev)}
             className="premium-button-secondary inline-flex h-11 w-11 items-center justify-center sm:hidden"
             aria-label="Abrir menu"
@@ -484,6 +518,15 @@ export default function HomePage() {
               className="premium-button-secondary mt-3 flex w-full items-center justify-center px-4 py-3 text-sm"
             >
               <span className="relative z-10">Personalizar marca e textos</span>
+            </button>
+            <button
+              onClick={handleOpenGuide}
+              className="premium-button-secondary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                <CircleHelp size={15} />
+                Guia de uso
+              </span>
             </button>
           </motion.div>
         )}
@@ -554,6 +597,13 @@ export default function HomePage() {
               className="premium-button-secondary ios-touch-target shrink-0 px-4 py-3 text-sm"
             >
               <span className="relative z-10">Personalizar</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenGuide}
+              className="premium-button-secondary ios-touch-target shrink-0 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10">Guia</span>
             </button>
           </div>
         </section>
@@ -758,6 +808,15 @@ export default function HomePage() {
             onDeletePhoto={handleDeletePhoto}
             onDeleteClient={handleDeleteClient}
             onTogglePreConsulta={handleTogglePreConsulta}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showGuide && (
+          <GuideWindow
+            key="guide-window"
+            onClose={() => setShowGuide(false)}
           />
         )}
       </AnimatePresence>
