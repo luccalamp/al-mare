@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     const clientId = linkData.id;
     const clientName = linkData.nome;
 
-    const [homecareRes, galleryRes, appointmentsRes] = await Promise.all([
+    const [homecareRes, galleryRes] = await Promise.all([
       supabase
         .from("manutencao_homecare")
         .select("*")
@@ -78,18 +78,10 @@ export async function GET(request: Request) {
         .eq("cliente_id", clientId)
         .is("deleted_at", null)
         .order("captured_at", { ascending: false }),
-      supabase
-        .from("agendamentos")
-        .select("*")
-        .eq("cliente_id", clientId)
-        .in("status", ["agendado", "confirmado"])
-        .gte("inicio_em", new Date().toISOString())
-        .order("inicio_em", { ascending: true }),
     ]);
 
     if (homecareRes.error) console.error("[portal] homecare error:", JSON.stringify(homecareRes.error));
     if (galleryRes.error) console.error("[portal] gallery error:", JSON.stringify(galleryRes.error));
-    if (appointmentsRes.error) console.error("[portal] appointments error:", JSON.stringify(appointmentsRes.error));
 
     const signedGallery = await Promise.all(
       (galleryRes.data ?? []).map(async (photo) => ({
@@ -107,7 +99,6 @@ export async function GET(request: Request) {
       clientName,
       homecare: homecareRes.data ?? [],
       gallery: signedGallery,
-      upcomingAppointments: appointmentsRes.data ?? [],
       preConsulta: {
         linkActive: linkData.link_ativo ?? false,
         respondedAt: linkData.pre_consulta_respondida_em ?? null,

@@ -5,11 +5,6 @@
 import type { FichaAnamneseCapilarDados } from "./anamneseCapilar";
 export type { FichaAnamneseCapilarDados };
 
-export type ClientProfileSignature = {
-  readonly imageDataUrl?: string;
-  readonly signedAt?: string;
-};
-
 export type SessionStage = {
   readonly higienizacao: boolean;
   readonly aplicacaoAtivos: boolean;
@@ -40,7 +35,6 @@ export type ClientProfile = {
   readonly email?: string;
   readonly profissao?: string;
   readonly estadoCivil?: string;
-  readonly signature?: ClientProfileSignature;
   readonly notes?: string; // Internal notes
   readonly therapeuticPlan?: string;
   readonly evolutionWeeks?: readonly EvolutionPlanWeek[];

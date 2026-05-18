@@ -60,12 +60,6 @@ const serializeProfilePayload = (profile: Client["profile"]) => ({
   email: profile.email || null,
   profissao: profile.profissao || null,
   estadoCivil: profile.estadoCivil || null,
-  assinatura: profile.signature?.imageDataUrl
-    ? {
-        imageDataUrl: profile.signature.imageDataUrl,
-        signedAt: profile.signature.signedAt || null,
-      }
-    : null,
 });
 
 const mapDbAppointment = (row: any): ClientAppointment => ({
@@ -256,8 +250,6 @@ const mapDbClients = (dbClients: any[]): Client[] =>
     const record = Array.isArray(ficha) ? ficha[0] : ficha;
     const fichaDados = (record?.dados as FichaAnamneseCapilarDados | undefined) ?? null;
     const extraProfile = row.perfil_complementar || {};
-    const savedSignature = extraProfile.assinatura || {};
-    const legacySignature = fichaDados?.assinatura;
     const savedSignatures = Array.isArray(extraProfile.signatures) ? extraProfile.signatures : [];
 
     return enrichClient({
@@ -278,13 +270,6 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         email: extraProfile.email || undefined,
         profissao: extraProfile.profissao || undefined,
         estadoCivil: extraProfile.estadoCivil || undefined,
-        signature:
-          savedSignature.imageDataUrl || savedSignature.signedAt || legacySignature?.assinaturaBD || legacySignature?.dataAssinatura
-            ? {
-                imageDataUrl: savedSignature.imageDataUrl || legacySignature?.assinaturaBD || undefined,
-                signedAt: savedSignature.signedAt || legacySignature?.dataAssinatura || undefined,
-              }
-            : undefined,
       },
       diagnosticos: diagnosticosRows.map((d: any) => ({
         id: d.id,

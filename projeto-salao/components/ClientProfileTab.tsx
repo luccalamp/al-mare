@@ -1,7 +1,7 @@
 "use client";
 
 import NextImage from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState, useRef } from "react";
 import { Client, ClientProfile } from "@/types";
 import { getClientAvatarUrl } from "@/lib/clientMedia";
 import { AlertTriangle, Loader2, Save, Upload, User } from "lucide-react";
@@ -58,9 +58,7 @@ export default function ClientProfileTab({
   onUpdate,
   onDeleteClient,
 }: ClientProfileTabProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  const signatureInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<EditableProfile>(() => toEditableProfile(client.profile));
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(() => getClientAvatarUrl(client));
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -69,120 +67,9 @@ export default function ClientProfileTab({
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [hasSignatureStroke, setHasSignatureStroke] = useState(
-    Boolean(client.profile.signature?.imageDataUrl || client.fichaAnamnese?.assinatura?.assinaturaBD)
-  );
-
-  const currentSignature = client.profile.signature?.imageDataUrl || client.fichaAnamnese?.assinatura?.assinaturaBD;
-  const currentSignedAt = client.profile.signature?.signedAt || client.fichaAnamnese?.assinatura?.dataAssinatura;
-
-  const initCanvas = useCallback(
-    (signatureData?: string) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = rect.width * ratio;
-      canvas.height = rect.height * ratio;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(ratio, ratio);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, rect.width, rect.height);
-      ctx.strokeStyle = "#000000";
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      if (!signatureData) return;
-
-      const img = new Image();
-      img.onload = () => {
-        const context = canvas.getContext("2d");
-        if (!context) return;
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, rect.width, rect.height);
-        context.drawImage(img, 0, 0, rect.width, rect.height);
-      };
-      img.src = signatureData;
-    },
-    []
-  );
-
-  useEffect(() => {
-    setForm(toEditableProfile(client.profile));
-    setAvatarPreview(getClientAvatarUrl(client));
-    setAvatarFile(null);
-    setHasSignatureStroke(Boolean(currentSignature));
-    setFeedback(null);
-    setError(null);
-  }, [client, currentSignature]);
-
-  useEffect(() => {
-    initCanvas(currentSignature);
-  }, [currentSignature, initCanvas]);
-
-  useEffect(() => {
-    const handleResize = () => initCanvas(currentSignature);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [currentSignature, initCanvas]);
 
   const updateField = <K extends keyof EditableProfile>(field: K, value: EditableProfile[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const getCanvasPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
-  };
-
-  const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const point = getCanvasPoint(event);
-    if (!point) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    event.preventDefault();
-    canvas.setPointerCapture?.(event.pointerId);
-    setIsDrawing(true);
-    setHasSignatureStroke(true);
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-  };
-
-  const draw = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
-    const point = getCanvasPoint(event);
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!point || !canvas || !ctx) return;
-    event.preventDefault();
-    ctx.lineTo(point.x, point.y);
-    ctx.stroke();
-  };
-
-  const stopDrawing = (event?: React.PointerEvent<HTMLCanvasElement>) => {
-    setIsDrawing(false);
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (ctx) ctx.closePath();
-    if (canvas && event) {
-      canvas.releasePointerCapture?.(event.pointerId);
-    }
-  };
-
-  const clearSignature = () => {
-    initCanvas();
-    setHasSignatureStroke(false);
-    setFeedback("Assinatura removida. Salve o perfil para concluir.");
   };
 
   const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -201,56 +88,12 @@ export default function ClientProfileTab({
     reader.readAsDataURL(file);
   };
 
-  const handleSignatureImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Selecione uma imagem válida para importar a assinatura.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!dataUrl.startsWith("data:image/")) {
-        setError("Formato de assinatura inválido.");
-        return;
-      }
-      setHasSignatureStroke(true);
-      initCanvas(dataUrl);
-      setFeedback("Assinatura importada. Salve o perfil para concluir.");
-    };
-    reader.readAsDataURL(file);
-
-    if (signatureInputRef.current) {
-      signatureInputRef.current.value = "";
-    }
-  };
-
-  const buildSignature = () => {
-    if (!hasSignatureStroke) return undefined;
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-    const imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    if (!imageDataUrl.startsWith("data:image/")) {
-      throw new Error("Formato de assinatura inválido.");
-    }
-    if (imageDataUrl.length > 1024 * 1024) {
-      throw new Error("A assinatura ficou muito grande. Tente refazer com um traço mais simples.");
-    }
-    return {
-      imageDataUrl,
-      signedAt: currentSignedAt || new Date().toISOString(),
-    };
-  };
-
   const handleSaveProfile = async () => {
     try {
       setSaving(true);
       setError(null);
       setFeedback(null);
 
-      const nextSignature = buildSignature();
       const updatedClient: Client = {
         ...client,
         profile: {
@@ -269,7 +112,6 @@ export default function ClientProfileTab({
           email: form.email || undefined,
           profissao: form.profissao || undefined,
           estadoCivil: form.estadoCivil || undefined,
-          signature: nextSignature,
         },
         updatedAt: new Date().toISOString(),
       };
@@ -402,57 +244,6 @@ export default function ClientProfileTab({
                 <input className="input-light mt-2" value={form.cep} onChange={(event) => updateField("cep", event.target.value)} />
               </label>
             </div>
-
-            <section className="rounded-[28px] border border-[var(--color-brand-line)] bg-white/75 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h4 className="text-sm font-semibold text-[var(--color-text)]">Assinatura vinculada ao perfil</h4>
-                  <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
-                    A assinatura deixa de ficar dentro da ficha e passa a acompanhar o cadastro principal da paciente.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => signatureInputRef.current?.click()}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-white"
-                >
-                  <Upload size={16} /> Importar assinatura
-                </button>
-                <input
-                  ref={signatureInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleSignatureImport}
-                  className="hidden"
-                />
-              </div>
-
-              <canvas
-                ref={canvasRef}
-                onPointerDown={startDrawing}
-                onPointerMove={draw}
-                onPointerUp={stopDrawing}
-                onPointerLeave={stopDrawing}
-                onPointerCancel={stopDrawing}
-                className="mt-4 w-full rounded-2xl border-2 border-white/50 bg-white/80 shadow-sm"
-                style={{ height: "160px", cursor: "crosshair", touchAction: "none" }}
-              />
-
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <button
-                  type="button"
-                  onClick={clearSignature}
-                  className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100"
-                >
-                  Limpar assinatura
-                </button>
-                {currentSignedAt && (
-                  <span className="inline-flex min-h-11 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-700">
-                    Última assinatura: {new Date(currentSignedAt).toLocaleString("pt-BR")}
-                  </span>
-                )}
-              </div>
-            </section>
 
             {(feedback || error) && (
               <p className={`text-sm ${error ? "text-rose-700" : "text-emerald-700"}`}>{error || feedback}</p>
