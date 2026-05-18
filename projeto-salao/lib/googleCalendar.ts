@@ -46,38 +46,6 @@ export async function getGoogleCalendarSession(): Promise<GoogleCalendarSession>
     return { connected: false };
   }
 }
-    const data = JSON.parse(text);
-    console.log("[gcal-session-client] Parsed session:", data);
-    return data;
-  } catch (err) {
-    console.error("[gcal-session-client] Fetch failed:", err);
-    return { connected: false };
-  }
-}
-    const data = JSON.parse(text);
-    console.log("[gcal-session-client] Parsed session:", data);
-    return data;
-  } catch (err) {
-    console.error("[gcal-session-client] Fetch failed:", err);
-    return { connected: false };
-  }
-}
-    const data = JSON.parse(text);
-    console.log("[gcal-session-client] Parsed session:", data);
-    return data;
-  } catch (err) {
-    console.error("[gcal-session-client] Fetch failed:", err);
-    return { connected: false };
-  }
-}
-    const data = JSON.parse(text);
-    console.log("[gcal-session-client] Parsed session:", data);
-    return data;
-  } catch (err) {
-    console.error("[gcal-session-client] Fetch failed:", err);
-    return { connected: false };
-  }
-}
 
 export async function connectGoogleCalendar(): Promise<{ authUrl: string }> {
   const res = await fetch("/api/google-calendar/connect", { cache: "no-store" });
