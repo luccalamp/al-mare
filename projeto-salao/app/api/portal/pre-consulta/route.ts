@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAuthorizedStaff, requireClientAccess, buildJsonError } from "@/lib/server/tenantAccess";
+import crypto from "crypto";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -102,7 +103,16 @@ export async function PUT(request: Request) {
     }
 
     if (active && !clientCheck.token_pre_consulta) {
-      return buildJsonError("Gere o link do portal antes de ativar a avaliação.", 400);
+      const newToken = crypto.randomUUID();
+      const { error: tokenError } = await supabase
+        .from("clientes")
+        .update({ token_pre_consulta: newToken })
+        .eq("id", clientId);
+
+      if (tokenError) {
+        console.error("[portal/pre-consulta/toggle] Token generation error:", tokenError);
+        return buildJsonError("Não foi possível gerar o token de avaliação.", 500);
+      }
     }
 
     const { error } = await supabase

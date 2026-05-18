@@ -610,18 +610,40 @@ function ColorimetyTab({
   );
   const averageTicket = procedures.length > 0 ? totalRevenue / procedures.length : undefined;
 
-  const applyBudgetPreset = async (preset: CapillaryTherapyBudgetPreset) => {
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+  const [formaPagamento, setFormaPagamento] = useState<"avista" | "parcelado">("avista");
+  const [parcelas, setParcelas] = useState(1);
+  const [saving, setSaving] = useState(false);
+
+  const confirmBudgetPreset = async (preset: CapillaryTherapyBudgetPreset) => {
     try {
+      setSaving(true);
+      const isAvista = formaPagamento === "avista";
+      const valorFinal = isAvista
+        ? calcularPrecoComDesconto(preset.value, CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent)
+        : preset.value;
+
+      const paymentNote = isAvista
+        ? `(À vista com ${CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}% de desconto)`
+        : `(Parcelado em ${parcelas}x no cartão)`;
+
+      const finalNotes = preset.notes ? `${preset.notes}\n${paymentNote}` : paymentNote;
+
       await onAddProcedimento(client.id, {
         tecnicaUtilizada: preset.tecnicaUtilizada,
-        valor: preset.value,
-        anotacoes: preset.notes || undefined,
+        valor: Math.round(valorFinal * 100) / 100,
+        anotacoes: finalNotes,
         alturaClareamento: null,
         fundoClareamentoObtido: undefined,
         volumagemOx: undefined,
       });
+      setSelectedPresetId(null);
+      setFormaPagamento("avista");
+      setParcelas(1);
     } catch {
       alert("Não foi possível salvar o procedimento. Tente novamente.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -688,19 +710,117 @@ function ColorimetyTab({
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {CAPILLARY_THERAPY_BUDGET_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => applyBudgetPreset(preset)}
-                className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/85 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(94,58,28,0.08)]"
-              >
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--color-brand-accent)]">{preset.title}</p>
-                <p className="mt-2 text-sm font-semibold text-[var(--color-text)]">{preset.description}</p>
-                <p className="mt-3 text-lg font-black text-[var(--color-brand-deep)]">{formatBRL(preset.value)}</p>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">Usar como base do lançamento neste prontuário.</p>
-              </button>
-            ))}
+            {CAPILLARY_THERAPY_BUDGET_PRESETS.map((preset) => {
+              const isSelected = selectedPresetId === preset.id;
+              
+              if (isSelected) {
+                const valorComDesconto = calcularPrecoComDesconto(preset.value, CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent);
+                const parcelasCalculadas = parcelas > 1 ? calcularParcelas(preset.value, parcelas) : [];
+                
+                return (
+                  <div key={preset.id} className="rounded-[24px] border border-emerald-300 bg-emerald-50/70 p-4 shadow-[0_14px_26px_rgba(94,58,28,0.08)] flex flex-col justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">{preset.title}</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--color-text)]">{preset.description}</p>
+                    </div>
+                    
+                    <div className="mt-3 space-y-3">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setFormaPagamento("avista"); setParcelas(1); }}
+                          className={`flex-1 rounded-xl border py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider transition ${
+                            formaPagamento === "avista" ? "bg-emerald-100 border-emerald-400 text-emerald-800" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                          }`}
+                        >
+                          À vista (-10%)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormaPagamento("parcelado")}
+                          className={`flex-1 rounded-xl border py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider transition ${
+                            formaPagamento === "parcelado" ? "bg-[var(--color-brand-soft)] border-[var(--color-brand-line)] text-[var(--color-brand-deep)]" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                          }`}
+                        >
+                          Parcelar
+                        </button>
+                      </div>
+                      
+                      {formaPagamento === "parcelado" && (
+                        <div className="flex gap-2">
+                          {Array.from({ length: CAPILLARY_THERAPY_PAYMENT_POLICY.maxInstallments - 1 }, (_, index) => index + 2).map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setParcelas(n)}
+                              className={`flex-1 rounded-xl border py-1.5 text-xs font-bold transition ${
+                                parcelas === n ? "bg-[var(--color-brand-soft)] border-[var(--color-brand-line)] text-[var(--color-brand-deep)]" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                              }`}
+                            >
+                              {n}x
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      
+                      <div className="rounded-xl bg-white/80 p-3 text-center border border-emerald-100">
+                        {formaPagamento === "avista" ? (
+                          <>
+                            <p className="text-[10px] text-[var(--color-text-secondary)] line-through">R$ {preset.value.toFixed(2)}</p>
+                            <p className="text-lg font-black text-emerald-700">R$ {valorComDesconto.toFixed(2)}</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[10px] text-[var(--color-text-secondary)]">{parcelas}x de R$ {parcelas > 1 ? parcelasCalculadas[0].toFixed(2) : preset.value.toFixed(2)}</p>
+                            <p className="text-lg font-black text-[var(--color-brand-deep)]">R$ {preset.value.toFixed(2)}</p>
+                          </>
+                        )}
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPresetId(null)}
+                          disabled={saving}
+                          className="flex-1 rounded-xl border border-rose-200 bg-rose-50 py-2.5 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => confirmBudgetPreset(preset)}
+                          disabled={saving}
+                          className="flex-[2] rounded-xl bg-emerald-600 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-70 flex items-center justify-center gap-1.5"
+                        >
+                          {saving && <Loader2 size={12} className="animate-spin" />}
+                          Confirmar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPresetId(preset.id);
+                    setFormaPagamento("avista");
+                    setParcelas(1);
+                  }}
+                  className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/85 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(94,58,28,0.08)] flex flex-col"
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--color-brand-accent)]">{preset.title}</p>
+                  <p className="mt-2 text-sm font-semibold text-[var(--color-text)]">{preset.description}</p>
+                  <div className="mt-auto pt-3">
+                    <p className="text-lg font-black text-[var(--color-brand-deep)]">{formatBRL(preset.value)}</p>
+                    <p className="mt-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">Toque para selecionar a forma de pagamento.</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-brand-deep)]">
