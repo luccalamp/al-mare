@@ -85,6 +85,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [twoFABusy, setTwoFABusy] = useState(false);
   const pendingPasswordRef = useRef("");
   const checkingAuthRef = useRef(false);
+  const googleLoginPendingRef = useRef(false);
+  const isGoogleOAuthRef = useRef(false);
 
   async function checkAuth() {
     if (checkingAuthRef.current) return;
@@ -201,10 +203,58 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     void bootstrapAuth();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (process.env.NODE_ENV !== "production") {
         console.log("[auth] onAuthStateChange:", _event, session ? "user present" : "no user");
       }
+
+      if (_event === "SIGNED_IN" && session?.user) {
+        const isGoogleLogin = session.user.app_metadata?.provider === "google";
+        const hasProviderToken = !!session.provider_token;
+
+        if ((isGoogleLogin || hasProviderToken) && !pending2FAActiveRef.current && !googleLoginPendingRef.current) {
+          googleLoginPendingRef.current = true;
+          isGoogleOAuthRef.current = true;
+          const userEmail = session.user.email?.toLowerCase().trim() || "";
+
+          if (process.env.NODE_ENV !== "production") {
+            console.log("[auth] Google login detected, triggering 2FA for:", userEmail);
+          }
+
+          try {
+            const res = await fetch("/api/auth/2fa/send", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ email: userEmail, password: "__google_oauth__" }),
+              credentials: "include",
+            });
+            const sendData = await res.json().catch(() => null);
+
+            if (res.ok) {
+              setPending2FAEmail(userEmail);
+              setShow2FA(true);
+              setTwoFACode("");
+              setTwoFAMessage(null);
+              pending2FAActiveRef.current = true;
+              setPending2FAActive(true);
+              setUser(null);
+              return;
+            } else {
+              if (process.env.NODE_ENV !== "production") {
+                console.error("[auth] 2FA send failed:", sendData);
+              }
+            }
+          } catch (err) {
+            if (process.env.NODE_ENV !== "production") {
+              console.error("[auth] 2FA trigger error:", err);
+            }
+          }
+
+          googleLoginPendingRef.current = false;
+          isGoogleOAuthRef.current = false;
+        }
+      }
+
       setUser(session?.user ?? null);
       if (pending2FAActiveRef.current && _event === "SIGNED_IN") {
         return;
@@ -301,13 +351,15 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: pending2FAEmail,
-        password: pendingPasswordRef.current,
-      });
+      if (!isGoogleOAuthRef.current) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: pending2FAEmail,
+          password: pendingPasswordRef.current,
+        });
 
-      if (signInError) {
-        throw signInError;
+        if (signInError) {
+          throw signInError;
+        }
       }
 
       setShow2FA(false);
@@ -317,6 +369,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setTwoFAMessage(null);
       pendingPasswordRef.current = "";
       setMessage(null);
+      isGoogleOAuthRef.current = false;
+      googleLoginPendingRef.current = false;
     } catch (err) {
       logAuthError("verify_2fa", err);
       setTwoFAMessage(

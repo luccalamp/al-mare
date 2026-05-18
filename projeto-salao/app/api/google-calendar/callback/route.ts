@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exchangeCodeForTokens, storeTokens } from "@/lib/server/googleCalendarAuth";
+import { exchangeCodeForTokens, resolveGoogleCalendarRedirectUri, storeTokens } from "@/lib/server/googleCalendarAuth";
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +10,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Código OAuth ausente." }, { status: 400 });
     }
 
-    const tokens = await exchangeCodeForTokens(code);
+    const redirectUri = resolveGoogleCalendarRedirectUri(request);
+    const tokens = await exchangeCodeForTokens(code, redirectUri);
 
     const storedTokens = {
       access_token: tokens.access_token,
@@ -33,6 +34,9 @@ export async function POST(request: Request) {
     if (process.env.NODE_ENV !== "production") {
       console.error("Google Calendar OAuth callback error:", err);
     }
-    return NextResponse.json({ error: "Falha ao completar a autenticação com o Google." }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Falha ao completar a autenticação com o Google." },
+      { status: 500 }
+    );
   }
 }

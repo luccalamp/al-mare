@@ -7,6 +7,7 @@ import {
   createGoogleCalendarEvent,
   disconnectGoogleCalendar,
   getGoogleCalendarSession,
+  GOOGLE_CALENDAR_OAUTH_MESSAGE_TYPE,
   type GoogleCalendarSession,
 } from "@/lib/googleCalendar";
 import {
@@ -160,9 +161,30 @@ export default function ClientAgendaTab({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    const handleMessage = (event: MessageEvent<{ type?: string; status?: string; error?: string }>) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (event.data?.type !== GOOGLE_CALENDAR_OAUTH_MESSAGE_TYPE) {
+        return;
+      }
+
+      if (event.data.status === "success") {
+        setMessage("Google Calendar conectado!");
+        void getGoogleCalendarSession().then((session) => setGoogleSession(session));
+        return;
+      }
+
+      setMessage(event.data.error || "Conexão com o Google cancelada.");
+    };
+
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("gcal_connected");
     const error = params.get("gcal_error");
+
+    window.addEventListener("message", handleMessage);
 
     if (connected === "true") {
       setMessage("Google Calendar conectado!");
@@ -178,13 +200,24 @@ export default function ClientAgendaTab({
       const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
       window.history.replaceState({}, document.title, newUrl);
     }
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
   }, []);
 
   const handleConnectGoogle = async () => {
     try {
       setMessage(null);
       const { authUrl } = await connectGoogleCalendar();
-      window.open(authUrl, "_blank", "noopener,noreferrer");
+      const popup = window.open(authUrl, "gcal_oauth", "popup=yes,width=540,height=720");
+
+      if (!popup) {
+        window.location.assign(authUrl);
+        return;
+      }
+
+      popup.focus();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Não foi possível conectar.");
     }

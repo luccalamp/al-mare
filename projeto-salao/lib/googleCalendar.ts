@@ -1,5 +1,8 @@
 "use client";
 
+export const GOOGLE_CALENDAR_OAUTH_STATE_STORAGE_KEY = "gcal_oauth_state";
+export const GOOGLE_CALENDAR_OAUTH_MESSAGE_TYPE = "gcal_oauth_result";
+
 export type GoogleCalendarSession = {
   connected: boolean;
   email?: string;
@@ -39,8 +42,8 @@ export async function connectGoogleCalendar(): Promise<{ authUrl: string }> {
     throw new Error(data.error || "Não foi possível iniciar a conexão com o Google Calendar.");
   }
   const data = await res.json();
-  if (data.state) {
-    sessionStorage.setItem("gcal_oauth_state", data.state);
+  if (typeof window !== "undefined" && data.state) {
+    localStorage.setItem(GOOGLE_CALENDAR_OAUTH_STATE_STORAGE_KEY, data.state);
   }
   return { authUrl: data.authUrl };
 }

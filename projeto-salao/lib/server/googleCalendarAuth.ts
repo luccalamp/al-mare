@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 const GOOGLE_TOKEN_COOKIE = "gcal_tokens";
 const GOOGLE_TOKEN_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
+const GOOGLE_CALENDAR_CALLBACK_PATH = "/google-calendar-callback";
 
 type StoredTokens = {
   access_token: string;
@@ -20,14 +21,45 @@ function getGoogleClientSecret(): string {
   return process.env.GOOGLE_CLIENT_SECRET?.trim() || "";
 }
 
-function getRedirectUri(): string {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://jakoliveira.com.br";
-  return `${baseUrl}/google-calendar-callback`;
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
-export function getGoogleCalendarAuthUrl(state: string): string {
+function getRequestOrigin(request: Request): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
+export function resolveGoogleCalendarRedirectUri(request?: Request): string {
+  const explicitRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim();
+  if (explicitRedirectUri) {
+    return trimTrailingSlash(explicitRedirectUri);
+  }
+
+  if (request) {
+    return `${trimTrailingSlash(getRequestOrigin(request))}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+  }
+
+  const configuredBaseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL?.trim() || process.env.BASE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  if (configuredBaseUrl) {
+    return `${trimTrailingSlash(configuredBaseUrl)}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
+  }
+
+  throw new Error(
+    "Nao foi possivel determinar a URL de retorno do Google Calendar. Configure GOOGLE_CALENDAR_REDIRECT_URI ou acesse pela URL final do app."
+  );
+}
+
+export function getGoogleCalendarAuthUrl(state: string, redirectUri: string): string {
   const clientId = getGoogleClientId();
-  const redirectUri = getRedirectUri();
   const scopes = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -47,7 +79,8 @@ export function getGoogleCalendarAuthUrl(state: string): string {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<{
+
+export async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<{
   access_token: string;
   refresh_token: string;
   expires_in: number;
@@ -55,7 +88,6 @@ export async function exchangeCodeForTokens(code: string): Promise<{
 }> {
   const clientId = getGoogleClientId();
   const clientSecret = getGoogleClientSecret();
-  const redirectUri = getRedirectUri();
 
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
-import { getGoogleCalendarAuthUrl } from "@/lib/server/googleCalendarAuth";
+import { getGoogleCalendarAuthUrl, resolveGoogleCalendarRedirectUri } from "@/lib/server/googleCalendarAuth";
 import crypto from "crypto";
 
 export async function GET(request: Request) {
@@ -10,8 +10,9 @@ export async function GET(request: Request) {
   }
 
   const state = crypto.randomUUID();
-  const authUrl = getGoogleCalendarAuthUrl(state);
+  const redirectUri = resolveGoogleCalendarRedirectUri(request);
+  const authUrl = getGoogleCalendarAuthUrl(state, redirectUri);
 
-  const response = NextResponse.json({ authUrl, state });
+  const response = NextResponse.json({ authUrl, state, redirectUri });
   return response;
 }

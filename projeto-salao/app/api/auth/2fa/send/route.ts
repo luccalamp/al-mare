@@ -24,6 +24,7 @@ export async function POST(request: Request) {
 
   const { email, password } = await request.json().catch(() => ({ email: "", password: "" }));
   const normalizedEmail = typeof email === "string" ? email.toLowerCase().trim() : "";
+  const isGoogleOAuth = password === "__google_oauth__";
 
   if (!normalizedEmail || !normalizedEmail.includes("@") || typeof password !== "string" || !password) {
     return NextResponse.json({ error: "E-mail e senha são obrigatórios." }, { status: 400 });
@@ -43,26 +44,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Credenciais públicas do Supabase não configuradas." }, { status: 500 });
     }
 
-    const authClient = createClient(supabaseUrl, supabasePublishableKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
+    if (!isGoogleOAuth) {
+      const authClient = createClient(supabaseUrl, supabasePublishableKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      });
 
-    const { error: passwordError } = await authClient.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
+      const { error: passwordError } = await authClient.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
 
-    if (passwordError) {
-      if (process.env.NODE_ENV !== "production") {
-        console.error("2fa password validation error:", passwordError);
+      if (passwordError) {
+        if (process.env.NODE_ENV !== "production") {
+          console.error("2fa password validation error:", passwordError);
+        }
+        return NextResponse.json(
+          { error: "E-mail ou senha inválidos. Confira os dados e tente novamente." },
+          { status: 401 }
+        );
       }
-      return NextResponse.json(
-        { error: "E-mail ou senha inválidos. Confira os dados e tente novamente." },
-        { status: 401 }
-      );
     }
 
     const code = generateOTP();
