@@ -10,8 +10,11 @@ export async function GET(request: Request) {
 
   const tokens = readStoredTokens();
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-session] tokens:", tokens ? "found" : "not found", "email:", tokens?.email);
+  console.log("[gcal-session] === CHECK ===");
+  console.log("[gcal-session] tokens:", tokens ? "found" : "not found");
+  if (tokens) {
+    console.log("[gcal-session] email:", tokens.email);
+    console.log("[gcal-session] expiresAt:", new Date(tokens.expires_at).toISOString());
   }
 
   if (!tokens) {

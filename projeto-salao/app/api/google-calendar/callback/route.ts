@@ -12,16 +12,16 @@ export async function POST(request: Request) {
 
     const redirectUri = resolveGoogleCalendarRedirectUri(request);
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-callback] redirectUri:", redirectUri);
-      console.log("[gcal-callback] code:", code.substring(0, 10) + "...");
-    }
+    console.log("[gcal-callback] === START ===");
+    console.log("[gcal-callback] redirectUri:", redirectUri);
+    console.log("[gcal-callback] GOOGLE_CALENDAR_REDIRECT_URI env:", process.env.GOOGLE_CALENDAR_REDIRECT_URI);
+    console.log("[gcal-callback] code length:", code.length);
 
     const tokens = await exchangeCodeForTokens(code, redirectUri);
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-callback] tokens received, email:", tokens.email);
-    }
+    console.log("[gcal-callback] tokens received");
+    console.log("[gcal-callback] email:", tokens.email);
+    console.log("[gcal-callback] has refresh_token:", !!tokens.refresh_token);
 
     const storedTokens = {
       access_token: tokens.access_token,
@@ -39,11 +39,11 @@ export async function POST(request: Request) {
       path: "/",
     });
 
+    console.log("[gcal-callback] === SUCCESS ===");
     return response;
   } catch (err) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("Google Calendar OAuth callback error:", err);
-    }
+    console.error("[gcal-callback] === ERROR ===");
+    console.error("[gcal-callback]", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Falha ao completar a autenticação com o Google." },
       { status: 500 }

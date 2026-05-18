@@ -8,5 +8,8 @@ export async function POST(request: Request) {
     return authContext;
   }
 
-  return clearStoredTokens();
+  console.log("[gcal-disconnect-api] Clearing tokens...");
+  const response = clearStoredTokens();
+  console.log("[gcal-disconnect-api] Done");
+  return response;
 }

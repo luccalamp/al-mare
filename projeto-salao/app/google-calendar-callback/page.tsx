@@ -9,8 +9,12 @@ import {
 
 function notifyOpener(status: "success" | "error", error?: string) {
   if (typeof window === "undefined") return false;
-  if (!window.opener || window.opener.closed) return false;
+  if (!window.opener || window.opener.closed) {
+    console.log("[gcal-callback-notify] No opener or closed");
+    return false;
+  }
 
+  console.log("[gcal-callback-notify] Sending message:", status, error || "");
   window.opener.postMessage(
     {
       type: GOOGLE_CALENDAR_OAUTH_MESSAGE_TYPE,
@@ -34,7 +38,13 @@ export default function GoogleCalendarCallbackPage() {
     const state = searchParams.get("state");
     const error = searchParams.get("error");
 
+    console.log("[gcal-callback-page] === START ===");
+    console.log("[gcal-callback-page] code:", code ? "present" : "missing");
+    console.log("[gcal-callback-page] state:", state ? "present" : "missing");
+    console.log("[gcal-callback-page] error:", error || "none");
+
     if (error) {
+      console.log("[gcal-callback-page] Error from Google:", error);
       setStatus("error");
       if (notifyOpener("error", error)) {
         return;
@@ -44,6 +54,7 @@ export default function GoogleCalendarCallbackPage() {
     }
 
     if (!code || !state) {
+      console.log("[gcal-callback-page] Missing params");
       setStatus("error");
       if (notifyOpener("error", "missing_params")) {
         return;
@@ -55,7 +66,11 @@ export default function GoogleCalendarCallbackPage() {
     const savedState = localStorage.getItem(GOOGLE_CALENDAR_OAUTH_STATE_STORAGE_KEY);
     localStorage.removeItem(GOOGLE_CALENDAR_OAUTH_STATE_STORAGE_KEY);
 
+    console.log("[gcal-callback-page] savedState:", savedState ? "present" : "missing");
+    console.log("[gcal-callback-page] state match:", state === savedState);
+
     if (state !== savedState) {
+      console.log("[gcal-callback-page] State mismatch");
       setStatus("error");
       if (notifyOpener("error", "invalid_state")) {
         return;
@@ -64,6 +79,7 @@ export default function GoogleCalendarCallbackPage() {
       return;
     }
 
+    console.log("[gcal-callback-page] Calling API callback...");
     fetch("/api/google-calendar/callback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -71,7 +87,9 @@ export default function GoogleCalendarCallbackPage() {
       credentials: "include",
     })
       .then(async (res) => {
+        console.log("[gcal-callback-page] API response status:", res.status);
         if (res.ok) {
+          console.log("[gcal-callback-page] === SUCCESS ===");
           setStatus("success");
           if (notifyOpener("success")) {
             return;
@@ -79,6 +97,7 @@ export default function GoogleCalendarCallbackPage() {
           router.replace("/?gcal_connected=true");
         } else {
           const data = await res.json().catch(() => ({}));
+          console.log("[gcal-callback-page] API error:", data);
           const errorCode = encodeURIComponent(data.error || "callback_failed");
           setStatus("error");
           if (notifyOpener("error", data.error || "callback_failed")) {
@@ -87,7 +106,8 @@ export default function GoogleCalendarCallbackPage() {
           router.replace(`/?gcal_error=${errorCode}`);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[gcal-callback-page] Network error:", err);
         setStatus("error");
         if (notifyOpener("error", "network_error")) {
           return;
@@ -103,6 +123,13 @@ export default function GoogleCalendarCallbackPage() {
         {status === "success" && "Conexão realizada com sucesso!"}
         {status === "error" && "Erro ao conectar. Tente novamente."}
       </p>
+      {process.env.NODE_ENV !== "production" && (
+        <div className="absolute bottom-4 left-4 text-xs text-gray-500">
+          <p>Status: {status}</p>
+          <p>Code: {searchParams.get("code") ? "present" : "missing"}</p>
+          <p>State: {searchParams.get("state") ? "present" : "missing"}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -145,9 +145,12 @@ export default function ClientAgendaTab({
   useEffect(() => {
     void (async () => {
       try {
+        console.log("[gcal-tab] Loading session...");
         const session = await getGoogleCalendarSession();
+        console.log("[gcal-tab] Session loaded:", session);
         setGoogleSession(session);
-      } catch {
+      } catch (err) {
+        console.error("[gcal-tab] Session load failed:", err);
         setGoogleSession({ connected: false });
       } finally {
         setLoadingSession(false);
@@ -167,9 +170,14 @@ export default function ClientAgendaTab({
         return;
       }
 
+      console.log("[gcal-tab] Message received:", event.data);
+
       if (event.data.status === "success") {
         setMessage("Google Calendar conectado!");
-        void getGoogleCalendarSession().then((session) => setGoogleSession(session));
+        void getGoogleCalendarSession().then((session) => {
+          console.log("[gcal-tab] Session after success:", session);
+          setGoogleSession(session);
+        });
         return;
       }
 
@@ -183,14 +191,19 @@ export default function ClientAgendaTab({
     window.addEventListener("message", handleMessage);
 
     if (connected === "true") {
+      console.log("[gcal-tab] Connected via URL param");
       setMessage("Google Calendar conectado!");
-      void getGoogleCalendarSession().then((s) => setGoogleSession(s));
+      void getGoogleCalendarSession().then((s) => {
+        console.log("[gcal-tab] Session after URL param:", s);
+        setGoogleSession(s);
+      });
       params.delete("gcal_connected");
       const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
       window.history.replaceState({}, document.title, newUrl);
     }
 
     if (error) {
+      console.log("[gcal-tab] Error via URL param:", error);
       setMessage("Conexão com o Google cancelada.");
       params.delete("gcal_error");
       const newUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
@@ -205,26 +218,32 @@ export default function ClientAgendaTab({
   const handleConnectGoogle = async () => {
     try {
       setMessage(null);
+      console.log("[gcal-tab] Starting connection...");
       const { authUrl } = await connectGoogleCalendar();
+      console.log("[gcal-tab] Opening auth URL:", authUrl);
       const popup = window.open(authUrl, "gcal_oauth", "popup=yes,width=540,height=720");
 
       if (!popup) {
+        console.log("[gcal-tab] Popup blocked, redirecting");
         window.location.assign(authUrl);
         return;
       }
 
       popup.focus();
     } catch (err) {
+      console.error("[gcal-tab] Connection failed:", err);
       setMessage(err instanceof Error ? err.message : "Não foi possível conectar.");
     }
   };
 
   const handleDisconnectGoogle = async () => {
     try {
+      console.log("[gcal-tab] Disconnecting...");
       await disconnectGoogleCalendar();
       setGoogleSession({ connected: false });
       setMessage("Conexão com o Google Calendar removida.");
     } catch (err) {
+      console.error("[gcal-tab] Disconnect failed:", err);
       setMessage(err instanceof Error ? err.message : "Não foi possível desconectar.");
     }
   };
@@ -249,6 +268,9 @@ export default function ClientAgendaTab({
     setMessage(null);
     setGoogleLink(null);
 
+    console.log("[gcal-tab] Submitting appointment");
+    console.log("[gcal-tab] Google connected:", googleSession.connected);
+
     try {
       const startIso = startTime.toISOString();
       const endIso = endTime.toISOString();
@@ -263,8 +285,11 @@ export default function ClientAgendaTab({
         metadata: { createdFrom: "agenda-tab" },
       });
 
+      console.log("[gcal-tab] Appointment created:", appointment.id);
+
       if (googleSession.connected) {
         const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo";
+        console.log("[gcal-tab] Creating Google Calendar event...");
         const googleEvent = await createGoogleCalendarEvent({
           summary: `Sessão - ${client.profile.nome}`,
           description: notes || `Atendimento de ${client.profile.nome}`,
@@ -272,6 +297,8 @@ export default function ClientAgendaTab({
           end: endIso,
           timeZone,
         });
+
+        console.log("[gcal-tab] Google event created:", googleEvent.id);
 
         await onLinkAppointmentToGoogle(client.id, appointment.id, {
           googleEventId: googleEvent.id,

@@ -20,16 +20,18 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const parsed = eventSchema.safeParse(body);
   if (!parsed.success) {
+    console.error("[gcal-event-api] Validation error:", parsed.error);
     return NextResponse.json({ error: "Dados do evento inválidos." }, { status: 400 });
   }
 
+  console.log("[gcal-event-api] Creating event:", parsed.data.summary);
+
   try {
     const result = await createCalendarEventServer(parsed.data);
+    console.log("[gcal-event-api] Event created:", result.id);
     return NextResponse.json(result);
   } catch (err) {
-    if (process.env.NODE_ENV !== "production") {
-      console.error("Google Calendar event creation error:", err);
-    }
+    console.error("[gcal-event-api] Error:", err);
     const message = err instanceof Error ? err.message : "Não foi possível criar o evento no Google Calendar.";
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -13,6 +13,10 @@ export async function GET(request: Request) {
   const redirectUri = resolveGoogleCalendarRedirectUri(request);
   const authUrl = getGoogleCalendarAuthUrl(state, redirectUri);
 
+  console.log("[gcal-connect] === START ===");
+  console.log("[gcal-connect] redirectUri:", redirectUri);
+  console.log("[gcal-connect] authUrl:", authUrl);
+
   const response = NextResponse.json({ authUrl, state, redirectUri });
   return response;
 }
