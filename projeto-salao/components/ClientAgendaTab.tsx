@@ -112,7 +112,7 @@ export default function ClientAgendaTab({
   const [showNotes, setShowNotes] = useState(false);
 
   const now = new Date();
-  const defaultDate = toISO(now);
+  const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const defaultHour = pad(now.getHours() + 1);
 
   const [date, setDate] = useState(defaultDate);
@@ -237,7 +237,7 @@ export default function ClientAgendaTab({
     const d = new Date();
     d.setDate(d.getDate() + qt.dayOffset);
     d.setHours(qt.hours, qt.minutes, 0, 0);
-    setDate(toISO(d));
+    setDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
     setHour(pad(qt.hours));
     setMinute(pad(qt.minutes));
   };
@@ -290,7 +290,8 @@ export default function ClientAgendaTab({
       }
 
       const nextHour = pad(new Date().getHours() + 1);
-      setDate(toISO(new Date()));
+      const today = new Date();
+      setDate(`${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`);
       setHour(nextHour);
       setMinute("00");
       setDurationMinutes(60);

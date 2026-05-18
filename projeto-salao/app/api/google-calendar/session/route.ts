@@ -10,6 +10,10 @@ export async function GET(request: Request) {
 
   const tokens = readStoredTokens();
 
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[gcal-session] tokens:", tokens ? "found" : "not found", "email:", tokens?.email);
+  }
+
   if (!tokens) {
     return NextResponse.json({ connected: false });
   }

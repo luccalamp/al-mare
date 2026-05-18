@@ -11,7 +11,17 @@ export async function POST(request: Request) {
     }
 
     const redirectUri = resolveGoogleCalendarRedirectUri(request);
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[gcal-callback] redirectUri:", redirectUri);
+      console.log("[gcal-callback] code:", code.substring(0, 10) + "...");
+    }
+
     const tokens = await exchangeCodeForTokens(code, redirectUri);
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[gcal-callback] tokens received, email:", tokens.email);
+    }
 
     const storedTokens = {
       access_token: tokens.access_token,
