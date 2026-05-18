@@ -59,10 +59,6 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function toISO(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function formatDateFull(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Data inválida";
