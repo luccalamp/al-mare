@@ -227,9 +227,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function loadPortal() {
       try {
-        const res = await fetch(`/api/portal/session?token=${encodeURIComponent(params.token)}`);
+        const res = await fetch(`/api/portal/session?token=${encodeURIComponent(params.token)}`, {
+          signal: controller.signal,
+        });
         const data = await res.json().catch(() => null);
 
         if (!data) {
@@ -271,11 +275,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
     void loadPortal();
 
-    const refreshInterval = setInterval(() => {
-      void loadPortal();
-    }, 30000);
-
-    return () => clearInterval(refreshInterval);
+    return () => controller.abort();
   }, [params.token]);
 
   const updateField = <K extends keyof PreConsultaForm>(field: K, value: PreConsultaForm[K]) => {

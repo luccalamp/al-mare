@@ -4,7 +4,6 @@
   "description": "Prontuário clínico e gestão de saúde capilar",
   "start_url": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#f4ecdf",
   "theme_color": "#8c5a2d",
@@ -25,13 +24,7 @@
     {
       "src": "/icons/apple-touch-icon.png",
       "sizes": "180x180",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     }
-  ],
-  "apple": {
-    "webAppCapable": true,
-    "webAppStatusBarStyle": "black-translucent",
-    "webAppTitle": "Al'maré"
-  }
+  ]
 }
