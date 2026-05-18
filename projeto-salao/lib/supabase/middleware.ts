@@ -13,10 +13,10 @@ function readBearerToken(request: NextRequest) {
   return token || null;
 }
 
-export async function updateSupabaseSession(request: NextRequest) {
+export async function updateSupabaseSession(request: NextRequest, requestHeaders: Headers = new Headers(request.headers)) {
   let response = NextResponse.next({
     request: {
-      headers: request.headers,
+      headers: requestHeaders,
     },
   });
 
@@ -64,7 +64,7 @@ export async function updateSupabaseSession(request: NextRequest) {
 
         response = NextResponse.next({
           request: {
-            headers: request.headers,
+            headers: requestHeaders,
           },
         });
 

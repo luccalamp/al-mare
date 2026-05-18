@@ -31,23 +31,6 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(self), microphone=(), geolocation=()",
   },
-  {
-    // Strict CSP against XSS
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://vercel.live https://accounts.google.com https://static.cloudflareinsights.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "style-src-attr 'unsafe-inline'",
-      "font-src 'self' https://fonts.gstatic.com data:",
-      "img-src 'self' data: blob: https://ccrorpxyvxzzsoafwbsj.supabase.co",
-      "connect-src 'self' https://ccrorpxyvxzzsoafwbsj.supabase.co wss://ccrorpxyvxzzsoafwbsj.supabase.co https://vercel.live https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://static.cloudflareinsights.com",
-      "frame-src 'self' https://accounts.google.com https://vercel.live",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "base-uri 'self'",
-    ].join("; "),
-  },
 ];
 
 const nextConfig = {
@@ -73,8 +56,23 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
-        headers: securityHeaders,
+        source: "/api/:path*",
+        headers: [
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "https://jakoliveira.com.br",
+          },
+        ],
+      },
+      {
+        source: "/:path*",
+        headers: [
+          ...securityHeaders,
+          {
+            key: "x-vercel-id",
+            value: "",
+          },
+        ],
       },
     ];
   },
