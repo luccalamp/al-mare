@@ -90,6 +90,21 @@ export async function PUT(request: Request) {
   try {
     const supabase = createSupabaseAdminClient();
 
+    const { data: clientCheck, error: checkError } = await supabase
+      .from("clientes")
+      .select("id, link_ativo, token_pre_consulta")
+      .eq("id", clientId)
+      .single();
+
+    if (checkError || !clientCheck) {
+      console.error("[portal/pre-consulta/toggle] Client not found:", clientId, checkError);
+      return buildJsonError("Cliente não encontrado.", 404);
+    }
+
+    if (active && !clientCheck.token_pre_consulta) {
+      return buildJsonError("Gere o link do portal antes de ativar a avaliação.", 400);
+    }
+
     const { error } = await supabase
       .from("clientes")
       .update({ link_ativo: active })
@@ -99,6 +114,8 @@ export async function PUT(request: Request) {
       console.error("[portal/pre-consulta/toggle] Update error:", JSON.stringify(error));
       return buildJsonError("Não foi possível alterar o status.", 500);
     }
+
+    console.log("[portal/pre-consulta/toggle] Updated link_ativo to", active, "for client", clientId);
 
     return NextResponse.json({ linkActive: active });
   } catch (err) {

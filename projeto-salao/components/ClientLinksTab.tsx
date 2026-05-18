@@ -95,6 +95,11 @@ export default function ClientLinksTab({
   };
 
   const handleTogglePreConsulta = async () => {
+    if (!preConsultaActive && !portalLink?.token) {
+      setMessage("Gere o link do portal antes de ativar a avaliação.");
+      return;
+    }
+
     try {
       setToggling(true);
       await onTogglePreConsulta(client.id, !preConsultaActive);
@@ -211,8 +216,9 @@ export default function ClientLinksTab({
               <button
                 type="button"
                 onClick={handleTogglePreConsulta}
-                disabled={toggling}
+                disabled={toggling || (!preConsultaActive && !portalLink?.token)}
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                title={!preConsultaActive && !portalLink?.token ? "Gere o link do portal primeiro" : undefined}
               >
                 {toggling ? (
                   <Loader2 size={16} className="animate-spin" />
@@ -228,6 +234,11 @@ export default function ClientLinksTab({
                   </>
                 )}
               </button>
+              {!preConsultaActive && !portalLink?.token && (
+                <p className="text-xs text-[var(--color-text-tertiary)]">
+                  Gere o link do portal antes de ativar a avaliação.
+                </p>
+              )}
             </div>
           </div>
         </div>

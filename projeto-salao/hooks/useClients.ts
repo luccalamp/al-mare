@@ -1104,6 +1104,8 @@ export function useClients() {
           : client
       )
     );
+
+    await loadClients({ background: true });
   };
 
   return {

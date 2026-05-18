@@ -270,6 +270,12 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     }
 
     void loadPortal();
+
+    const refreshInterval = setInterval(() => {
+      void loadPortal();
+    }, 30000);
+
+    return () => clearInterval(refreshInterval);
   }, [params.token]);
 
   const updateField = <K extends keyof PreConsultaForm>(field: K, value: PreConsultaForm[K]) => {
