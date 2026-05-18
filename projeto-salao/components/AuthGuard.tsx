@@ -44,7 +44,7 @@ function getSafeRedirectTo() {
 
     if (!isSecureOrigin) return undefined;
 
-    return new URL("/login", origin).toString();
+    return new URL("/", origin).toString();
   } catch {
     return undefined;
   }
@@ -122,89 +122,109 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    // Try to complete OAuth callback if tokens are present in the URL/hash.
-    // Many Supabase SDK helpers may be unavailable depending on installed auth package;
-    // do a best-effort manual parse of access/refresh tokens from the URL and set session.
     const handleAuthCallback = async () => {
       if (typeof window === "undefined") return;
+
+      const hasTokenInHash = !!window.location.hash && window.location.hash.includes("access_token");
+      const hasTokenInSearch = !!window.location.search && (window.location.search.includes("access_token") || window.location.search.includes("refresh_token") || window.location.search.includes("code") || window.location.search.includes("type="));
+
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[auth] URL:", window.location.href);
+        console.log("[auth] hasTokenInHash:", hasTokenInHash);
+        console.log("[auth] hasTokenInSearch:", hasTokenInSearch);
+        console.log("[auth] hash:", window.location.hash);
+        console.log("[auth] search:", window.location.search);
+      }
+
+      if (!hasTokenInHash && !hasTokenInSearch) return;
+
       try {
-        const hasTokenInHash = !!window.location.hash && window.location.hash.includes("access_token");
-        const hasTokenInSearch = !!window.location.search && (window.location.search.includes("access_token") || window.location.search.includes("refresh_token") || window.location.search.includes("code"));
-        if (!hasTokenInHash && !hasTokenInSearch) return;
+        let access_token: string | null = null;
+        let refresh_token: string | null = null;
+        let code: string | null = null;
 
-        try {
-          let access_token: string | null = null;
-          let refresh_token: string | null = null;
-          let code: string | null = null;
-
-          if (hasTokenInHash) {
-            const hash = window.location.hash.replace(/^#/, "");
-            const params = new URLSearchParams(hash);
-            access_token = params.get("access_token");
-            refresh_token = params.get("refresh_token");
-          } else if (hasTokenInSearch) {
-            const params = new URLSearchParams(window.location.search);
-            access_token = params.get("access_token");
-            refresh_token = params.get("refresh_token");
-            code = params.get("code");
-          }
-
-          if (access_token && refresh_token) {
-            const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-            if (error) {
-              throw error;
-            }
-          } else if (code) {
-            const { error } = await supabase.auth.exchangeCodeForSession(code);
-            if (error) {
-              throw error;
-            }
-          }
-
-          if (access_token || refresh_token || code) {
-            try {
-              const cleanUrl = new URL(window.location.href);
-              const authParamNames = [
-                "access_token",
-                "refresh_token",
-                "expires_in",
-                "expires_at",
-                "token_type",
-                "type",
-                "code",
-                "provider_token",
-                "provider_refresh_token",
-              ];
-
-              for (const paramName of authParamNames) {
-                cleanUrl.searchParams.delete(paramName);
-              }
-
-              cleanUrl.hash = "";
-              window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}`);
-            } catch {
-              /* ignore */
-            }
-          }
-        } catch (err) {
-          if (process.env.NODE_ENV !== "production") {
-            console.warn("auth callback handling failed:", err);
-          }
-          await supabase.auth.signOut();
+        if (hasTokenInHash) {
+          const hash = window.location.hash.replace(/^#/, "");
+          const params = new URLSearchParams(hash);
+          access_token = params.get("access_token");
+          refresh_token = params.get("refresh_token");
+        } else if (hasTokenInSearch) {
+          const params = new URLSearchParams(window.location.search);
+          access_token = params.get("access_token");
+          refresh_token = params.get("refresh_token");
+          code = params.get("code");
         }
-      } catch {
-        /* ignore */
+
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[auth] access_token:", access_token ? "present" : "missing");
+          console.log("[auth] refresh_token:", refresh_token ? "present" : "missing");
+          console.log("[auth] code:", code ? "present" : "missing");
+        }
+
+        if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (error) {
+            if (process.env.NODE_ENV !== "production") {
+              console.error("[auth] setSession error:", error);
+            }
+            throw error;
+          }
+        } else if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            if (process.env.NODE_ENV !== "production") {
+              console.error("[auth] exchangeCodeForSession error:", error);
+            }
+            throw error;
+          }
+        }
+
+        if (access_token || refresh_token || code) {
+          try {
+            const cleanUrl = new URL(window.location.href);
+            const authParamNames = [
+              "access_token",
+              "refresh_token",
+              "expires_in",
+              "expires_at",
+              "token_type",
+              "type",
+              "code",
+              "provider_token",
+              "provider_refresh_token",
+            ];
+            for (const paramName of authParamNames) {
+              cleanUrl.searchParams.delete(paramName);
+            }
+            cleanUrl.hash = "";
+            window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}`);
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch (err) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[auth] callback handling failed:", err);
+        }
       }
     };
 
     const bootstrapAuth = async () => {
       await handleAuthCallback();
       await checkAuth();
+
+      if (process.env.NODE_ENV !== "production") {
+        const { data } = await supabase.auth.getSession();
+        console.log("[auth] session after bootstrap:", data?.session ? "active" : "none");
+      }
     };
 
     void bootstrapAuth();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[auth] onAuthStateChange:", _event, session ? "user present" : "no user");
+      }
       setUser(session?.user ?? null);
       if (pending2FAActiveRef.current && _event === "SIGNED_IN") {
         return;
@@ -332,11 +352,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     setAuthBusy(true);
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: getSafeRedirectTo(),
-          skipBrowserRedirect: true,
           queryParams: {
             prompt: "select_account",
           },
@@ -348,13 +366,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         setMessage(getPublicAuthMessage(error, "google"));
         return;
       }
-
-      if (data?.url) {
-        window.location.assign(data.url);
-        return;
-      }
-
-      setMessage("Não foi possível iniciar o login com Google agora. Tente novamente mais tarde.");
     } finally {
       setAuthBusy(false);
     }
