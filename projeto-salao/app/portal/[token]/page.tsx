@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  CAPILLARY_THERAPY_MANUAL_TOPICS,
+  CAPILLARY_THERAPY_PAYMENT_POLICY,
+  CAPILLARY_THERAPY_PDFS,
+  CAPILLARY_THERAPY_SESSION_STEPS,
+} from "@/lib/capillaryTherapyReference";
+import {
   Calendar,
   ShoppingBag,
   Camera,
@@ -25,6 +31,8 @@ type HomecareItem = {
   data_retorno_sugerida?: string;
   obs_cuidados?: string;
   valor_total?: number;
+  forma_pagamento?: "avista" | "parcelado";
+  parcelas?: number;
   pago?: boolean;
 };
 
@@ -78,6 +86,11 @@ function formatDateTime(dateStr: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatCurrency(value: number | undefined): string {
+  if (value === undefined) return "";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function getStatusLabel(status: string): string {
@@ -365,6 +378,86 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               transition={{ duration: 0.2 }}
               className="space-y-3"
             >
+              <div
+                className="rounded-2xl p-4 sm:p-5"
+                style={{
+                  backgroundColor: "rgba(255, 255, 255, 0.72)",
+                  border: "1px solid rgba(113, 76, 43, 0.1)",
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "#8c5a2d" }}>
+                      Materiais da terapia capilar
+                    </p>
+                    <h3 className="mt-1 text-sm font-semibold" style={{ color: "#4f2f19" }}>
+                      Manual e orçamento atualizados
+                    </h3>
+                    <p className="mt-1 text-xs leading-relaxed" style={{ color: "#7d624d" }}>
+                      Consulte as orientacoes da sessao e as condicoes do tratamento sempre que precisar revisar seu plano.
+                    </p>
+                  </div>
+
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: "rgba(140, 90, 45, 0.08)", color: "#8c5a2d" }}
+                  >
+                    <FileText size={18} />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  {CAPILLARY_THERAPY_PDFS.map((resource) => (
+                    <a
+                      key={resource.id}
+                      href={resource.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-start justify-between gap-3 rounded-xl p-3 transition-colors"
+                      style={{
+                        backgroundColor: "rgba(140, 90, 45, 0.06)",
+                        border: "1px solid rgba(140, 90, 45, 0.08)",
+                      }}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold" style={{ color: "#4f2f19" }}>
+                          {resource.title}
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed" style={{ color: "#7d624d" }}>
+                          {resource.description}
+                        </p>
+                      </div>
+                      <ExternalLink size={14} className="mt-0.5 shrink-0" style={{ color: "#8c5a2d" }} />
+                    </a>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {CAPILLARY_THERAPY_MANUAL_TOPICS.slice(0, 3).map((topic) => (
+                    <span
+                      key={topic}
+                      className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                      style={{ backgroundColor: "rgba(92, 117, 100, 0.12)", color: "#5c7564" }}
+                    >
+                      {topic}
+                    </span>
+                  ))}
+                  {CAPILLARY_THERAPY_SESSION_STEPS.slice(0, 2).map((step) => (
+                    <span
+                      key={step}
+                      className="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                      style={{ backgroundColor: "rgba(140, 90, 45, 0.08)", color: "#8c5a2d" }}
+                    >
+                      {step}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="mt-4 text-xs leading-relaxed" style={{ color: "#7d624d" }}>
+                  {CAPILLARY_THERAPY_PAYMENT_POLICY.creditLabel}. {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontLabel}.
+                </p>
+              </div>
+
               {homecare.length === 0 ? (
                 <div
                   className="rounded-2xl p-8 text-center"
@@ -452,26 +545,49 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                             )}
 
                             {item.valor_total !== undefined && item.valor_total > 0 && (
-                              <div className="flex items-center justify-between pt-1">
-                                <p className="text-xs font-medium" style={{ color: "#7d624d" }}>
-                                  Valor
-                                </p>
-                                <div className="flex items-center gap-2">
-                                  {item.pago && (
-                                    <span
-                                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                                      style={{
-                                        backgroundColor: "rgba(92, 139, 101, 0.12)",
-                                        color: "#5c8b65",
-                                      }}
-                                    >
-                                      Pago
-                                    </span>
-                                  )}
-                                  <p className="text-sm font-bold" style={{ color: "#4f2f19" }}>
-                                    R$ {item.valor_total.toFixed(2).replace(".", ",")}
+                              <div className="space-y-2 pt-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-medium" style={{ color: "#7d624d" }}>
+                                    Valor
                                   </p>
+                                  <div className="flex items-center gap-2">
+                                    {item.pago && (
+                                      <span
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                                        style={{
+                                          backgroundColor: "rgba(92, 139, 101, 0.12)",
+                                          color: "#5c8b65",
+                                        }}
+                                      >
+                                        Pago
+                                      </span>
+                                    )}
+                                    <p className="text-sm font-bold" style={{ color: "#4f2f19" }}>
+                                      {formatCurrency(item.valor_total)}
+                                    </p>
+                                  </div>
                                 </div>
+
+                                {(item.forma_pagamento || item.parcelas) && (
+                                  <div className="flex flex-wrap gap-2">
+                                    {item.forma_pagamento === "parcelado" && item.parcelas && (
+                                      <span
+                                        className="text-[10px] font-semibold px-2 py-1 rounded-full"
+                                        style={{ backgroundColor: "rgba(140, 90, 45, 0.08)", color: "#8c5a2d" }}
+                                      >
+                                        {item.parcelas}x no cartao
+                                      </span>
+                                    )}
+                                    {item.forma_pagamento === "avista" && (
+                                      <span
+                                        className="text-[10px] font-semibold px-2 py-1 rounded-full"
+                                        style={{ backgroundColor: "rgba(92, 117, 100, 0.12)", color: "#5c7564" }}
+                                      >
+                                        A vista (-{CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}%)
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </motion.div>

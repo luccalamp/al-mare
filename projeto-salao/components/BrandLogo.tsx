@@ -42,7 +42,6 @@ export default function BrandLogo({
           src={logoSrc}
           alt={brandName}
           fill
-          unoptimized
           priority={priority}
           sizes={compact ? "(min-width: 640px) 10rem, 8rem" : "(min-width: 640px) 16rem, 12rem"}
           className={`object-contain ${logoPositionClass}`}

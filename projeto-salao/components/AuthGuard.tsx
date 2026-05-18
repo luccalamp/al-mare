@@ -363,12 +363,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-[var(--app-dvh)] flex items-center justify-center p-6">
-        <motion.div
-          animate={{ scale: [0.9, 1, 0.9], opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <BrandLogo compact className="opacity-70" />
-        </motion.div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--color-brand-accent)] border-t-transparent" />
+          <p className="text-sm text-[var(--color-text-secondary)]">Carregando...</p>
+        </div>
       </div>
     );
   }

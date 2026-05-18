@@ -15,6 +15,14 @@ import ClientAgendaTab from "@/components/ClientAgendaTab";
 import ClientFinanceiroTab from "@/components/ClientFinanceiroTab";
 import ClientAssinaturasTab from "@/components/ClientAssinaturasTab";
 import ClientLinksTab from "@/components/ClientLinksTab";
+import {
+  CAPILLARY_THERAPY_BUDGET_PRESETS,
+  CAPILLARY_THERAPY_MANUAL_TOPICS,
+  CAPILLARY_THERAPY_PAYMENT_POLICY,
+  CAPILLARY_THERAPY_PDFS,
+  CAPILLARY_THERAPY_SESSION_STEPS,
+  CapillaryTherapyBudgetPreset,
+} from "@/lib/capillaryTherapyReference";
 import { getPhotoCategoryLabel, normalizePhotoCategory } from "@/lib/photos";
 import {
   WORKFLOW_STAGE_TEMPLATE_LABELS,
@@ -57,6 +65,8 @@ import {
   Info,
   Check,
   PenTool,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 
 interface AnamnesisWindowProps {
@@ -802,6 +812,17 @@ function ColorimetyTab({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const applyBudgetPreset = (preset: CapillaryTherapyBudgetPreset) => {
+    setTecnica(preset.tecnicaUtilizada);
+    setValorStr(preset.value.toFixed(2).replace(".", ","));
+    setAnotacoes(preset.notes);
+    setAltura("");
+    setFundo("");
+    setOx("");
+    setErr(null);
+    setModalOpen(true);
+  };
+
   useEffect(() => {
     setPortalReady(true);
   }, []);
@@ -860,7 +881,7 @@ function ColorimetyTab({
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Procedimentos</p>
             <h3 className="text-lg font-semibold text-[var(--color-text)]">Sessões registradas com visão financeira e técnica</h3>
             <p className="max-w-2xl text-sm leading-6 text-[var(--color-text-secondary)]">
-              Organize o histórico de procedimentos, deixe visíveis os detalhes de fundo, OX e altura de clareamento, e acompanhe o valor gerado por paciente sem abrir outra tela.
+              Organize o histórico de procedimentos e sessões de terapia capilar, mantenha visíveis os detalhes técnicos quando houver, e acompanhe o valor gerado por paciente sem abrir outra tela.
             </p>
           </div>
 
@@ -890,6 +911,59 @@ function ColorimetyTab({
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Ticket médio</p>
             <p className="mt-2 text-lg font-semibold text-[var(--color-text)]">{formatBRL(averageTicket)}</p>
             <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{procedures.length} procedimento{procedures.length !== 1 ? "s" : ""} registrado{procedures.length !== 1 ? "s" : ""}.</p>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-[28px] border border-[var(--color-brand-line)] bg-white/75 p-4 shadow-[0_12px_30px_rgba(94,58,28,0.06)] sm:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Orçamento Terapia Capilar</p>
+              <h4 className="text-base font-semibold text-[var(--color-text)]">Consulta, sessão avulsa e pacotes prontos para lançar</h4>
+              <p className="max-w-2xl text-sm leading-6 text-[var(--color-text-secondary)]">
+                Os valores abaixo seguem o PDF de orçamento e já preenchem o formulário de procedimento com a descrição base do atendimento.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {CAPILLARY_THERAPY_PDFS.map((resource) => (
+                <a
+                  key={resource.id}
+                  href={resource.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2 text-xs font-semibold text-[var(--color-brand-deep)] transition hover:bg-white"
+                >
+                  <FileText size={13} />
+                  {resource.title}
+                  <ExternalLink size={12} />
+                </a>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {CAPILLARY_THERAPY_BUDGET_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyBudgetPreset(preset)}
+                className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/85 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(94,58,28,0.08)]"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--color-brand-accent)]">{preset.title}</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--color-text)]">{preset.description}</p>
+                <p className="mt-3 text-lg font-black text-[var(--color-brand-deep)]">{formatBRL(preset.value)}</p>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">Usar como base do lançamento neste prontuário.</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-brand-deep)]">
+            <span className="rounded-full border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2">
+              {CAPILLARY_THERAPY_PAYMENT_POLICY.creditLabel}
+            </span>
+            <span className="rounded-full border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2">
+              {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontLabel}
+            </span>
           </div>
         </div>
       </section>
@@ -1008,7 +1082,7 @@ function ColorimetyTab({
                       value={tecnica}
                       onChange={(e) => setTecnica(e.target.value)}
                       className="w-full rounded-2xl border border-white/50 bg-white/40 px-3.5 py-2.5 text-sm text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-md outline-none placeholder:text-[#aeaeb2] focus:ring-2 focus:ring-[#0071e3]/25"
-                      placeholder="Ex.: Mechas, tonalização, corte..."
+                      placeholder="Ex.: Consulta capilar, sessão terapêutica, corte..."
                       required
                     />
                   </label>
@@ -1115,7 +1189,10 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
 
   const produtosSelecionados = HOME_CARE_PRODUCTS.filter((p) => selectedProducts.includes(p.name));
   const valorTotalHomecare = produtosSelecionados.reduce((s, p) => s + p.price, 0);
-  const valorComDesconto = valorTotalHomecare > 0 ? calcularPrecoComDesconto(valorTotalHomecare, 10) : 0;
+  const valorComDesconto = valorTotalHomecare > 0 ? calcularPrecoComDesconto(valorTotalHomecare, CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent) : 0;
+  const valorFinalHomecare = valorTotalHomecare > 0
+    ? Math.round((formaPagamento === "avista" ? valorComDesconto : valorTotalHomecare) * 100) / 100
+    : 0;
   const parcelasCalculadas = parcelas > 1 ? calcularParcelas(valorTotalHomecare, parcelas) : [];
 
   const selectedText = produtosSelecionados.map((p) => `${p.name} (R$ ${p.price.toFixed(2)})`).join(", ");
@@ -1131,7 +1208,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
         produtosRecomendados: text,
         obsCuidados: obsCuidados || undefined,
         dataRetornoSugerida: dataRetornoSugerida || undefined,
-        valorTotal: valorTotalHomecare || undefined,
+        valorTotal: valorFinalHomecare || undefined,
         formaPagamento: valorTotalHomecare > 0 ? formaPagamento : undefined,
         parcelas: formaPagamento === "parcelado" ? parcelas : undefined,
       });
@@ -1157,7 +1234,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
         <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Catálogo Home Care</p>
         <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Produtos Profissionais</h3>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Selecione os produtos para incluir na prescrição. Parcelamento em até 4x ou 10% de desconto à vista.
+          Selecione os produtos para incluir na prescrição. {CAPILLARY_THERAPY_PAYMENT_POLICY.creditLabel} ou {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontLabel.toLowerCase()}.
         </p>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1199,12 +1276,12 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
         {selectedProducts.length > 0 && (
           <div className="mt-4 rounded-2xl border border-[var(--color-brand-line)] bg-white p-4 space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-semibold text-[var(--color-text)]">Total</span>
+              <span className="font-semibold text-[var(--color-text)]">Valor tabela</span>
               <span className="font-black text-[var(--color-brand-deep)]">R$ {valorTotalHomecare.toFixed(2)}</span>
             </div>
             {formaPagamento === "avista" && valorTotalHomecare > 0 && (
               <div className="flex items-center justify-between text-xs">
-                <span className="text-emerald-600 font-semibold">À vista com 10% desconto</span>
+                <span className="text-emerald-600 font-semibold">A vista com {CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}% de desconto</span>
                 <span className="font-bold text-emerald-600">R$ {valorComDesconto.toFixed(2)}</span>
               </div>
             )}
@@ -1214,6 +1291,12 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
                   {parcelas}x de R$ {parcelasCalculadas[0].toFixed(2)} sem juros
                 </p>
                 <p className="text-[10px] text-[var(--color-text-secondary)]">Total: R$ {valorTotalHomecare.toFixed(2)}</p>
+              </div>
+            )}
+            {valorFinalHomecare > 0 && (
+              <div className="flex items-center justify-between border-t border-[var(--color-brand-line)] pt-3 text-xs">
+                <span className="font-semibold text-[var(--color-text-secondary)]">Valor final do lancamento</span>
+                <span className="font-bold text-[var(--color-text)]">R$ {valorFinalHomecare.toFixed(2)}</span>
               </div>
             )}
             <div className="flex gap-2">
@@ -1238,7 +1321,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
             </div>
             {formaPagamento === "parcelado" && (
               <div className="flex gap-2">
-                {[2, 3, 4].map((n) => (
+                {Array.from({ length: CAPILLARY_THERAPY_PAYMENT_POLICY.maxInstallments - 1 }, (_, index) => index + 2).map((n) => (
                   <button
                     key={n}
                     type="button"
@@ -1254,6 +1337,69 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
             )}
           </div>
         )}
+      </section>
+
+      <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-white/80 p-5 shadow-[0_18px_45px_rgba(94,58,28,0.05)]">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Materiais de apoio</p>
+            <h3 className="text-lg font-semibold text-[var(--color-text)]">Manual e orçamento sempre acessiveis</h3>
+            <p className="max-w-2xl text-sm leading-6 text-[var(--color-text-secondary)]">
+              Mantenha o PDF do manual e o PDF do orçamento por perto durante a orientação da paciente e a prescrição do homecare.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {CAPILLARY_THERAPY_PDFS.map((resource) => (
+            <a
+              key={resource.id}
+              href={resource.href}
+              target="_blank"
+              rel="noreferrer"
+              className="group rounded-[24px] border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-4 transition hover:bg-white"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="rounded-2xl bg-white/80 p-3 text-[var(--color-brand-deep)] shadow-[0_8px_20px_rgba(94,58,28,0.05)]">
+                  <FileText size={18} />
+                </div>
+                <ExternalLink size={14} className="mt-1 text-[var(--color-brand-accent)] transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </div>
+              <p className="mt-3 text-sm font-semibold text-[var(--color-text)]">{resource.title}</p>
+              <p className="mt-1 text-sm leading-6 text-[var(--color-text-secondary)]">{resource.description}</p>
+            </a>
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/80 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Consulta observa</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {CAPILLARY_THERAPY_MANUAL_TOPICS.map((topic) => (
+                <span
+                  key={topic}
+                  className="rounded-full border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2 text-[11px] font-semibold text-[var(--color-brand-deep)]"
+                >
+                  {topic}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/80 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Sessao terapeutica inclui</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {CAPILLARY_THERAPY_SESSION_STEPS.map((step) => (
+                <span
+                  key={step}
+                  className="rounded-full border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-3 py-2 text-[11px] font-semibold text-[var(--color-brand-deep)]"
+                >
+                  {step}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-[32px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-5 shadow-[0_18px_45px_rgba(94,58,28,0.08)]">
@@ -1297,7 +1443,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
                       <span className="text-[var(--color-text-secondary)]">{h.parcelas}x no cartão</span>
                     )}
                     {h.formaPagamento === "avista" && (
-                      <span className="text-emerald-600 font-semibold">10% desconto à vista</span>
+                      <span className="text-emerald-600 font-semibold">A vista (-{CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}%)</span>
                     )}
                   </div>
                 )}

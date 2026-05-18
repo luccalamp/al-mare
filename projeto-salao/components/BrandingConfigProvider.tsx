@@ -164,10 +164,7 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
       };
     }
     body {
-      background: ${
-        config.themeColorBackground ||
-        "linear-gradient(135deg, rgba(255, 251, 247, 0.78), rgba(244, 230, 211, 0.88))"
-      } !important;
+      transition: background 0.3s ease;
     }
     .input-light {
       border-radius: var(--theme-border-radius) !important;
