@@ -66,7 +66,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   };
 
   const createOrganization = useCallback(
-    async (_payload: { nome: string; slug?: string; metadata?: Record<string, unknown> }) => {
+    async (_payload: Record<string, unknown>) => {
       throw new Error("O fluxo de organizações foi desativado neste ambiente.");
     },
     []
