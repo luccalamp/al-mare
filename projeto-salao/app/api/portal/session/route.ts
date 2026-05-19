@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { createSignedStorageUrl } from "@/lib/server/storageUrls";
+import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -86,11 +86,7 @@ export async function GET(request: Request) {
     const signedGallery = await Promise.all(
       (galleryRes.data ?? []).map(async (photo) => ({
         ...photo,
-        url: await createSignedStorageUrl(supabase, {
-          storageBucket: photo.storage_bucket,
-          storagePath: photo.storage_path,
-          fallbackUrl: photo.url,
-        }),
+        url: buildStorageObjectPublicUrl(photo.storage_bucket, photo.storage_path) || photo.url,
       }))
     );
 
