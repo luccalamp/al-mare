@@ -333,3 +333,50 @@ export async function PUT(request: Request) {
 
   return NextResponse.json({ record: data });
 }
+
+export async function DELETE(request: Request) {
+  const authContext = await requireAuthorizedStaff(request, {
+    forbiddenMessage: "Seu acesso não permite excluir registros clínicos.",
+  });
+  if (authContext instanceof NextResponse) {
+    return authContext;
+  }
+
+  const url = new URL(request.url);
+  const action = url.searchParams.get("action");
+  const recordId = url.searchParams.get("recordId");
+  const clientId = url.searchParams.get("clientId");
+
+  if (!action || !recordId || !clientId) {
+    return buildJsonError("Parâmetros inválidos para exclusão.", 400);
+  }
+
+  const access = await requireClientAccess(
+    authContext,
+    clientId,
+    "Seu acesso não permite excluir registros clínicos deste paciente.",
+    "Cliente inválido para esta operação."
+  );
+  if (access.response) {
+    return access.response || buildJsonError("Cliente inválido para esta operação.", 404);
+  }
+
+  switch (action) {
+    case "procedimento": {
+      const { error } = await authContext.admin
+        .from("historico_procedimentos")
+        .delete()
+        .eq("id", recordId)
+        .eq("cliente_id", clientId);
+
+      if (error) {
+        return buildRecordError(error, "Não foi possível excluir o procedimento.");
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    default:
+      return buildJsonError("Ação de exclusão não suportada.", 400);
+  }
+}

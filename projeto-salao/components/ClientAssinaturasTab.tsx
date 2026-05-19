@@ -220,17 +220,17 @@ export default function ClientAssinaturasTab({ client, onUpdate }: ClientAssinat
             {editingId ? "Editar assinatura" : "Nova assinatura"}
           </h3>
         </div>
-        <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white p-3">
+        <div className="mt-4 flex items-center gap-4 rounded-2xl border-2 border-[var(--color-brand-accent)] bg-gradient-to-r from-[var(--color-brand-soft)] to-white p-4 shadow-lg">
           <img
             src="/icons/resp-ass.png"
             alt="Responsável pela consulta"
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-16 w-16 rounded-full object-cover ring-4 ring-white shadow-md"
           />
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-brand-accent)]">
-              Responsável pela consulta
+            <p className="text-sm font-bold uppercase tracking-wider text-[var(--color-brand-accent)]">
+              Responsável pela Consulta
             </p>
-            <p className="text-xs text-[var(--color-text-secondary)]">
+            <p className="mt-1 text-sm font-medium text-[var(--color-text)]">
               A assinatura abaixo vincula o cliente ao termo de responsabilidade da consulta.
             </p>
           </div>

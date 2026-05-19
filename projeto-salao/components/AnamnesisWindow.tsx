@@ -94,6 +94,7 @@ interface AnamnesisWindowProps {
       volumagemOx?: string;
     }
   ) => Promise<void>;
+  onDeleteProcedimento: (clientId: string, procedureId: string) => Promise<void>;
   onAddHomecare: (
     clientId: string,
     input: {
@@ -595,9 +596,11 @@ function DiagnosisTab({
 function ColorimetyTab({
   client,
   onAddProcedimento,
+  onDeleteProcedimento,
 }: {
   client: Client;
   onAddProcedimento: AnamnesisWindowProps["onAddProcedimento"];
+  onDeleteProcedimento: AnamnesisWindowProps["onDeleteProcedimento"];
 }) {
   const procedures = useMemo(
     () => [...client.colorimetrias].sort((left, right) => new Date(right.data).getTime() - new Date(left.data).getTime()),
@@ -614,6 +617,7 @@ function ColorimetyTab({
   const [formaPagamento, setFormaPagamento] = useState<"avista" | "parcelado">("avista");
   const [parcelas, setParcelas] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const confirmBudgetPreset = async (preset: CapillaryTherapyBudgetPreset) => {
     try {
@@ -644,6 +648,20 @@ function ColorimetyTab({
       alert("Não foi possível salvar o procedimento. Tente novamente.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteProcedure = async (procedureId: string) => {
+    if (!confirm("Tem certeza que deseja excluir este procedimento? Esta ação não pode ser desfeita.")) {
+      return;
+    }
+    try {
+      setDeletingId(procedureId);
+      await onDeleteProcedimento(client.id, procedureId);
+    } catch {
+      alert("Não foi possível excluir o procedimento. Tente novamente.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -852,7 +870,7 @@ function ColorimetyTab({
                   <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Registro de {formatDate(col.data)}</p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
                     <Banknote size={14} /> {formatBRL(col.valor)}
                   </span>
@@ -871,6 +889,15 @@ function ColorimetyTab({
                       {col.volumagemOx}
                     </span>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProcedure(col.id)}
+                    disabled={deletingId === col.id}
+                    className="ml-2 rounded-full p-2 text-rose-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Excluir procedimento"
+                  >
+                    {deletingId === col.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  </button>
                 </div>
               </div>
 
@@ -1671,6 +1698,7 @@ export default function AnamnesisWindow({
   onUpdate,
   onAddDiagnostico,
   onAddProcedimento,
+  onDeleteProcedimento,
   onAddHomecare,
   onConfirmarPagamento,
   onAddAppointment,
@@ -2115,7 +2143,7 @@ export default function AnamnesisWindow({
             )}
             {activeTab === "diagnostico" && <DiagnosisTab client={client} onAddDiagnostico={onAddDiagnostico} />}
             {activeTab === "colorimetria" && (
-              <ColorimetyTab client={client} onAddProcedimento={onAddProcedimento} />
+              <ColorimetyTab client={client} onAddProcedimento={onAddProcedimento} onDeleteProcedimento={onDeleteProcedimento} />
             )}
             {activeTab === "pos-venda" && <HomecareTab client={client} onAddHomecare={onAddHomecare} onConfirmarPagamento={onConfirmarPagamento} />}
             {activeTab === "galeria" && <GalleryTab client={client} onUpdate={onUpdate} onDeletePhoto={onDeletePhoto} />}

@@ -863,6 +863,31 @@ export function useClients() {
     return novo;
   };
 
+  const deleteProcedimento = async (clientId: string, procedureId: string): Promise<void> => {
+    const url = `/api/clients/records?action=procedimento&recordId=${encodeURIComponent(procedureId)}&clientId=${encodeURIComponent(clientId)}`;
+    const response = await fetch(url, { method: "DELETE" });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(
+        payload?.error && typeof payload.error === "string"
+          ? payload.error
+          : "Falha ao excluir procedimento."
+      );
+    }
+
+    const nextClients = clientsRef.current.map((client) =>
+      client.id === clientId
+        ? {
+            ...client,
+            colorimetrias: client.colorimetrias.filter((c) => c.id !== procedureId),
+            updatedAt: new Date().toISOString(),
+          }
+        : client
+    );
+    commitClients(nextClients);
+  };
+
   const addHomecare = async (
     clientId: string,
     input: {
@@ -1117,6 +1142,7 @@ export function useClients() {
     updateClient,
     addDiagnostico,
     addProcedimento,
+    deleteProcedimento,
     addHomecare,
     confirmarPagamentoHomecare,
     saveFichaAnamnese,

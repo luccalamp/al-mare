@@ -46,6 +46,7 @@ export default function HomePage() {
     updateClient,
     addDiagnostico,
     addProcedimento,
+    deleteProcedimento,
     addHomecare,
     confirmarPagamentoHomecare,
     addAppointment,
@@ -295,6 +296,22 @@ export default function HomePage() {
       });
     }
   };
+
+  const handleDeleteProcedimento = async (clientId: string, procedureId: string) => {
+    await deleteProcedimento(clientId, procedureId);
+
+    if (openClientModal?.client.id === clientId) {
+      setOpenClientModal({
+        ...openClientModal,
+        client: {
+          ...openClientModal.client,
+          colorimetrias: openClientModal.client.colorimetrias.filter((c) => c.id !== procedureId),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+  };
+
   const handleAddHomecare = async (
     clientId: string,
     input: {
@@ -800,6 +817,7 @@ export default function HomePage() {
             onUpdate={handleClientUpdate}
             onAddDiagnostico={handleAddDiagnostico}
             onAddProcedimento={handleAddProcedimento}
+            onDeleteProcedimento={handleDeleteProcedimento}
             onAddHomecare={handleAddHomecare}
             onConfirmarPagamento={handleConfirmarPagamento}
             onAddAppointment={handleAddAppointment}
