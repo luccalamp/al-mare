@@ -319,7 +319,7 @@ export default function HomePage() {
       obsCuidados?: string;
       dataRetornoSugerida?: string;
       valorTotal?: number;
-      formaPagamento?: "avista" | "parcelado";
+      formaPagamento?: "normal" | "avista" | "parcelado";
       parcelas?: number;
     }
   ) => {

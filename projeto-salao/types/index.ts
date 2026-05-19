@@ -111,7 +111,7 @@ export type ManutencaoHomecare = {
   readonly dataRetornoSugerida?: string;
   readonly obsCuidados?: string;
   readonly valorTotal?: number;
-  readonly formaPagamento?: "avista" | "parcelado";
+  readonly formaPagamento?: "normal" | "avista" | "parcelado";
   readonly parcelas?: number;
   readonly pago?: boolean;
   readonly confirmadoEm?: string;

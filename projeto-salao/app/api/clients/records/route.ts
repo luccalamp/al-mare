@@ -57,7 +57,7 @@ const payloadSchema = z.discriminatedUnion("action", [
     obsCuidados: nullableTrimmedString,
     dataRetornoSugerida: nullableTrimmedString,
     valorTotal: z.number().positive().nullish(),
-    formaPagamento: z.enum(["avista", "parcelado"]).nullish(),
+    formaPagamento: z.enum(["normal", "avista", "parcelado"]).nullish(),
     parcelas: z.number().int().positive().nullish(),
     pago: z.boolean().nullish(),
     confirmadoEm: nullableTrimmedString,

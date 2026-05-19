@@ -102,7 +102,7 @@ interface AnamnesisWindowProps {
       obsCuidados?: string;
       dataRetornoSugerida?: string;
       valorTotal?: number;
-      formaPagamento?: "avista" | "parcelado";
+      formaPagamento?: "normal" | "avista" | "parcelado";
       parcelas?: number;
     }
   ) => Promise<void>;
@@ -614,7 +614,7 @@ function ColorimetyTab({
   const averageTicket = procedures.length > 0 ? totalRevenue / procedures.length : undefined;
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [formaPagamento, setFormaPagamento] = useState<"avista" | "parcelado">("avista");
+  const [formaPagamento, setFormaPagamento] = useState<"normal" | "avista" | "parcelado">("normal");
   const [parcelas, setParcelas] = useState(1);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -623,13 +623,19 @@ function ColorimetyTab({
     try {
       setSaving(true);
       const isAvista = formaPagamento === "avista";
+      const isParcelado = formaPagamento === "parcelado";
       const valorFinal = isAvista
         ? calcularPrecoComDesconto(preset.value, CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent)
         : preset.value;
 
-      const paymentNote = isAvista
-        ? `(À vista com ${CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}% de desconto)`
-        : `(Parcelado em ${parcelas}x no cartão)`;
+      let paymentNote = "";
+      if (isAvista) {
+        paymentNote = `(À vista com ${CAPILLARY_THERAPY_PAYMENT_POLICY.upfrontDiscountPercent}% de desconto)`;
+      } else if (isParcelado && parcelas > 1) {
+        paymentNote = `(Parcelado em ${parcelas}x no cartão)`;
+      } else {
+        paymentNote = `(Pagamento normal)`;
+      }
 
       const finalNotes = preset.notes ? `${preset.notes}\n${paymentNote}` : paymentNote;
 
@@ -746,6 +752,15 @@ function ColorimetyTab({
                       <div className="flex gap-2">
                         <button
                           type="button"
+                          onClick={() => { setFormaPagamento("normal"); setParcelas(1); }}
+                          className={`flex-1 rounded-xl border py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider transition ${
+                            formaPagamento === "normal" ? "bg-blue-100 border-blue-400 text-blue-800" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
+                          }`}
+                        >
+                          Normal
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => { setFormaPagamento("avista"); setParcelas(1); }}
                           className={`flex-1 rounded-xl border py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wider transition ${
                             formaPagamento === "avista" ? "bg-emerald-100 border-emerald-400 text-emerald-800" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"
@@ -787,9 +802,13 @@ function ColorimetyTab({
                             <p className="text-[10px] text-[var(--color-text-secondary)] line-through">R$ {preset.value.toFixed(2)}</p>
                             <p className="text-lg font-black text-emerald-700">R$ {valorComDesconto.toFixed(2)}</p>
                           </>
-                        ) : (
+                        ) : formaPagamento === "parcelado" ? (
                           <>
                             <p className="text-[10px] text-[var(--color-text-secondary)]">{parcelas}x de R$ {parcelas > 1 ? parcelasCalculadas[0].toFixed(2) : preset.value.toFixed(2)}</p>
+                            <p className="text-lg font-black text-[var(--color-brand-deep)]">R$ {preset.value.toFixed(2)}</p>
+                          </>
+                        ) : (
+                          <>
                             <p className="text-lg font-black text-[var(--color-brand-deep)]">R$ {preset.value.toFixed(2)}</p>
                           </>
                         )}
@@ -825,7 +844,7 @@ function ColorimetyTab({
                   type="button"
                   onClick={() => {
                     setSelectedPresetId(preset.id);
-                    setFormaPagamento("avista");
+                    setFormaPagamento("normal");
                     setParcelas(1);
                   }}
                   className="rounded-[24px] border border-[var(--color-brand-line)] bg-white/85 p-4 text-left transition hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(94,58,28,0.08)] flex flex-col"
@@ -941,7 +960,7 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
   const [obsCuidados, setObsCuidados] = useState("");
   const [dataRetornoSugerida, setDataRetornoSugerida] = useState("");
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-  const [formaPagamento, setFormaPagamento] = useState<"avista" | "parcelado">("avista");
+  const [formaPagamento, setFormaPagamento] = useState<"normal" | "avista" | "parcelado">("normal");
   const [parcelas, setParcelas] = useState(1);
 
   const toggleProduct = (name: string) => {
@@ -1063,6 +1082,15 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
               </div>
             )}
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setFormaPagamento("normal"); setParcelas(1); }}
+                className={`flex-1 rounded-xl border py-2 text-xs font-bold uppercase tracking-wider transition ${
+                  formaPagamento === "normal" ? "bg-blue-100 border-blue-400 text-blue-800" : "bg-white border-gray-200 text-gray-500"
+                }`}
+              >
+                Normal
+              </button>
               <button
                 type="button"
                 onClick={() => { setFormaPagamento("avista"); setParcelas(1); }}

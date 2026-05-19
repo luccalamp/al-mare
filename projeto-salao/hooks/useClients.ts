@@ -968,7 +968,7 @@ export function useClients() {
       obsCuidados?: string;
       dataRetornoSugerida?: string;
       valorTotal?: number;
-      formaPagamento?: "avista" | "parcelado";
+      formaPagamento?: "normal" | "avista" | "parcelado";
       parcelas?: number;
     }
   ): Promise<ManutencaoHomecare> => {
