@@ -1,3 +1,4 @@
+-- Corrigir função submit_pre_consultation para evitar null em dados
 CREATE OR REPLACE FUNCTION public.submit_pre_consultation(p_token UUID, p_payload JSONB)
 RETURNS TABLE (
   status TEXT,
@@ -47,6 +48,11 @@ BEGIN
   FROM public.ficha_anamnese_capilar
   WHERE cliente_id = target_cliente.id;
 
+  -- Garantir que existing_data nunca seja NULL
+  IF existing_data IS NULL THEN
+    existing_data := '{}'::jsonb;
+  END IF;
+
   notes := ARRAY_TO_STRING(
     ARRAY_REMOVE(
       ARRAY[
@@ -61,7 +67,12 @@ BEGIN
     E'\n\n'
   );
 
-  next_data := COALESCE(existing_data, '{}'::jsonb)
+  -- Garantir que notes nunca seja NULL
+  IF notes IS NULL THEN
+    notes := '';
+  END IF;
+
+  next_data := existing_data
     || jsonb_build_object(
       'queixa',
       COALESCE(existing_data -> 'queixa', '{}'::jsonb)
@@ -86,10 +97,10 @@ BEGIN
       ),
       'evolucao',
       COALESCE(existing_data -> 'evolucao', '{}'::jsonb)
-      || jsonb_build_object('notas', COALESCE(notes, ''))
+      || jsonb_build_object('notas', notes)
     );
 
-  -- Garantir que next_data não seja NULL
+  -- Garantir que next_data nunca seja NULL
   IF next_data IS NULL THEN
     next_data := '{}'::jsonb;
   END IF;
@@ -132,66 +143,3 @@ BEGIN
   SELECT 'submitted'::TEXT, next_patient_name, NULL::TEXT;
 END;
 $$;
-
-CREATE OR REPLACE FUNCTION public.issue_pre_consultation_link(p_client_id UUID)
-RETURNS TABLE (
-  token UUID,
-  link_active BOOLEAN,
-  responded_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  next_token UUID := gen_random_uuid();
-BEGIN
-  UPDATE public.clientes
-  SET
-    token_pre_consulta = next_token,
-    link_ativo = TRUE,
-    updated_at = NOW()
-  WHERE id = p_client_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Cliente nao encontrado para emitir link de pre-consulta.';
-  END IF;
-
-  RETURN QUERY
-  SELECT next_token, TRUE, NULL::TIMESTAMPTZ;
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.deactivate_pre_consultation_link(p_client_id UUID)
-RETURNS TABLE (
-  token UUID,
-  link_active BOOLEAN,
-  responded_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  RETURN QUERY
-  UPDATE public.clientes
-  SET
-    link_ativo = FALSE,
-    updated_at = NOW()
-  WHERE id = p_client_id
-  RETURNING token_pre_consulta, FALSE, pre_consulta_respondida_em;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Cliente nao encontrado para encerrar link de pre-consulta.';
-  END IF;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.submit_pre_consultation(UUID, JSONB) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.submit_pre_consultation(UUID, JSONB) TO anon, authenticated;
-
-REVOKE ALL ON FUNCTION public.issue_pre_consultation_link(UUID) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.issue_pre_consultation_link(UUID) TO anon, authenticated;
-
-REVOKE ALL ON FUNCTION public.deactivate_pre_consultation_link(UUID) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.deactivate_pre_consultation_link(UUID) TO anon, authenticated;
