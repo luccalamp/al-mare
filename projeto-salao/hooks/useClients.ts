@@ -60,6 +60,8 @@ const serializeProfilePayload = (profile: Client["profile"]) => ({
   email: profile.email || null,
   profissao: profile.profissao || null,
   estadoCivil: profile.estadoCivil || null,
+  therapeuticPlan: profile.therapeuticPlan || null,
+  evolutionWeeks: profile.evolutionWeeks ? JSON.parse(JSON.stringify(profile.evolutionWeeks)) : null,
 });
 
 const mapDbAppointment = (row: any): ClientAppointment => ({
@@ -270,6 +272,8 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         email: extraProfile.email || undefined,
         profissao: extraProfile.profissao || undefined,
         estadoCivil: extraProfile.estadoCivil || undefined,
+        therapeuticPlan: extraProfile.therapeuticPlan || undefined,
+        evolutionWeeks: Array.isArray(extraProfile.evolutionWeeks) ? extraProfile.evolutionWeeks : undefined,
       },
       diagnosticos: diagnosticosRows.map((d: any) => ({
         id: d.id,

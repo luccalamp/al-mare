@@ -98,15 +98,17 @@ export default function EvolutionPlanModule({
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [justAddedWeekId, setJustAddedWeekId] = useState<string | null>(null);
-  const initializedRef = useRef(false);
   const newWeekRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
     setTherapeuticPlan(initialTherapeuticPlan || "");
     if (initialEvolutionWeeks && initialEvolutionWeeks.length > 0) {
       setWeeks(initialEvolutionWeeks.map((w) => ({ ...w, stages: w.stages ?? { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } })));
+    } else {
+      setWeeks([
+        { id: crypto.randomUUID(), weekLabel: "1ª Semana", notes: "", stages: { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } },
+        { id: crypto.randomUUID(), weekLabel: "2ª Semana", notes: "", stages: { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } },
+      ]);
     }
   }, [initialTherapeuticPlan, initialEvolutionWeeks]);
 
