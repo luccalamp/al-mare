@@ -8,6 +8,7 @@ import {
   buildWhatsappShareUrl,
   issuePortalLink,
   deactivatePortalLink,
+  notifyPortalUpdate,
 } from "@/lib/preConsultation";
 import { Globe, Link2, Loader2, Send, ToggleLeft, ToggleRight } from "lucide-react";
 
@@ -59,8 +60,10 @@ export default function ClientLinksTab({
   const handleDeactivatePortalLink = async () => {
     try {
       setBusy(true);
+      const token = portalLink?.token;
       await deactivatePortalLink(client.id);
       setMessage("Link do portal desativado.");
+      notifyPortalUpdate(token);
     } catch (error) {
       if (process.env.NODE_ENV !== "production") {
         console.error(error);

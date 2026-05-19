@@ -96,6 +96,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       status: "ready",
+      clientId,
       clientName,
       homecare: homecareRes.data ?? [],
       gallery: signedGallery,

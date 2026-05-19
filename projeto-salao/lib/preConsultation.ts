@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabaseClient";
+
 const PRODUCTION_ORIGIN = "https://jakoliveira.com.br";
 
 function normalizeWhatsappNumber(phone: string) {
@@ -72,3 +74,20 @@ export async function togglePortalPreConsulta(clientId: string, active: boolean)
   });
   return parsePortalRouteResponse(response);
 }
+
+export function notifyPortalUpdate(portalToken?: string) {
+  if (!portalToken) return;
+  const channel = supabase.channel(`portal:${portalToken}`);
+  channel.subscribe((status) => {
+    if (status === "SUBSCRIBED") {
+      void channel.send({
+        type: "broadcast",
+        event: "update",
+        payload: {},
+      }).then(() => {
+        void supabase.removeChannel(channel);
+      });
+    }
+  });
+}
+

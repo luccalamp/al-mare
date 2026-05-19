@@ -5,6 +5,7 @@ import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colori
 import { normalizePhotoCategory, resolvePhotoCategory, sanitizePhotoCaption } from "@/lib/photos";
 import { supabase } from "@/lib/supabaseClient";
 import { sanitizeObject } from "@/lib/sanitize";
+import { notifyPortalUpdate } from "@/lib/preConsultation";
 
 const CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-snapshot-v1";
 const CLIENTS_REALTIME_TABLES = [
@@ -760,6 +761,7 @@ export function useClients() {
       }
     }
 
+    const clientToken = clientsRef.current.find((entry) => entry.id === sanitized.id)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === sanitized.id
         ? {
@@ -776,6 +778,7 @@ export function useClients() {
 
     commitClients(nextClients);
     await loadClients();
+    notifyPortalUpdate(clientToken);
   };
 
   const deletePhoto = async (clientId: string, photoId: string) => {
@@ -804,6 +807,7 @@ export function useClients() {
       );
     }
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     commitClients(
       clientsRef.current.map((entry) =>
         entry.id === clientId
@@ -815,6 +819,7 @@ export function useClients() {
           : entry
       )
     );
+    notifyPortalUpdate(token);
   };
 
   const addDiagnostico = async (
@@ -863,12 +868,14 @@ export function useClients() {
       presencaMetais: Boolean(data.presenca_metais),
     };
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === clientId
         ? { ...client, diagnosticos: [novoDiagnostico, ...client.diagnosticos], updatedAt: new Date().toISOString() }
         : client
     );
     commitClients(nextClients);
+    notifyPortalUpdate(token);
 
     return novoDiagnostico;
   };
@@ -926,12 +933,14 @@ export function useClients() {
       valor: data.valor_procedimento != null ? Number(data.valor_procedimento) : undefined,
     };
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === clientId
         ? { ...client, colorimetrias: [novo, ...client.colorimetrias], updatedAt: new Date().toISOString() }
         : client
     );
     commitClients(nextClients);
+    notifyPortalUpdate(token);
 
     return novo;
   };
@@ -949,6 +958,7 @@ export function useClients() {
       );
     }
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === clientId
         ? {
@@ -959,6 +969,7 @@ export function useClients() {
         : client
     );
     commitClients(nextClients);
+    notifyPortalUpdate(token);
   };
 
   const addHomecare = async (
@@ -1017,12 +1028,14 @@ export function useClients() {
       confirmadoEm: data.confirmado_em ?? undefined,
     };
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === clientId
         ? { ...client, homecare: [novoHomecare, ...client.homecare], updatedAt: new Date().toISOString() }
         : client
     );
     commitClients(nextClients);
+    notifyPortalUpdate(token);
 
     return novoHomecare;
   };
@@ -1034,6 +1047,7 @@ export function useClients() {
       "Falha ao confirmar pagamento."
     );
     const data = response.record as { pago?: boolean; confirmado_em?: string } | undefined;
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     commitClients(
       clientsRef.current.map((client) =>
         client.id === clientId
@@ -1049,6 +1063,7 @@ export function useClients() {
           : client
       )
     );
+    notifyPortalUpdate(token);
     return { pago: data?.pago ?? true, confirmadoEm: data?.confirmado_em };
   };
 
@@ -1067,10 +1082,12 @@ export function useClients() {
     const data = response.record as { dados?: FichaAnamneseCapilarDados } | undefined;
 
     const next = (data?.dados as FichaAnamneseCapilarDados) ?? sanitized;
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     const nextClients = clientsRef.current.map((client) =>
       client.id === clientId ? { ...client, fichaAnamnese: next, updatedAt: new Date().toISOString() } : client
     );
     commitClients(nextClients);
+    notifyPortalUpdate(token);
     return next;
   };
 
@@ -1187,6 +1204,7 @@ export function useClients() {
 
     const row = await response.json();
 
+    const token = clientsRef.current.find((entry) => entry.id === clientId)?.portalLink?.token;
     commitClients(
       clientsRef.current.map((client) =>
         client.id === clientId
@@ -1204,6 +1222,7 @@ export function useClients() {
     );
 
     await loadClients({ background: true });
+    notifyPortalUpdate(token);
   };
 
   return {

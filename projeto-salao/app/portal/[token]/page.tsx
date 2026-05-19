@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CAPILLARY_THERAPY_MANUAL_TOPICS,
@@ -226,57 +227,68 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
+  const loadPortal = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`/api/portal/session?token=${encodeURIComponent(params.token)}`, {
+        signal,
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!data) {
+        setStatus("error");
+        return;
+      }
+
+      if (data.status === "not_found") {
+        setStatus("not_found");
+        return;
+      }
+
+      if (data.status === "inactive") {
+        setStatus("inactive");
+        return;
+      }
+
+      if (data.status === "migration_required" || data.status === "error") {
+        setStatus("error");
+        return;
+      }
+
+      if (data.status === "ready") {
+        setClientName(data.clientName || "");
+        setHomecare(data.homecare || []);
+        setGallery(data.gallery || []);
+        if (data.preConsulta) {
+          setPreConsulta(data.preConsulta);
+        }
+        setStatus("ready");
+        return;
+      }
+
+      setStatus("error");
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setStatus("error");
+    }
+  }, [params.token]);
+
   useEffect(() => {
     const controller = new AbortController();
-
-    async function loadPortal() {
-      try {
-        const res = await fetch(`/api/portal/session?token=${encodeURIComponent(params.token)}`, {
-          signal: controller.signal,
-        });
-        const data = await res.json().catch(() => null);
-
-        if (!data) {
-          setStatus("error");
-          return;
-        }
-
-        if (data.status === "not_found") {
-          setStatus("not_found");
-          return;
-        }
-
-        if (data.status === "inactive") {
-          setStatus("inactive");
-          return;
-        }
-
-        if (data.status === "migration_required" || data.status === "error") {
-          setStatus("error");
-          return;
-        }
-
-        if (data.status === "ready") {
-          setClientName(data.clientName || "");
-          setHomecare(data.homecare || []);
-          setGallery(data.gallery || []);
-          if (data.preConsulta) {
-            setPreConsulta(data.preConsulta);
-          }
-          setStatus("ready");
-          return;
-        }
-
-        setStatus("error");
-      } catch {
-        setStatus("error");
-      }
-    }
-
-    void loadPortal();
-
+    void loadPortal(controller.signal);
     return () => controller.abort();
-  }, [params.token]);
+  }, [loadPortal]);
+
+  useEffect(() => {
+    if (!params.token) return;
+    const channel = supabase.channel(`portal:${params.token}`)
+      .on("broadcast", { event: "update" }, () => {
+        void loadPortal();
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [params.token, loadPortal]);
 
   const updateField = <K extends keyof PreConsultaForm>(field: K, value: PreConsultaForm[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
