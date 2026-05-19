@@ -295,6 +295,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   };
 
   const handleSubmitPreConsulta = async () => {
+    const queixaPrincipal = form.queixaPrincipal.trim();
+
+    if (!queixaPrincipal) {
+      setSubmitError("Informe sua queixa principal para continuar.");
+      return;
+    }
+
     if (!form.consentimentoDados || !form.consentimentoImagem) {
       setSubmitError("Aceite os termos de consentimento para continuar.");
       return;
@@ -304,24 +311,34 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       setSubmitting(true);
       setSubmitError(null);
 
-      const res = await fetch("/api/portal/pre-consulta", {
+      const res = await fetch(`/api/portal/pre-consulta?token=${encodeURIComponent(params.token)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           token: params.token,
           ...form,
+          queixaPrincipal,
         }),
       });
 
       const data = await res.json().catch(() => null);
 
-      if (!data || data.status === "not_found" || data.status === "inactive") {
+      if (!res.ok || !data) {
+        setSubmitError(data?.error || data?.message || "Não foi possível enviar a avaliação.");
+        return;
+      }
+
+      if (data.status === "not_found" || data.status === "inactive") {
         setSubmitError(data?.message || "Não foi possível enviar a avaliação.");
         return;
       }
 
       setSubmitSuccess(true);
-      setPreConsulta((prev) => ({ ...prev, respondedAt: new Date().toISOString() }));
+      setPreConsulta((prev) => ({
+        ...prev,
+        linkActive: false,
+        respondedAt: typeof data.respondedAt === "string" ? data.respondedAt : new Date().toISOString(),
+      }));
     } catch {
       setSubmitError("Erro ao enviar. Tente novamente.");
     } finally {

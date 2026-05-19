@@ -5,24 +5,40 @@ import crypto from "crypto";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function readTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export async function POST(request: Request) {
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
+  }
+
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
+  }
+
+  const body = rawBody as Record<string, unknown>;
+
   const { searchParams } = new URL(request.url);
-  const token = searchParams.get("token")?.trim();
+  const token = searchParams.get("token")?.trim() || readTrimmedString(body.token);
 
   if (!token || !UUID_PATTERN.test(token)) {
     return NextResponse.json({ error: "Token inválido." }, { status: 400 });
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Dados inválidos." }, { status: 400 });
-  }
-
-  const { nome, whatsapp, queixaPrincipal, objetivoTratamento, alergias, medicacoes, observacoes, consentimentoDados, consentimentoImagem } = body as {
-    nome: string; whatsapp: string; queixaPrincipal: string; objetivoTratamento?: string; alergias?: string; medicacoes?: string; observacoes?: string; consentimentoDados: boolean; consentimentoImagem: boolean;
-  };
+  const nome = readTrimmedString(body.nome);
+  const whatsapp = readTrimmedString(body.whatsapp);
+  const queixaPrincipal = readTrimmedString(body.queixaPrincipal);
+  const objetivoTratamento = readTrimmedString(body.objetivoTratamento);
+  const alergias = readTrimmedString(body.alergias);
+  const medicacoes = readTrimmedString(body.medicacoes);
+  const observacoes = readTrimmedString(body.observacoes);
+  const consentimentoDados = body.consentimentoDados === true;
+  const consentimentoImagem = body.consentimentoImagem === true;
 
   if (!queixaPrincipal || !consentimentoDados) {
     return NextResponse.json({ error: "Preencha a queixa principal e aceite os termos." }, { status: 400 });
@@ -42,15 +58,41 @@ export async function POST(request: Request) {
     if (clientData.pre_consulta_respondida_em) return NextResponse.json({ error: "Avaliação já foi respondida." }, { status: 400 });
     if (!clientData.link_ativo || !clientData.token_pre_consulta) return NextResponse.json({ error: "Link expirado ou desativado." }, { status: 400 });
 
-    const payload = { nome, whatsapp, queixaPrincipal, objetivoTratamento: objetivoTratamento || null, alergias: alergias || null, medicacoes: medicacoes || null, observacoes: observacoes || null, consentimentoDados, consentimentoImagem: consentimentoImagem || false };
+    const payload = {
+      nome: nome || null,
+      whatsapp: whatsapp || null,
+      queixaPrincipal,
+      objetivoTratamento: objetivoTratamento || null,
+      alergias: alergias || null,
+      medicacoes: medicacoes || null,
+      observacoes: observacoes || null,
+      consentimentoDados,
+      consentimentoImagem,
+    };
 
-    const { error: submitError } = await supabase.rpc("submit_pre_consultation", { p_token: clientData.token_pre_consulta, p_payload: payload });
+    const { data: submitData, error: submitError } = await supabase.rpc("submit_pre_consultation", {
+      p_token: clientData.token_pre_consulta,
+      p_payload: payload,
+    });
     if (submitError) {
       console.error("[portal/pre-consulta] RPC error:", JSON.stringify(submitError));
       return NextResponse.json({ error: "Erro ao enviar avaliação." }, { status: 500 });
     }
 
-    return NextResponse.json({ status: "submitted", patientName: nome });
+    const result = Array.isArray(submitData) ? submitData[0] : null;
+    if (result?.status === "not_found") {
+      return NextResponse.json({ error: result.message || "Link não encontrado." }, { status: 404 });
+    }
+
+    if (result?.status === "inactive") {
+      return NextResponse.json({ error: result.message || "Link expirado ou desativado." }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      status: result?.status || "submitted",
+      patientName: result?.patient_name || nome || clientData.nome,
+      respondedAt: new Date().toISOString(),
+    });
   } catch (err) {
     console.error("[portal/pre-consulta] Unexpected error:", err);
     return NextResponse.json({ error: "Erro interno." }, { status: 500 });
