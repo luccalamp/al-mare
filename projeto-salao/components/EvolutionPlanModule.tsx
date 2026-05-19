@@ -101,18 +101,6 @@ export default function EvolutionPlanModule({
   const newWeekRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setTherapeuticPlan(initialTherapeuticPlan || "");
-    if (initialEvolutionWeeks && initialEvolutionWeeks.length > 0) {
-      setWeeks(initialEvolutionWeeks.map((w) => ({ ...w, stages: w.stages ?? { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } })));
-    } else {
-      setWeeks([
-        { id: crypto.randomUUID(), weekLabel: "1ª Semana", notes: "", stages: { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } },
-        { id: crypto.randomUUID(), weekLabel: "2ª Semana", notes: "", stages: { higienizacao: false, aplicacaoAtivos: false, massagemEstimulante: false, usoTecnologias: false } },
-      ]);
-    }
-  }, [initialTherapeuticPlan, initialEvolutionWeeks]);
-
-  useEffect(() => {
     if (justAddedWeekId && newWeekRef.current) {
       newWeekRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
       const timer = setTimeout(() => setJustAddedWeekId(null), 1000);

@@ -1533,6 +1533,7 @@ function GalleryTab({
                         fill
                         sizes="(min-width: 640px) 33vw, 50vw"
                         className="object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                        unoptimized
                       />
                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-[rgba(52,28,12,0.78)] to-transparent px-3 py-3 text-white">
                        <span className="rounded-full bg-white/18 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]">{renderCategoryBadge(photo.type)}</span>
@@ -2114,6 +2115,7 @@ export default function AnamnesisWindow({
             )}
             {activeTab === "evolucao" && (
               <ClientEvolutionTab
+                key={client.id}
                 client={client}
                 onUpdate={onUpdate}
               />

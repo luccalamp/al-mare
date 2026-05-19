@@ -46,6 +46,74 @@ type ClientListResponse = {
   error?: string;
 };
 
+const MAX_UPLOADED_IMAGE_EDGE = 1600;
+const NORMALIZED_IMAGE_QUALITY = 0.82;
+const NORMALIZED_IMAGE_MIME_TYPE = "image/jpeg";
+
+function getNormalizedImageName(file: File) {
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+  return `${baseName || "image"}.jpg`;
+}
+
+function loadImage(source: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Nao foi possivel preparar a imagem para envio."));
+    image.src = source;
+  });
+}
+
+async function normalizeImageFileForUpload(file: File) {
+  if (!file.type.startsWith("image/")) return file;
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return file;
+  if (typeof window === "undefined" || typeof document === "undefined") return file;
+
+  const source = URL.createObjectURL(file);
+
+  try {
+    const image = await loadImage(source);
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+
+    if (!width || !height) {
+      return file;
+    }
+
+    const largestEdge = Math.max(width, height);
+    const scale = Math.min(1, MAX_UPLOADED_IMAGE_EDGE / largestEdge);
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, targetWidth, targetHeight);
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, NORMALIZED_IMAGE_MIME_TYPE, NORMALIZED_IMAGE_QUALITY);
+    });
+
+    if (!blob) return file;
+
+    return new File([blob], getNormalizedImageName(file), { type: NORMALIZED_IMAGE_MIME_TYPE });
+  } catch (error) {
+    console.warn("Nao foi possivel reduzir a imagem antes do envio.", error);
+    return file;
+  } finally {
+    URL.revokeObjectURL(source);
+  }
+}
+
 function getClientsSnapshotKey() {
   return CLIENTS_SNAPSHOT_KEY;
 }
@@ -570,10 +638,11 @@ export function useClients() {
   }, [clients, deferredSearchQuery]);
 
   const uploadImage = async (clientId: string, file: File, type?: string): Promise<UploadedImageAsset | null> => {
-    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const preparedFile = await normalizeImageFileForUpload(file);
+    const extension = preparedFile.name.split(".").pop()?.toLowerCase() || "jpg";
     const folder = type ? resolvePhotoCategory(type) : "avatar";
     const fileName = `${clientId}/${folder}/${crypto.randomUUID()}.${extension}`;
-    const { error } = await supabase.storage.from('anamnese-fotos').upload(fileName, file);
+    const { error } = await supabase.storage.from('anamnese-fotos').upload(fileName, preparedFile);
     if (error) return null;
 
     const fallbackUrl = supabase.storage.from('anamnese-fotos').getPublicUrl(fileName).data.publicUrl;
