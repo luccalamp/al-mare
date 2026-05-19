@@ -54,9 +54,25 @@ export async function POST(request: Request) {
       .is("deleted_at", null)
       .single();
 
-    if (clientError || !clientData) return NextResponse.json({ error: "Link não encontrado." }, { status: 404 });
-    if (clientData.pre_consulta_respondida_em) return NextResponse.json({ error: "Avaliação já foi respondida." }, { status: 400 });
-    if (!clientData.link_ativo || !clientData.token_pre_consulta) return NextResponse.json({ error: "Link expirado ou desativado." }, { status: 400 });
+    if (clientError) {
+      console.error("[portal/pre-consulta] Client lookup error:", JSON.stringify(clientError));
+      if (clientError.code === "PGRST116") {
+        return NextResponse.json({ error: "Link não encontrado." }, { status: 404 });
+      }
+      return NextResponse.json({ error: "Erro ao validar o link." }, { status: 500 });
+    }
+
+    if (!clientData) {
+      return NextResponse.json({ error: "Link não encontrado." }, { status: 404 });
+    }
+
+    if (clientData.pre_consulta_respondida_em) {
+      return NextResponse.json({ error: "Avaliação já foi respondida." }, { status: 400 });
+    }
+
+    if (!clientData.link_ativo || !clientData.token_pre_consulta) {
+      return NextResponse.json({ error: "Link expirado ou desativado." }, { status: 400 });
+    }
 
     const payload = {
       nome: nome || null,
@@ -70,13 +86,16 @@ export async function POST(request: Request) {
       consentimentoImagem,
     };
 
+    console.log("[portal/pre-consulta] Calling RPC with token:", clientData.token_pre_consulta);
+
     const { data: submitData, error: submitError } = await supabase.rpc("submit_pre_consultation", {
       p_token: clientData.token_pre_consulta,
       p_payload: payload,
     });
+
     if (submitError) {
       console.error("[portal/pre-consulta] RPC error:", JSON.stringify(submitError));
-      return NextResponse.json({ error: "Erro ao enviar avaliação." }, { status: 500 });
+      return NextResponse.json({ error: `Erro ao enviar avaliação: ${submitError.message || "erro desconhecido"}` }, { status: 500 });
     }
 
     const result = Array.isArray(submitData) ? submitData[0] : null;
