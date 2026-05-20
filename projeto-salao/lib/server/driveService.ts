@@ -82,7 +82,10 @@ async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folder
         fields: "id",
       });
 
-      parentId = folder.data.id;
+      const folderId = folder.data.id;
+      if (folderId) {
+        parentId = folderId;
+      }
     }
   }
 
