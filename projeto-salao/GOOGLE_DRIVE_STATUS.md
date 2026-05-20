@@ -12,6 +12,24 @@ O sistema de Google Drive esta funcionalmente estruturado em tres camadas:
 
 Hoje, a integracao usa o Google Drive como armazenamento primario do arquivo original e o Supabase apenas como catalogo leve de metadados e referencia.
 
+## Estrutura atual de pastas no Drive
+
+Os novos uploads sao organizados automaticamente nesta hierarquia:
+
+`al mare/{email-do-usuario}/{nome-da-organizacao-ou-clinica}/clientes/{nome-da-paciente}-{id-curto}/fotos/{categoria}`
+
+Exemplo:
+
+`al mare/luccalamp12@gmail.com/Almare/clientes/Maria Silva - a1b2c3d4/fotos/antes`
+
+Regras atuais:
+
+- a pasta raiz sempre e `al mare`
+- o segundo nivel usa o email do usuario dono, quando disponivel
+- o terceiro nivel usa o nome da clinica salvo em `clinic_preferences` (`branding-config.clinicName`)
+- depois disso os arquivos sao agrupados por cliente e por categoria (`antes`, `depois`, `referencia`, `anamnese`, `documento`)
+- se faltar email ou nome de clinica, o sistema usa fallbacks seguros para nao interromper o upload
+
 ## Arquitetura real em uso
 
 ### 1. Endpoint principal
@@ -27,6 +45,7 @@ Hoje, a integracao usa o Google Drive como armazenamento primario do arquivo ori
 - Responsabilidades:
   - ler credenciais do Google
   - garantir a estrutura de pastas no Drive
+  - organizar a arvore por email do usuario, nome da clinica, cliente e categoria
   - fazer upload e delete fisico no Drive
   - salvar/listar/atualizar referencias no Supabase
 

@@ -1,8 +1,9 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
 import { createSupabaseAdminClient, readServerEnv } from "./supabaseAdmin";
+import { BRANDING_CONFIG_PREFERENCE_KEY, DEFAULT_BRANDING_CONFIG, mergeBrandingConfig } from "../brandingConfig";
 
-const GOOGLE_DRIVE_FOLDER_PREFIX = "almare-clinica";
+const GOOGLE_DRIVE_FOLDER_ROOT = "al mare";
 const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS = [
   "GOOGLE_DRIVE_CREDENTIALS",
@@ -15,6 +16,7 @@ export interface DriveUploadResult {
   driveFileId: string;
   driveWebViewLink: string;
   driveThumbnailLink: string | null;
+  driveFolderPath: string;
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
@@ -34,8 +36,86 @@ export interface DriveFileMetadata {
 
 export type DriveSyncStatus = "pending" | "synced" | "failed" | "deleted";
 
-function getDriveFolderStructure(clienteId: string): string {
-  return `${GOOGLE_DRIVE_FOLDER_PREFIX}/clientes/${clienteId}/fotos`;
+type DriveFolderOptions = {
+  userId?: string;
+  clientName?: string | null;
+  category?: string;
+};
+
+function sanitizeDriveFolderSegment(value: string | null | undefined, fallback: string) {
+  const normalized = (value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\.+$/g, "");
+
+  return normalized || fallback;
+}
+
+function buildClientFolderName(clienteId: string, clientName?: string | null) {
+  const shortClientId = clienteId.slice(0, 8);
+  const readableName = sanitizeDriveFolderSegment(clientName, `cliente-${shortClientId}`);
+  return sanitizeDriveFolderSegment(`${readableName} - ${shortClientId}`, `cliente-${shortClientId}`);
+}
+
+async function getDriveOwnerContext(userId?: string) {
+  const fallbackEmail = userId ? `usuario-${userId.slice(0, 8)}` : "usuario-sem-email";
+  const fallbackClinicName = sanitizeDriveFolderSegment(DEFAULT_BRANDING_CONFIG.clinicName, "organizacao-padrao");
+
+  if (!userId) {
+    return {
+      ownerEmail: fallbackEmail,
+      clinicName: fallbackClinicName,
+    };
+  }
+
+  const supabase = createSupabaseAdminClient();
+
+  const [userResult, brandingResult] = await Promise.all([
+    supabase.auth.admin.getUserById(userId),
+    supabase
+      .from("clinic_preferences")
+      .select("payload")
+      .eq("user_id", userId)
+      .eq("preference_key", BRANDING_CONFIG_PREFERENCE_KEY)
+      .maybeSingle(),
+  ]);
+
+  if (userResult.error) {
+    console.error("[google-drive] Failed to load auth user for folder structure:", userResult.error);
+  }
+
+  if (brandingResult.error) {
+    console.error("[google-drive] Failed to load clinic branding for folder structure:", brandingResult.error);
+  }
+
+  const ownerEmail = sanitizeDriveFolderSegment(userResult.data.user?.email, fallbackEmail).toLowerCase();
+  const clinicName = sanitizeDriveFolderSegment(
+    brandingResult.data?.payload ? mergeBrandingConfig(brandingResult.data.payload).clinicName : DEFAULT_BRANDING_CONFIG.clinicName,
+    fallbackClinicName
+  );
+
+  return {
+    ownerEmail,
+    clinicName,
+  };
+}
+
+async function getDriveFolderStructure(clienteId: string, options?: DriveFolderOptions) {
+  const ownerContext = await getDriveOwnerContext(options?.userId);
+  const categoryFolder = sanitizeDriveFolderSegment(options?.category, "referencia");
+
+  return [
+    sanitizeDriveFolderSegment(GOOGLE_DRIVE_FOLDER_ROOT, "al mare"),
+    ownerContext.ownerEmail,
+    ownerContext.clinicName,
+    "clientes",
+    buildClientFolderName(clienteId, options?.clientName),
+    "fotos",
+    categoryFolder,
+  ].join("/");
 }
 
 function normalizeServiceAccountCredentials(value: unknown) {
@@ -142,10 +222,11 @@ export async function uploadToGoogleDrive(
   fileBuffer: Buffer,
   filename: string,
   mimeType: string,
-  clienteId: string
+  clienteId: string,
+  options?: DriveFolderOptions
 ): Promise<DriveUploadResult> {
   const drive = await getGoogleDriveClient();
-  const folderPath = getDriveFolderStructure(clienteId);
+  const folderPath = await getDriveFolderStructure(clienteId, options);
   const parentId = await ensureFolderExists(drive, folderPath);
 
   const timestamp = Date.now();
@@ -177,6 +258,7 @@ export async function uploadToGoogleDrive(
     driveFileId: file.id!,
     driveWebViewLink: file.webViewLink || "",
     driveThumbnailLink: file.thumbnailLink || null,
+    driveFolderPath: folderPath,
     originalFilename: filename,
     mimeType: file.mimeType || mimeType,
     sizeBytes: parseInt(file.size || "0", 10),
@@ -235,7 +317,6 @@ export async function saveDriveReferenceToSupabase(
   }
 ) {
   const supabase = createSupabaseAdminClient();
-  const folderPath = getDriveFolderStructure(clienteId);
 
   const { data, error } = await supabase
     .from("google_drive_files")
@@ -253,7 +334,7 @@ export async function saveDriveReferenceToSupabase(
       caption: metadata.caption,
       anotacao_tecnica: metadata.anotacaoTecnica,
       captured_at: metadata.capturedAt || new Date().toISOString(),
-      drive_folder_path: folderPath,
+      drive_folder_path: driveResult.driveFolderPath,
       sync_status: "synced",
     })
     .select()
@@ -270,7 +351,7 @@ export async function getOwnedDriveClient(clienteId: string, userId: string) {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("clientes")
-    .select("id")
+    .select("id, nome")
     .eq("id", clienteId)
     .eq("user_id", userId)
     .is("deleted_at", null)

@@ -8,9 +8,14 @@ export async function uploadImageToDrive(
   fileBuffer: Buffer,
   filename: string,
   mimeType: string,
-  clienteId: string
+  clienteId: string,
+  options?: {
+    userId?: string;
+    clientName?: string | null;
+    category?: string;
+  }
 ): Promise<string> {
-  const result = await uploadToGoogleDrive(fileBuffer, filename, mimeType, clienteId);
+  const result = await uploadToGoogleDrive(fileBuffer, filename, mimeType, clienteId, options);
   return result.driveFileId;
 }
 

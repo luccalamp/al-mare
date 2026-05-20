@@ -31,7 +31,7 @@ Upload das fotos originais para o **Google Drive** via Service Account, mantendo
 - **Arquivo**: `lib/server/driveService.ts`
 - **Função principal**: `uploadImageToDrive(fileBuffer, filename, mimeType, clienteId)` → retorna apenas o `driveFileId` (string)
 - **Autenticação**: Service Account do Google Cloud (variável `GOOGLE_DRIVE_CREDENTIALS` ou `GOOGLE_SERVICE_ACCOUNT_CREDENTIALS`)
-- **Estrutura de pastas no Drive**: `almare-clinica/clientes/{clienteId}/fotos/`
+- **Estrutura de pastas no Drive**: `al mare/{email-do-usuario}/{nome-da-clinica}/clientes/{clienteId}/fotos/{categoria}/`
 - **Nome do arquivo**: `{timestamp}_{filename}` (único)
 
 #### 2. Tabela de Referência no Supabase

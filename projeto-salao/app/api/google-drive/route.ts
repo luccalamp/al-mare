@@ -93,7 +93,11 @@ export async function POST(req: NextRequest) {
     const mimeType = file.type || "image/jpeg";
     const filename = file.name || `photo_${Date.now()}.jpg`;
 
-    const driveResult = await uploadToGoogleDrive(buffer, filename, mimeType, clienteId);
+    const driveResult = await uploadToGoogleDrive(buffer, filename, mimeType, clienteId, {
+      userId,
+      clientName: typeof ownedClient.nome === "string" ? ownedClient.nome : undefined,
+      category,
+    });
 
     let dbRecord;
     try {
