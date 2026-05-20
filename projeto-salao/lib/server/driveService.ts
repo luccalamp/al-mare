@@ -70,7 +70,8 @@ async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folder
     });
 
     if (existing.data.files && existing.data.files.length > 0) {
-      parentId = existing.data.files[0].id;
+      const foundId = existing.data.files[0].id;
+      if (foundId) parentId = foundId;
     } else {
       const folder = await drive.files.create({
         requestBody: {
