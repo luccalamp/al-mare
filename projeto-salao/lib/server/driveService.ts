@@ -58,7 +58,7 @@ function getGoogleDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-async function ensureFolderExists(drive: any, folderPath: string): Promise<string> {
+async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folderPath: string): Promise<string> {
   const parts = folderPath.split("/");
   let parentId = "root";
 

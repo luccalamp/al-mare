@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient, getAdminOperationsToken } from "@/lib/server/supabaseAdmin";
+import { getAdminOperationsToken } from "@/lib/server/supabaseAdmin";
 import {
   uploadToGoogleDrive,
   saveDriveReferenceToSupabase,
