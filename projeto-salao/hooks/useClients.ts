@@ -29,7 +29,7 @@ type ClientsSnapshot = {
 
 type UploadedImageAsset = {
   signedUrl: string;
-  storagePath: string;
+  driveFileId: string;
 };
 
 type ClientMutationResponse = {
@@ -492,10 +492,24 @@ async function runClientRecordMutation(
   return result ?? {};
 }
 
-async function removeUploadedClientAsset(storagePath: string) {
-  const { error } = await supabase.storage.from("anamnese-fotos").remove([storagePath]);
-  if (error) {
-    console.error("Falha ao limpar arquivo enviado após erro de persistência:", error);
+async function removeUploadedClientAsset(driveFileId: string) {
+  const response = await fetch("/api/google-drive", {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      driveFileId,
+      purgeFromDrive: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    console.error(
+      "Falha ao limpar arquivo enviado após erro de persistência:",
+      payload?.error && typeof payload.error === "string" ? payload.error : response.statusText
+    );
   }
 }
 
@@ -638,20 +652,53 @@ export function useClients() {
     );
   }, [clients, deferredSearchQuery]);
 
-  const uploadImage = async (clientId: string, file: File, type?: string): Promise<UploadedImageAsset | null> => {
+  const uploadImage = async (
+    clientId: string,
+    file: File,
+    type?: string,
+    options?: { persistClientPhoto?: boolean }
+  ): Promise<UploadedImageAsset | null> => {
     const preparedFile = await normalizeImageFileForUpload(file);
-    const extension = preparedFile.name.split(".").pop()?.toLowerCase() || "jpg";
-    const folder = type ? resolvePhotoCategory(type) : "avatar";
-    const fileName = `${clientId}/${folder}/${crypto.randomUUID()}.${extension}`;
-    const { error } = await supabase.storage.from('anamnese-fotos').upload(fileName, preparedFile);
-    if (error) return null;
+    const formData = new FormData();
+    formData.append("file", preparedFile);
+    formData.append("clienteId", clientId);
+    const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto || type);
 
-    const fallbackUrl = supabase.storage.from('anamnese-fotos').getPublicUrl(fileName).data.publicUrl;
-    const { data, error: signedUrlError } = await supabase.storage.from('anamnese-fotos').createSignedUrl(fileName, 60 * 60);
+    if (type) {
+      formData.append("category", resolvePhotoCategory(type));
+    }
+
+    if (shouldPersistClientPhoto) {
+      formData.append("persistClientPhoto", "true");
+    }
+
+    const response = await fetch("/api/google-drive", {
+      method: "POST",
+      body: formData,
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      previewUrl?: string;
+      drive?: { driveFileId?: string };
+      error?: string;
+    } | null;
+
+    if (!response.ok) {
+      console.error("Falha ao enviar imagem para o Google Drive:", payload?.error || response.statusText);
+      return null;
+    }
+
+    const previewUrl = payload?.previewUrl;
+    const driveFileId = payload?.drive?.driveFileId;
+
+    if (!previewUrl || !driveFileId) {
+      console.error("Resposta incompleta do upload no Google Drive.");
+      return null;
+    }
 
     return {
-      signedUrl: signedUrlError ? fallbackUrl : data?.signedUrl || fallbackUrl,
-      storagePath: fileName,
+      signedUrl: previewUrl,
+      driveFileId,
     };
   };
 
@@ -686,14 +733,14 @@ export function useClients() {
     const avatarFile = photoFiles?.find((item) => item.type === "avatar");
     const galleryFiles = (photoFiles || []).filter((item) => item.type !== "avatar");
     let nextProfile = sanitized.profile;
-    let avatarStoragePath: string | null = null;
+    let avatarDriveFileId: string | null = null;
 
     if (avatarFile) {
       const avatarUpload = await uploadImage(sanitized.id, avatarFile.file);
       if (!avatarUpload) {
         throw new Error(`Falha ao enviar a foto ${avatarFile.file.name}.`);
       }
-      avatarStoragePath = avatarUpload.storagePath;
+      avatarDriveFileId = avatarUpload.driveFileId;
       nextProfile = {
         ...nextProfile,
         photoUrl: avatarUpload.signedUrl,
@@ -715,18 +762,18 @@ export function useClients() {
             ...serializeProfilePayload(nextProfile),
             signatures: sanitized.signatures || [],
           },
-          ...(avatarStoragePath
+          ...(avatarDriveFileId
             ? {
-                profilePhotoStorageBucket: "anamnese-fotos",
-                profilePhotoStoragePath: avatarStoragePath,
+                profilePhotoStorageBucket: "google-drive",
+                profilePhotoStoragePath: avatarDriveFileId,
               }
             : {}),
         },
         "Nao foi possivel salvar essa atualizacao no banco."
       );
     } catch (error) {
-      if (avatarStoragePath) {
-        await removeUploadedClientAsset(avatarStoragePath);
+      if (avatarDriveFileId) {
+        await removeUploadedClientAsset(avatarDriveFileId);
       }
 
       throw error;
@@ -735,28 +782,11 @@ export function useClients() {
     if (galleryFiles.length > 0) {
       for (const item of galleryFiles) {
         const category = resolvePhotoCategory(item.type);
-        const uploadedPhoto = await uploadImage(sanitized.id, item.file, category);
+        const uploadedPhoto = await uploadImage(sanitized.id, item.file, category, {
+          persistClientPhoto: true,
+        });
         if (!uploadedPhoto) {
           throw new Error(`Falha ao enviar a foto ${item.file.name}.`);
-        }
-
-        try {
-          await runClientRecordMutation(
-            "POST",
-            {
-              action: "gallery-photo",
-              clientId: sanitized.id,
-              type: category,
-              categoria: category,
-              caption: null,
-              storageBucket: "anamnese-fotos",
-              storagePath: uploadedPhoto.storagePath,
-            },
-            `Falha ao salvar a foto ${item.file.name}.`
-          );
-        } catch (error) {
-          await removeUploadedClientAsset(uploadedPhoto.storagePath);
-          throw error;
         }
       }
     }

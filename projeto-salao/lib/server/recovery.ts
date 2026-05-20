@@ -153,6 +153,10 @@ async function restoreClientStorage(
   const quarantinedBucket = asString(row.profile_photo_quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.profile_photo_quarantined_path);
 
+  if (storageBucket.toLowerCase() === "google-drive") {
+    return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+  }
+
   if (!storagePath || !quarantinedPath) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
   }
@@ -168,6 +172,10 @@ async function restorePhotoStorage(
   const storagePath = asString(row.storage_path);
   const quarantinedBucket = asString(row.quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.quarantined_storage_path);
+
+  if (storageBucket.toLowerCase() === "google-drive") {
+    return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+  }
 
   if (!storagePath || !quarantinedPath) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
@@ -536,6 +544,11 @@ async function archiveClientPhotoRow(
 
   const storageBucket = asString(photoRow.storage_bucket) || "anamnese-fotos";
   const storagePath = asString(photoRow.storage_path);
+  if (storageBucket.toLowerCase() === "google-drive") {
+    console.log("archiveClientPhotoRow: drive-backed photo, skipping quarantine", photoId);
+    return;
+  }
+
   if (!storagePath) {
     console.log("archiveClientPhotoRow: no storage path, skipping quarantine", photoId);
     return;

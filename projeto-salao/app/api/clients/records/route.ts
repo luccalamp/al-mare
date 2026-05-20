@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildDriveFileProxyUrl } from "@/lib/server/googleDrive";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
@@ -31,6 +32,7 @@ const payloadSchema = z.discriminatedUnion("action", [
     caption: nullableTrimmedString,
     storageBucket: z.string().trim().min(1),
     storagePath: z.string().trim().min(1),
+    url: nullableTrimmedString,
   }),
   z.object({
     action: z.literal("diagnostico"),
@@ -134,7 +136,11 @@ export async function POST(request: Request) {
   switch (parsedBody.data.action) {
     case "gallery-photo": {
       const canonicalUrl =
-        buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) || "";
+        parsedBody.data.url ||
+        (parsedBody.data.storageBucket.trim().toLowerCase() === "google-drive"
+          ? buildDriveFileProxyUrl(parsedBody.data.storagePath)
+          : buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath)) ||
+        "";
 
       const { data, error } = await authContext.admin
         .from("client_photos")

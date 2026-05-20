@@ -4,6 +4,7 @@ import { createSupabaseAdminClient, readServerEnv } from "./supabaseAdmin";
 import { BRANDING_CONFIG_PREFERENCE_KEY, DEFAULT_BRANDING_CONFIG, mergeBrandingConfig } from "../brandingConfig";
 
 const GOOGLE_DRIVE_FOLDER_ROOT = "al mare";
+const GOOGLE_DRIVE_PROXY_BASE_PATH = "/api/google-drive/files";
 const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS = [
   "GOOGLE_DRIVE_CREDENTIALS",
@@ -33,6 +34,12 @@ export interface DriveFileMetadata {
   thumbnailLink?: string;
   createdTime: string;
 }
+
+export type DriveDownloadResult = {
+  buffer: Buffer;
+  mimeType: string;
+  originalFilename: string;
+};
 
 export type DriveSyncStatus = "pending" | "synced" | "failed" | "deleted";
 
@@ -116,6 +123,15 @@ async function getDriveFolderStructure(clienteId: string, options?: DriveFolderO
     "fotos",
     categoryFolder,
   ].join("/");
+}
+
+export function buildDriveFileProxyUrl(driveFileId: string) {
+  const normalizedDriveFileId = driveFileId.trim();
+  if (!normalizedDriveFileId) {
+    return "";
+  }
+
+  return `${GOOGLE_DRIVE_PROXY_BASE_PATH}/${encodeURIComponent(normalizedDriveFileId)}`;
 }
 
 function normalizeServiceAccountCredentials(value: unknown) {
@@ -305,6 +321,31 @@ export async function deleteFromGoogleDrive(driveFileId: string): Promise<void> 
   });
 }
 
+export async function downloadFromGoogleDrive(driveFileId: string): Promise<DriveDownloadResult> {
+  const drive = await getGoogleDriveClient();
+
+  const metadataResponse = await drive.files.get({
+    fileId: driveFileId,
+    fields: "name,mimeType",
+  });
+
+  const mediaResponse = await drive.files.get(
+    {
+      fileId: driveFileId,
+      alt: "media",
+    },
+    {
+      responseType: "arraybuffer",
+    }
+  );
+
+  return {
+    buffer: Buffer.from(mediaResponse.data as ArrayBuffer),
+    mimeType: metadataResponse.data.mimeType || "application/octet-stream",
+    originalFilename: metadataResponse.data.name || driveFileId,
+  };
+}
+
 export async function saveDriveReferenceToSupabase(
   userId: string,
   clienteId: string,
@@ -342,6 +383,41 @@ export async function saveDriveReferenceToSupabase(
 
   if (error) {
     throw new Error(`Failed to save Drive reference: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function saveClientPhotoToSupabase(
+  clienteId: string,
+  driveResult: DriveUploadResult,
+  metadata: {
+    category?: string;
+    caption?: string;
+    anotacaoTecnica?: string;
+    capturedAt?: string;
+  }
+) {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("client_photos")
+    .insert({
+      cliente_id: clienteId,
+      url: buildDriveFileProxyUrl(driveResult.driveFileId),
+      type: metadata.category || "referencia",
+      categoria: metadata.category || "referencia",
+      caption: metadata.caption,
+      anotacao_tecnica: metadata.anotacaoTecnica,
+      captured_at: metadata.capturedAt || new Date().toISOString(),
+      storage_bucket: "google-drive",
+      storage_path: driveResult.driveFileId,
+    })
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to save client photo reference: ${error?.message || "Unknown error"}`);
   }
 
   return data;
@@ -433,6 +509,33 @@ export async function softDeleteDriveFile(
   }
 
   return data;
+}
+
+export async function softDeleteDriveFileByDriveFileId(
+  driveFileId: string,
+  userId: string,
+  reason?: string,
+  syncStatus: DriveSyncStatus = "deleted"
+) {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("google_drive_files")
+    .select("id")
+    .eq("drive_file_id", driveFileId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.id) {
+    return null;
+  }
+
+  return softDeleteDriveFile(data.id, userId, reason, syncStatus);
 }
 
 export async function updateDriveFileSyncStatus(
