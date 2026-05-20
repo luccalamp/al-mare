@@ -7,6 +7,14 @@
     {
       "path": "/api/internal/backups/drill",
       "schedule": "0 6 1 * *"
+    },
+    {
+      "path": "/api/internal/cleanup/quarantine",
+      "schedule": "0 */12 * * *"
+    },
+    {
+      "path": "/api/internal/cleanup/audit",
+      "schedule": "0 4 */2 * *"
     }
   ],
   "functions": {

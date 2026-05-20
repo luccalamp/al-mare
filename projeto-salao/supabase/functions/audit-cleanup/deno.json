@@ -1,0 +1,5 @@
+{
+  "name": "audit-cleanup",
+  "entrypoint": "index.ts",
+  "importMap": "deno.json"
+}
