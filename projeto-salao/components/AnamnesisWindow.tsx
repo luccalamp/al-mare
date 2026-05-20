@@ -1555,14 +1555,13 @@ function GalleryTab({
                        >
                          {removingPhotoId === photo.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                        </button>
-                      <Image
-                        src={photo.url}
-                          alt={renderPhotoTitle(photo.type)}
-                        fill
-                        sizes="(min-width: 640px) 33vw, 50vw"
-                        className="object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                        unoptimized
-                      />
+                       <Image
+                         src={photo.url}
+                           alt={renderPhotoTitle(photo.type)}
+                         fill
+                         sizes="(min-width: 640px) 33vw, 50vw"
+                         className="object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                       />
                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-[rgba(52,28,12,0.78)] to-transparent px-3 py-3 text-white">
                        <span className="rounded-full bg-white/18 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]">{renderCategoryBadge(photo.type)}</span>
                        <span className="text-[11px] text-white/85">{formatDate(photo.date)}</span>

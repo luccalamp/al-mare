@@ -474,7 +474,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return (
       <AlmareLayout>
             <div className="flex items-center justify-between gap-3">
-              <BrandLogo compact subtitle={false} />
+              <BrandLogo compact subtitle={false} priority />
               <div className="flex items-center gap-2">
                 <span className="premium-chip text-xs font-semibold">
                   <ShieldCheck size={14} />

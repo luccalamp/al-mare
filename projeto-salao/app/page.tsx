@@ -661,6 +661,7 @@ export default function HomePage() {
                 ? "border-rose-200 bg-rose-50/85 text-rose-900"
                 : "border-emerald-200 bg-emerald-50/85 text-emerald-900"
             }`}
+            style={{ minHeight: "3.5rem" }}
           >
             <div className="flex items-start gap-2">
               {pageFeedback.tone === "error" ? <AlertTriangle size={16} className="mt-0.5" /> : <CheckCircle2 size={16} className="mt-0.5" />}
@@ -742,7 +743,7 @@ export default function HomePage() {
               {visibleClients.map((client) => (
                 <motion.div
                   key={client.id}
-                  layout
+                  layout="position"
                   initial={{ opacity: 0, y: 12, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ duration: 0.22 }}

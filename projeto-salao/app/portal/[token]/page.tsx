@@ -822,7 +822,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
                   return (
                     <motion.article
-                      layout
+                      layout="position"
                       key={item.id}
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}

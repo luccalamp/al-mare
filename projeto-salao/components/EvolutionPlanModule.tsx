@@ -280,7 +280,7 @@ export default function EvolutionPlanModule({
       {/* Weeks Grid */}
       <motion.div
         className="grid gap-4 sm:grid-cols-1 md:grid-cols-2"
-        layout
+        layout="position"
       >
         <AnimatePresence mode="popLayout">
           {weeks.map((week, index) => {
@@ -295,7 +295,7 @@ export default function EvolutionPlanModule({
               <motion.div
                 key={week.id}
                 ref={isNew ? newWeekRef : null}
-                layout
+                layout="position"
                 initial={{ opacity: 0, y: 30, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
