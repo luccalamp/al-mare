@@ -1,8 +1,15 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { createSupabaseAdminClient } from "./supabaseAdmin";
+import { createSupabaseAdminClient, readServerEnv } from "./supabaseAdmin";
 
 const GOOGLE_DRIVE_FOLDER_PREFIX = "almare-clinica";
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS = [
+  "GOOGLE_DRIVE_CREDENTIALS",
+  "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS",
+  "GOOGLE_SERVICE_ACCOUNT",
+  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+] as const;
 
 export interface DriveUploadResult {
   driveFileId: string;
@@ -25,21 +32,71 @@ export interface DriveFileMetadata {
   createdTime: string;
 }
 
+export type DriveSyncStatus = "pending" | "synced" | "failed" | "deleted";
+
 function getDriveFolderStructure(clienteId: string): string {
   return `${GOOGLE_DRIVE_FOLDER_PREFIX}/clientes/${clienteId}/fotos`;
 }
 
-async function getGoogleDriveClient() {
-  const credentialsJson = process.env.GOOGLE_DRIVE_CREDENTIALS;
-  if (!credentialsJson) {
-    throw new Error("GOOGLE_DRIVE_CREDENTIALS environment variable is not set");
+function normalizeServiceAccountCredentials(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
   }
 
-  const credentials = JSON.parse(credentialsJson);
+  const candidate = value as Record<string, unknown>;
+  const clientEmail = typeof candidate.client_email === "string" ? candidate.client_email.trim() : "";
+  const privateKey = typeof candidate.private_key === "string" ? candidate.private_key.replace(/\\n/g, "\n").trim() : "";
+
+  if (!clientEmail || !privateKey) {
+    return null;
+  }
+
+  return {
+    ...candidate,
+    client_email: clientEmail,
+    private_key: privateKey,
+  };
+}
+
+function getServiceAccountCredentials() {
+  let lastParseError: Error | null = null;
+
+  for (const envName of GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS) {
+    const raw = readServerEnv(envName);
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeServiceAccountCredentials(parsed);
+      if (normalized) {
+        return normalized;
+      }
+    } catch (error) {
+      lastParseError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  if (lastParseError) {
+    throw new Error(
+      `Credenciais inválidas do Google Drive. Revise uma destas variáveis: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
+    );
+  }
+
+  return null;
+}
+
+async function getGoogleDriveClient() {
+  const credentials = getServiceAccountCredentials();
+
+  if (!credentials) {
+    throw new Error(
+      `Configure uma Service Account em uma destas variáveis: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
+    );
+  }
 
   const auth = new google.auth.GoogleAuth({
     credentials,
-    scopes: ["https://www.googleapis.com/auth/drive.file"],
+    scopes: [GOOGLE_DRIVE_SCOPE],
   });
 
   return google.drive({ version: "v3", auth });
@@ -148,6 +205,16 @@ export async function getDriveFileThumbnail(driveFileId: string, width = 400): P
   }
 }
 
+export async function getDriveFileUrl(driveFileId: string): Promise<string> {
+  const drive = await getGoogleDriveClient();
+  const response = await drive.files.get({
+    fileId: driveFileId,
+    fields: "webViewLink",
+  });
+
+  return response.data.webViewLink || "";
+}
+
 export async function deleteFromGoogleDrive(driveFileId: string): Promise<void> {
   const drive = await getGoogleDriveClient();
 
@@ -199,6 +266,23 @@ export async function saveDriveReferenceToSupabase(
   return data;
 }
 
+export async function getOwnedDriveClient(clienteId: string, userId: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("id")
+    .eq("id", clienteId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to validate Drive client access: ${error.message}`);
+  }
+
+  return data;
+}
+
 export async function getClientDriveFiles(
   clienteId: string,
   userId: string,
@@ -239,25 +323,69 @@ export async function getClientDriveFiles(
   return data;
 }
 
-export async function softDeleteDriveFile(fileId: string, userId: string, reason?: string) {
+export async function softDeleteDriveFile(
+  fileId: string,
+  userId: string,
+  reason?: string,
+  syncStatus: DriveSyncStatus = "deleted"
+) {
   const supabase = createSupabaseAdminClient();
+  const now = new Date().toISOString();
 
   const { data, error } = await supabase
     .from("google_drive_files")
     .update({
-      deleted_at: new Date().toISOString(),
+      deleted_at: now,
       deleted_by: userId,
       delete_reason: reason || "Manual deletion",
-      sync_status: "deleted",
+      sync_status: syncStatus,
+      last_sync_at: now,
     })
     .eq("id", fileId)
     .eq("user_id", userId)
     .is("deleted_at", null)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to soft delete Drive file: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function updateDriveFileSyncStatus(
+  fileId: string,
+  userId: string,
+  syncStatus: DriveSyncStatus,
+  deleteReason?: string
+) {
+  const supabase = createSupabaseAdminClient();
+  const now = new Date().toISOString();
+
+  const updatePayload: {
+    sync_status: DriveSyncStatus;
+    last_sync_at: string;
+    delete_reason?: string;
+  } = {
+    sync_status: syncStatus,
+    last_sync_at: now,
+  };
+
+  if (deleteReason) {
+    updatePayload.delete_reason = deleteReason;
+  }
+
+  const { data, error } = await supabase
+    .from("google_drive_files")
+    .update(updatePayload)
+    .eq("id", fileId)
+    .eq("user_id", userId)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to update Drive sync status: ${error.message}`);
   }
 
   return data;
