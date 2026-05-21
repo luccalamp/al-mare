@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildDriveFileProxyUrl } from "@/lib/server/googleDrive";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
@@ -137,9 +136,7 @@ export async function POST(request: Request) {
     case "gallery-photo": {
       const canonicalUrl =
         parsedBody.data.url ||
-        (parsedBody.data.storageBucket.trim().toLowerCase() === "google-drive"
-          ? buildDriveFileProxyUrl(parsedBody.data.storagePath)
-          : buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath)) ||
+        buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) ||
         "";
 
       const { data, error } = await authContext.admin

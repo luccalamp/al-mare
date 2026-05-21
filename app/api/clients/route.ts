@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { buildDriveFileProxyUrl } from "@/lib/server/googleDrive";
-import { buildStorageObjectPublicUrl, createSignedStorageUrl } from "@/lib/server/storageUrls";
+import { createSignedStorageUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
   isMissingColumnError,
@@ -107,15 +106,11 @@ async function signClientMediaUrls(rows: ClientMediaRow[]) {
 
   return Promise.all(
     rows.map(async (row) => {
-      const profilePhotoBucket = row.profile_photo_storage_bucket?.trim().toLowerCase();
-      const signedProfilePhotoUrl =
-        profilePhotoBucket === "google-drive"
-          ? row.photo_url || (row.profile_photo_storage_path ? buildDriveFileProxyUrl(row.profile_photo_storage_path) : null)
-          : await createSignedStorageUrl(storageAdmin, {
-              storageBucket: row.profile_photo_storage_bucket,
-              storagePath: row.profile_photo_storage_path,
-              fallbackUrl: row.photo_url,
-            });
+      const profilePhotoUrl = await createSignedStorageUrl(storageAdmin, {
+        storageBucket: row.profile_photo_storage_bucket,
+        storagePath: row.profile_photo_storage_path,
+        fallbackUrl: row.photo_url,
+      });
 
       const signedGallery = Array.isArray(row.client_photos)
         ? await Promise.all(
@@ -123,21 +118,18 @@ async function signClientMediaUrls(rows: ClientMediaRow[]) {
               .filter((photo) => !photo.deleted_at)
               .map(async (photo) => ({
               ...photo,
-              url:
-                photo.storage_bucket?.trim().toLowerCase() === "google-drive"
-                  ? photo.url || (photo.storage_path ? buildDriveFileProxyUrl(photo.storage_path) : null)
-                  : await createSignedStorageUrl(storageAdmin, {
-                      storageBucket: photo.storage_bucket,
-                      storagePath: photo.storage_path,
-                      fallbackUrl: photo.url,
-                    }),
+              url: await createSignedStorageUrl(storageAdmin, {
+                storageBucket: photo.storage_bucket,
+                storagePath: photo.storage_path,
+                fallbackUrl: photo.url,
+              }),
               }))
           )
         : row.client_photos;
 
       return {
         ...row,
-        photo_url: signedProfilePhotoUrl,
+        photo_url: profilePhotoUrl,
         client_photos: signedGallery,
       };
     })
@@ -241,22 +233,10 @@ export async function PUT(request: Request) {
     return buildClientMutationError(existingClientError, "Não foi possível validar a foto do paciente agora.");
   }
 
-  const effectiveProfilePhotoBucket =
-    parsedBody.data.profilePhotoStorageBucket !== undefined
-      ? parsedBody.data.profilePhotoStorageBucket
-      : existingClient.profile_photo_storage_bucket;
-  const effectiveProfilePhotoPath =
-    parsedBody.data.profilePhotoStoragePath !== undefined
-      ? parsedBody.data.profilePhotoStoragePath
-      : existingClient.profile_photo_storage_path;
-  const isDriveManagedPhoto = effectiveProfilePhotoBucket?.trim().toLowerCase() === "google-drive";
-  const resolvedPhotoUrl = effectiveProfilePhotoPath
-    ? isDriveManagedPhoto
-      ? parsedBody.data.photoUrl || existingClient.photo_url || buildDriveFileProxyUrl(effectiveProfilePhotoPath)
-      : buildStorageObjectPublicUrl(effectiveProfilePhotoBucket, effectiveProfilePhotoPath)
-    : parsedBody.data.profilePhotoStoragePath === null
-      ? null
-      : existingClient.photo_url || parsedBody.data.photoUrl;
+  const resolvedPhotoUrl =
+    parsedBody.data.photoUrl !== undefined
+      ? parsedBody.data.photoUrl
+      : existingClient.photo_url;
 
   const updatePayload = {
     nome: parsedBody.data.nome,

@@ -28,8 +28,8 @@ type ClientsSnapshot = {
 };
 
 type UploadedImageAsset = {
-  signedUrl: string;
-  driveFileId: string;
+  url: string;
+  publicId: string;
 };
 
 type ClientMutationResponse = {
@@ -492,15 +492,14 @@ async function runClientRecordMutation(
   return result ?? {};
 }
 
-async function removeUploadedClientAsset(driveFileId: string) {
-  const response = await fetch("/api/google-drive", {
+async function removeUploadedClientAsset(publicId: string) {
+  const response = await fetch("/api/upload", {
     method: "DELETE",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      driveFileId,
-      purgeFromDrive: true,
+      publicId,
     }),
   });
 
@@ -672,35 +671,35 @@ export function useClients() {
       formData.append("persistClientPhoto", "true");
     }
 
-    const response = await fetch("/api/google-drive", {
+    const response = await fetch("/api/upload", {
       method: "POST",
       body: formData,
     });
 
     const payload = (await response.json().catch(() => null)) as {
-      previewUrl?: string;
-      drive?: { driveFileId?: string };
+      url?: string;
+      publicId?: string;
       error?: string;
     } | null;
 
     if (!response.ok) {
       const message = payload?.error && typeof payload.error === "string"
         ? payload.error
-        : "Falha ao enviar imagem para o Google Drive.";
-      console.error("Falha ao enviar imagem para o Google Drive:", message);
+        : "Falha ao enviar imagem.";
+      console.error("Falha ao enviar imagem:", message);
       throw new Error(message);
     }
 
-    const previewUrl = payload?.previewUrl;
-    const driveFileId = payload?.drive?.driveFileId;
+    const url = payload?.url;
+    const publicId = payload?.publicId;
 
-    if (!previewUrl || !driveFileId) {
-      throw new Error("Resposta incompleta do upload no Google Drive.");
+    if (!url || !publicId) {
+      throw new Error("Resposta incompleta do upload.");
     }
 
     return {
-      signedUrl: previewUrl,
-      driveFileId,
+      url,
+      publicId,
     };
   };
 
@@ -735,17 +734,17 @@ export function useClients() {
     const avatarFile = photoFiles?.find((item) => item.type === "avatar");
     const galleryFiles = (photoFiles || []).filter((item) => item.type !== "avatar");
     let nextProfile = sanitized.profile;
-    let avatarDriveFileId: string | null = null;
+    let avatarPublicId: string | null = null;
 
     if (avatarFile) {
       const avatarUpload = await uploadImage(sanitized.id, avatarFile.file);
       if (!avatarUpload) {
         throw new Error(`Falha ao enviar a foto ${avatarFile.file.name}.`);
       }
-      avatarDriveFileId = avatarUpload.driveFileId;
+      avatarPublicId = avatarUpload.publicId;
       nextProfile = {
         ...nextProfile,
-        photoUrl: avatarUpload.signedUrl,
+        photoUrl: avatarUpload.url,
       };
     }
 
@@ -764,18 +763,18 @@ export function useClients() {
             ...serializeProfilePayload(nextProfile),
             signatures: sanitized.signatures || [],
           },
-          ...(avatarDriveFileId
+          ...(avatarPublicId
             ? {
-                profilePhotoStorageBucket: "google-drive",
-                profilePhotoStoragePath: avatarDriveFileId,
+                profilePhotoStorageBucket: "cloudinary",
+                profilePhotoStoragePath: avatarPublicId,
               }
             : {}),
         },
         "Nao foi possivel salvar essa atualizacao no banco."
       );
     } catch (error) {
-      if (avatarDriveFileId) {
-        await removeUploadedClientAsset(avatarDriveFileId);
+      if (avatarPublicId) {
+        await removeUploadedClientAsset(avatarPublicId);
       }
 
       throw error;
