@@ -4,13 +4,14 @@ import { readServerEnv } from "./supabaseAdmin";
 
 export interface CloudinaryUploadResult {
   publicId: string;
-  url: string;
-  secureUrl: string;
   format: string;
   width: number;
   height: number;
   bytes: number;
 }
+
+const CLOUDINARY_RESOURCE_TYPE = "image";
+const CLOUDINARY_DELIVERY_TYPE = "authenticated";
 
 function getCloudinaryConfig() {
   const cloudName = readServerEnv("CLOUDINARY_CLOUD_NAME");
@@ -50,8 +51,8 @@ export async function uploadToCloudinary(
       {
         folder,
         public_id: publicId,
-        resource_type: "image",
-        type: "authenticated",
+        resource_type: CLOUDINARY_RESOURCE_TYPE,
+        type: CLOUDINARY_DELIVERY_TYPE,
       },
       (error, result) => {
         if (error) {
@@ -61,8 +62,6 @@ export async function uploadToCloudinary(
         } else {
           resolve({
             publicId: result.public_id,
-            url: result.url,
-            secureUrl: result.secure_url,
             format: result.format,
             width: result.width,
             height: result.height,
@@ -83,13 +82,21 @@ export async function deleteFromCloudinary(publicId: string): Promise<void> {
   configureCloudinary();
 
   return new Promise((resolve, reject) => {
-    cloudinary.uploader.destroy(publicId, (error) => {
-      if (error) {
-        reject(new Error(`Cloudinary delete failed: ${error.message}`));
-      } else {
-        resolve();
+    cloudinary.uploader.destroy(
+      publicId,
+      {
+        resource_type: CLOUDINARY_RESOURCE_TYPE,
+        type: CLOUDINARY_DELIVERY_TYPE,
+        invalidate: true,
+      },
+      (error) => {
+        if (error) {
+          reject(new Error(`Cloudinary delete failed: ${error.message}`));
+        } else {
+          resolve();
+        }
       }
-    });
+    );
   });
 }
 
@@ -101,11 +108,16 @@ export function getCloudinarySignedUrl(
   const expires = Math.floor(Date.now() / 1000) + 120;
 
   return cloudinary.url(publicId, {
-    type: "authenticated",
+    resource_type: CLOUDINARY_RESOURCE_TYPE,
+    type: CLOUDINARY_DELIVERY_TYPE,
     sign_url: true,
     expires_at: expires,
     secure: true,
   });
+}
+
+export function buildCloudinaryProxyUrl(publicId: string): string {
+  return `/api/media/${encodeURIComponent(publicId.trim())}`;
 }
 
 export function buildCloudinaryFolder(

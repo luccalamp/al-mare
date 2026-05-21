@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
-import { uploadToCloudinary, deleteFromCloudinary, buildCloudinaryFolder, getCloudinarySignedUrl } from "@/lib/server/cloudinary";
+import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
+import { uploadToCloudinary, deleteFromCloudinary, buildCloudinaryFolder, buildCloudinaryProxyUrl } from "@/lib/server/cloudinary";
+import { findCloudinaryPhotoRecordByPublicId } from "@/lib/server/cloudinaryAccess";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 
@@ -15,6 +16,45 @@ async function authorizeUpload(req: NextRequest) {
   }
 
   return authContext;
+}
+
+async function requireCloudinaryPhotoAccess(
+  auth: Awaited<ReturnType<typeof authorizeUpload>>,
+  publicId: string,
+  forbiddenMessage: string
+) {
+  if (auth instanceof NextResponse) {
+    return { response: auth, photoRecord: null };
+  }
+
+  const { data: photoRecord, error: photoLookupError } = await findCloudinaryPhotoRecordByPublicId(publicId);
+  if (photoLookupError) {
+    console.error("Failed to load Cloudinary photo reference:", photoLookupError);
+    return {
+      response: buildJsonError("Nao foi possivel validar a imagem agora.", 500),
+      photoRecord: null,
+    };
+  }
+
+  if (!photoRecord) {
+    return {
+      response: buildJsonError("Imagem invalida para esta operacao.", 404),
+      photoRecord: null,
+    };
+  }
+
+  const access = await requireClientAccess(auth, photoRecord.clientId, forbiddenMessage, "Imagem invalida para esta operacao.");
+  if (access.response) {
+    return {
+      response: access.response,
+      photoRecord: null,
+    };
+  }
+
+  return {
+    response: null,
+    photoRecord,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -42,6 +82,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const access = await requireClientAccess(
+      auth,
+      clienteId,
+      "Seu acesso nao permite enviar arquivos para este paciente.",
+      "Cliente invalido para esta operacao."
+    );
+    if (access.response) {
+      return access.response;
+    }
+
     if (!SUPPORTED_MIME_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: "Formato de imagem não suportado. Use JPEG, PNG, WebP ou AVIF." },
@@ -60,7 +110,7 @@ export async function POST(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
     const now = new Date().toISOString();
 
-    const proxyUrl = `/api/media/${encodeURIComponent(uploadResult.publicId)}`;
+    const proxyUrl = buildCloudinaryProxyUrl(uploadResult.publicId);
 
     const photoRecord = {
       cliente_id: clienteId,
@@ -106,11 +156,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const signedUrl = getCloudinarySignedUrl(uploadResult.publicId);
-
     return NextResponse.json({
       success: true,
-      url: signedUrl,
+      url: proxyUrl,
       publicId: uploadResult.publicId,
       width: uploadResult.width,
       height: uploadResult.height,
@@ -142,7 +190,42 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing publicId." }, { status: 400 });
     }
 
+    const access = await requireCloudinaryPhotoAccess(
+      auth,
+      publicId,
+      "Seu acesso nao permite remover esta imagem."
+    );
+    if (access.response || !access.photoRecord) {
+      return access.response || buildJsonError("Imagem invalida para esta operacao.", 404);
+    }
+
     await deleteFromCloudinary(publicId);
+
+    const supabase = createSupabaseAdminClient();
+    const { error: photoDeleteError } = await supabase
+      .from("client_photos")
+      .delete()
+      .eq("id", access.photoRecord.id);
+
+    if (photoDeleteError) {
+      console.error("Failed to delete Cloudinary photo reference:", photoDeleteError);
+    }
+
+    const { error: profileResetError } = await supabase
+      .from("clientes")
+      .update({
+        photo_url: null,
+        profile_photo_storage_bucket: null,
+        profile_photo_storage_path: null,
+      })
+      .eq("id", access.photoRecord.clientId)
+      .eq("user_id", auth.userId)
+      .eq("profile_photo_storage_bucket", "cloudinary")
+      .eq("profile_photo_storage_path", publicId);
+
+    if (profileResetError) {
+      console.error("Failed to clear deleted Cloudinary profile photo:", profileResetError);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

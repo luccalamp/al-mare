@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildCloudinaryProxyUrl } from "@/lib/server/cloudinary";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
     case "gallery-photo": {
       const isCloudinary = parsedBody.data.storageBucket.trim().toLowerCase() === "cloudinary";
       const canonicalUrl = isCloudinary
-        ? `/api/media/${encodeURIComponent(parsedBody.data.storagePath)}`
+        ? buildCloudinaryProxyUrl(parsedBody.data.storagePath)
         : (parsedBody.data.url ||
         buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) ||
         "");

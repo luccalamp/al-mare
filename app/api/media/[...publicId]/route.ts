@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
-import { readServerEnv } from "@/lib/server/supabaseAdmin";
+import { findCloudinaryPhotoRecordByPublicId } from "@/lib/server/cloudinaryAccess";
 
 export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
   try {
@@ -14,18 +14,30 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
     }
 
     const publicId = params.publicId.join("/");
-    const cloudName = readServerEnv("CLOUDINARY_CLOUD_NAME");
-    const publicUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
+    const { data: photoRecord, error: photoLookupError } = await findCloudinaryPhotoRecordByPublicId(publicId);
+    if (photoLookupError) {
+      console.error("Media proxy: failed to load Cloudinary photo reference", photoLookupError);
+      return buildJsonError("Nao foi possivel validar a imagem agora.", 500);
+    }
 
-    let imageResponse = await fetch(getCloudinarySignedUrl(publicId), {
+    if (!photoRecord) {
+      return buildJsonError("Imagem invalida para esta operacao.", 404);
+    }
+
+    const access = await requireClientAccess(
+      authContext,
+      photoRecord.clientId,
+      "Sem permissao para acessar esta imagem.",
+      "Imagem invalida para esta operacao."
+    );
+    if (access.response) {
+      return access.response;
+    }
+
+    const imageResponse = await fetch(getCloudinarySignedUrl(publicId), {
+      cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
-
-    if (!imageResponse.ok) {
-      imageResponse = await fetch(publicUrl, {
-        signal: AbortSignal.timeout(10_000),
-      });
-    }
 
     if (!imageResponse.ok) {
       console.error("Media proxy: Cloudinary fetch failed", imageResponse.status);
@@ -39,8 +51,10 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "private, max-age=86400, s-maxage=86400",
+        "Cache-Control": "private, no-store, max-age=0",
         "Content-Length": imageBuffer.byteLength.toString(),
+        "Vary": "Cookie, Authorization",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
