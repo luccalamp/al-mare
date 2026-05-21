@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { createPrivateKey } from "crypto";
 import { Readable } from "stream";
 import { createSupabaseAdminClient, readServerEnv } from "./supabaseAdmin";
 import { BRANDING_CONFIG_PREFERENCE_KEY, DEFAULT_BRANDING_CONFIG, mergeBrandingConfig } from "../brandingConfig";
@@ -59,6 +60,140 @@ function sanitizeDriveFolderSegment(value: string | null | undefined, fallback: 
     .replace(/\.+$/g, "");
 
   return normalized || fallback;
+}
+
+function unwrapQuotedEnvValue(value: string) {
+  let normalized = value.trim();
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!normalized) {
+      return normalized;
+    }
+
+    if (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith("`") && normalized.endsWith("`"))
+    ) {
+      normalized = normalized.slice(1, -1).trim();
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(normalized);
+      if (typeof parsed === "string") {
+        normalized = parsed.trim();
+        continue;
+      }
+    } catch {
+      // Not a JSON string wrapper; keep the current value.
+    }
+
+    break;
+  }
+
+  return normalized;
+}
+
+function maybeDecodeBase64Text(value: string) {
+  const compactValue = value.replace(/\s+/g, "");
+  if (!compactValue || compactValue.length < 32 || !/^[A-Za-z0-9+/=]+$/.test(compactValue)) {
+    return null;
+  }
+
+  try {
+    const decodedValue = Buffer.from(compactValue, "base64").toString("utf8").trim();
+    return decodedValue || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePemBody(value: string) {
+  const pemMatch = value.match(/-----BEGIN ([A-Z ]*PRIVATE KEY)-----([\s\S]+?)-----END \1-----/);
+  if (!pemMatch) {
+    return value;
+  }
+
+  const pemType = pemMatch[1];
+  const pemBody = pemMatch[2].replace(/[^A-Za-z0-9+/=]/g, "");
+  const wrappedBody = pemBody.match(/.{1,64}/g)?.join("\n") || "";
+  return `-----BEGIN ${pemType}-----\n${wrappedBody}\n-----END ${pemType}-----`;
+}
+
+function normalizeServiceAccountString(value: unknown) {
+  return typeof value === "string" ? unwrapQuotedEnvValue(value) : "";
+}
+
+function normalizePrivateKeyValue(value: unknown) {
+  const rawValue = normalizeServiceAccountString(value);
+  if (!rawValue) {
+    return "";
+  }
+
+  let normalizedValue = rawValue
+    .replace(/\\r/g, "")
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  const decodedText = maybeDecodeBase64Text(normalizedValue);
+  if (decodedText) {
+    const decodedValue = unwrapQuotedEnvValue(decodedText)
+      .replace(/\\r/g, "")
+      .replace(/\\n/g, "\n")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .trim();
+
+    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(decodedValue)) {
+      normalizedValue = decodedValue;
+    }
+  }
+
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(normalizedValue)) {
+    const compactValue = normalizedValue.replace(/\s+/g, "");
+    if (/^[A-Za-z0-9+/=]+$/.test(compactValue) && compactValue.length > 64) {
+      try {
+        const keyObject = createPrivateKey({
+          key: Buffer.from(compactValue, "base64"),
+          format: "der",
+          type: "pkcs8",
+        });
+
+        normalizedValue = keyObject.export({ format: "pem", type: "pkcs8" }).toString();
+      } catch {
+        // Fall through to the final validation below for a clearer error.
+      }
+    }
+  }
+
+  normalizedValue = normalizePemBody(normalizedValue).trim();
+
+  try {
+    createPrivateKey(normalizedValue);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Chave privada do Google Drive inválida. Salve GOOGLE_DRIVE_PRIVATE_KEY como PEM completo com \\n, use a JSON de service account válida ou remova aspas extras do valor. Detalhe: ${detail}`
+    );
+  }
+
+  return normalizedValue;
+}
+
+function parseServiceAccountCredentialJson(rawValue: string) {
+  try {
+    return JSON.parse(rawValue);
+  } catch (error) {
+    const decodedValue = maybeDecodeBase64Text(rawValue);
+    if (decodedValue) {
+      return JSON.parse(decodedValue);
+    }
+
+    throw error;
+  }
 }
 
 function normalizeDriveFolderId(rawValue: string | null | undefined) {
@@ -167,8 +302,8 @@ function normalizeServiceAccountCredentials(value: unknown) {
   }
 
   const candidate = value as Record<string, unknown>;
-  const clientEmail = typeof candidate.client_email === "string" ? candidate.client_email.trim() : "";
-  const privateKey = typeof candidate.private_key === "string" ? candidate.private_key.replace(/\\n/g, "\n").trim() : "";
+  const clientEmail = normalizeServiceAccountString(candidate.client_email);
+  const privateKey = normalizePrivateKeyValue(candidate.private_key);
 
   if (!clientEmail || !privateKey) {
     return null;
@@ -187,8 +322,8 @@ function getServiceAccountCredentials() {
 
   if (clientEmail && privateKey) {
     return {
-      client_email: clientEmail,
-      private_key: privateKey.replace(/\\n/g, "\n").trim(),
+      client_email: normalizeServiceAccountString(clientEmail),
+      private_key: normalizePrivateKeyValue(privateKey),
     };
   }
 
@@ -199,7 +334,7 @@ function getServiceAccountCredentials() {
     if (!raw) continue;
 
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = parseServiceAccountCredentialJson(raw);
       const normalized = normalizeServiceAccountCredentials(parsed);
       if (normalized) {
         return normalized;
