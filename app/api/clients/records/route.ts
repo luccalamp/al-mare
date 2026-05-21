@@ -135,11 +135,11 @@ export async function POST(request: Request) {
   switch (parsedBody.data.action) {
     case "gallery-photo": {
       const isCloudinary = parsedBody.data.storageBucket.trim().toLowerCase() === "cloudinary";
-      const canonicalUrl = isCloudinary ? null : (
-        parsedBody.data.url ||
+      const canonicalUrl = isCloudinary
+        ? `/api/media/${encodeURIComponent(parsedBody.data.storagePath)}`
+        : (parsedBody.data.url ||
         buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) ||
-        ""
-      );
+        "");
 
       const { data, error } = await authContext.admin
         .from("client_photos")

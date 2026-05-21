@@ -60,9 +60,11 @@ export async function POST(req: NextRequest) {
     const supabase = createSupabaseAdminClient();
     const now = new Date().toISOString();
 
+    const proxyUrl = `/api/media/${encodeURIComponent(uploadResult.publicId)}`;
+
     const photoRecord = {
       cliente_id: clienteId,
-      url: null,
+      url: proxyUrl,
       type: category || "referencia",
       categoria: category || "referencia",
       caption: caption || null,
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
       const { error: clientError } = await supabase
         .from("clientes")
         .update({
-          photo_url: null,
+          photo_url: proxyUrl,
           profile_photo_storage_bucket: "cloudinary",
           profile_photo_storage_path: uploadResult.publicId,
         })

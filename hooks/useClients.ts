@@ -757,7 +757,7 @@ export function useClients() {
           whatsapp: nextProfile.whatsapp,
           instagramHandle: nextProfile.instagramHandle || null,
           dataAniversario: nextProfile.dataAniversario || null,
-          photoUrl: avatarPublicId ? null : (nextProfile.photoUrl || null),
+          photoUrl: nextProfile.photoUrl || null,
           acquisitionChannel: nextProfile.acquisitionChannel || null,
           perfilComplementar: {
             ...serializeProfilePayload(nextProfile),

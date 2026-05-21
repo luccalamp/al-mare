@@ -3,7 +3,7 @@ import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
 import { readServerEnv } from "@/lib/server/supabaseAdmin";
 
-export async function GET(req: NextRequest, { params }: { params: { publicId: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
   try {
     const authContext = await requireAuthorizedStaff(req, {
       forbiddenMessage: "Sem permissao para acessar esta imagem.",
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return authContext;
     }
 
-    const publicId = decodeURIComponent(params.publicId);
+    const publicId = params.publicId.join("/");
     const cloudName = readServerEnv("CLOUDINARY_CLOUD_NAME");
     const publicUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
 
