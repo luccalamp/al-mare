@@ -27,8 +27,12 @@ function getCloudinaryConfig() {
 }
 
 function configureCloudinary() {
-  const config = getCloudinaryConfig();
-  cloudinary.config(config);
+  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
+  cloudinary.config({
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
+  });
 }
 
 export async function uploadToCloudinary(
