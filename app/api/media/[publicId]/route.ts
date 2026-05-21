@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
+import { readServerEnv } from "@/lib/server/supabaseAdmin";
 
 export async function GET(req: NextRequest, { params }: { params: { publicId: string } }) {
   try {
@@ -13,12 +14,33 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
     }
 
     const publicId = decodeURIComponent(params.publicId);
-    const signedUrl = getCloudinarySignedUrl(publicId, { expiresInSeconds: 120 });
+    const cloudName = readServerEnv("CLOUDINARY_CLOUD_NAME");
+    const publicUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
 
-    return NextResponse.redirect(signedUrl, {
-      status: 302,
+    let imageResponse = await fetch(getCloudinarySignedUrl(publicId), {
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!imageResponse.ok) {
+      imageResponse = await fetch(publicUrl, {
+        signal: AbortSignal.timeout(10_000),
+      });
+    }
+
+    if (!imageResponse.ok) {
+      console.error("Media proxy: Cloudinary fetch failed", imageResponse.status);
+      return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
+    }
+
+    const imageBuffer = await imageResponse.arrayBuffer();
+    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+
+    return new NextResponse(imageBuffer, {
+      status: 200,
       headers: {
-        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+        "Content-Type": contentType,
+        "Cache-Control": "private, max-age=86400, s-maxage=86400",
+        "Content-Length": imageBuffer.byteLength.toString(),
       },
     });
   } catch (error) {
