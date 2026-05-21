@@ -1,2 +1,0 @@
--- Placeholder local para alinhar o histórico de migrações com o remoto.
--- A versão 20260424103000 já existe aplicada no projeto vinculado.

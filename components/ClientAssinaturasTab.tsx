@@ -221,9 +221,11 @@ export default function ClientAssinaturasTab({ client, onUpdate }: ClientAssinat
           </h3>
         </div>
         <div className="mt-4 flex items-center gap-4 rounded-2xl border-2 border-[var(--color-brand-accent)] bg-gradient-to-r from-[var(--color-brand-soft)] to-white p-4 shadow-lg">
-          <img
+          <NextImage
             src="/icons/resp-ass.png"
             alt="Responsável pela consulta"
+            width={64}
+            height={64}
             className="h-16 w-16 rounded-full object-cover ring-4 ring-white shadow-md"
           />
           <div>

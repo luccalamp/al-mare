@@ -16,6 +16,6 @@ def extract_text(pdf_path):
     except Exception as e:
         print(f'Error reading {pdf_path}: {e}')
 
-base_path = 'projeto-salao/public/pdfs'
+base_path = 'public/pdfs'
 extract_text(os.path.join(base_path, 'Manual_Terapia_Capilar_Jak_Oliveira_Atualizado.pdf'))
 extract_text(os.path.join(base_path, 'Orcamento_Terapia_Capilar_Jak_Oliveira.pdf'))

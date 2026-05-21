@@ -5,7 +5,6 @@ function readEnvFromDotenv(name) {
   const escapedName = name.replace(/[\\-\\/\\^$*+?.()|[\]{}]/g, '\\$&');
   const candidates = [
     path.resolve(process.cwd(), '.env.local'),
-    path.resolve(process.cwd(), 'projeto-salao', '.env.local'),
     path.resolve(__dirname, '..', '.env.local'),
   ];
 

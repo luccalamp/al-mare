@@ -24,8 +24,6 @@ function createSecretKeySafeFetch(apiKey: string): typeof fetch {
 function readEnvFromDotenv(name: string): string | null {
   const candidates = [
     path.resolve(process.cwd(), ".env.local"),
-    path.resolve(process.cwd(), "projeto salao", ".env.local"),
-    path.resolve(process.cwd(), "projeto-salao", ".env.local"),
     path.resolve(__dirname, "..", "..", ".env.local"),
     path.resolve(__dirname, "..", ".env.local"),
   ];
