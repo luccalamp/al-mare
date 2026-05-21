@@ -12,6 +12,8 @@ export interface CloudinaryUploadResult {
   bytes: number;
 }
 
+const SIGNED_URL_DEFAULT_EXPIRY = 86_400; // 24h
+
 function getCloudinaryConfig() {
   const cloudName = readServerEnv("CLOUDINARY_CLOUD_NAME");
   const apiKey = readServerEnv("CLOUDINARY_API_KEY");
@@ -51,7 +53,7 @@ export async function uploadToCloudinary(
         folder,
         public_id: publicId,
         resource_type: "image",
-        transformation: [{ quality: "auto", fetch_format: "auto" }],
+        type: "authenticated",
       },
       (error, result) => {
         if (error) {
@@ -91,6 +93,23 @@ export async function deleteFromCloudinary(publicId: string): Promise<void> {
       }
     });
   });
+}
+
+export function getCloudinarySignedUrl(
+  publicId: string,
+  options?: { expiresInSeconds?: number }
+): string {
+  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
+  const expiresAt = options?.expiresInSeconds ?? SIGNED_URL_DEFAULT_EXPIRY;
+  const expires = Math.floor(Date.now() / 1000) + expiresAt;
+
+  const signature = cloudinary.utils.api_sign_request(
+    { public_id: publicId, expires_at: expires, type: "authenticated" },
+    apiSecret
+  );
+
+  const encodedId = publicId.split("/").map(encodeURIComponent).join("/");
+  return `https://res.cloudinary.com/${cloudName}/image/authenticated/${encodedId}?expires_at=${expires}&signature=${signature}&api_key=${apiKey}`;
 }
 
 export function buildCloudinaryFolder(

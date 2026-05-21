@@ -97,6 +97,7 @@ function FolderIcon({
                   src={avatarUrl}
                   alt={client.profile.nome}
                   fill
+                  unoptimized
                   sizes="(min-width: 640px) 40px, 32px"
                   className="object-cover"
                 />

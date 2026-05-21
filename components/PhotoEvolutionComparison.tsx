@@ -53,7 +53,7 @@ export default function PhotoEvolutionComparison({ photos }: { photos: readonly 
                     <span className="text-xs text-[var(--color-text-secondary)]">{formatDate(pair.before.date)}</span>
                   </div>
                   <div className="relative aspect-[4/5] w-full">
-                    <Image src={pair.before.url} alt="Foto antes" fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
+                    <Image src={pair.before.url} alt="Foto antes" fill unoptimized sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                   </div>
                 </div>
 
@@ -63,7 +63,7 @@ export default function PhotoEvolutionComparison({ photos }: { photos: readonly 
                     <span className="text-xs text-[var(--color-text-secondary)]">{formatDate(pair.after.date)}</span>
                   </div>
                   <div className="relative aspect-[4/5] w-full">
-                    <Image src={pair.after.url} alt="Foto depois" fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
+                    <Image src={pair.after.url} alt="Foto depois" fill unoptimized sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                   </div>
                 </div>
               </div>

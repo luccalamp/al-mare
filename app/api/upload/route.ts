@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
-import { uploadToCloudinary, deleteFromCloudinary, buildCloudinaryFolder } from "@/lib/server/cloudinary";
+import { uploadToCloudinary, deleteFromCloudinary, buildCloudinaryFolder, getCloudinarySignedUrl } from "@/lib/server/cloudinary";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
     const photoRecord = {
       cliente_id: clienteId,
-      url: uploadResult.secureUrl,
+      url: null,
       type: category || "referencia",
       categoria: category || "referencia",
       caption: caption || null,
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       const { error: clientError } = await supabase
         .from("clientes")
         .update({
-          photo_url: uploadResult.secureUrl,
+          photo_url: null,
           profile_photo_storage_bucket: "cloudinary",
           profile_photo_storage_path: uploadResult.publicId,
         })
@@ -104,9 +104,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const signedUrl = getCloudinarySignedUrl(uploadResult.publicId);
+
     return NextResponse.json({
       success: true,
-      url: uploadResult.secureUrl,
+      url: signedUrl,
       publicId: uploadResult.publicId,
       width: uploadResult.width,
       height: uploadResult.height,

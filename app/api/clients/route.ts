@@ -101,12 +101,26 @@ type ClientMediaRow = {
   [key: string]: unknown;
 };
 
+function resolveMediaUrl(
+  bucket: string | null | undefined,
+  path: string | null | undefined
+): string | null {
+  const normalizedBucket = bucket?.trim().toLowerCase();
+  if (normalizedBucket === "cloudinary" && path) {
+    return `/api/media/${encodeURIComponent(path)}`;
+  }
+  return null;
+}
+
 async function signClientMediaUrls(rows: ClientMediaRow[]) {
   const storageAdmin = createSupabaseAdminClient();
 
   return Promise.all(
     rows.map(async (row) => {
-      const profilePhotoUrl = await createSignedStorageUrl(storageAdmin, {
+      const profilePhotoUrl = resolveMediaUrl(
+        row.profile_photo_storage_bucket,
+        row.profile_photo_storage_path
+      ) ?? await createSignedStorageUrl(storageAdmin, {
         storageBucket: row.profile_photo_storage_bucket,
         storagePath: row.profile_photo_storage_path,
         fallbackUrl: row.photo_url,
@@ -118,7 +132,10 @@ async function signClientMediaUrls(rows: ClientMediaRow[]) {
               .filter((photo) => !photo.deleted_at)
               .map(async (photo) => ({
               ...photo,
-              url: await createSignedStorageUrl(storageAdmin, {
+              url: resolveMediaUrl(
+                photo.storage_bucket,
+                photo.storage_path
+              ) ?? await createSignedStorageUrl(storageAdmin, {
                 storageBucket: photo.storage_bucket,
                 storagePath: photo.storage_path,
                 fallbackUrl: photo.url,

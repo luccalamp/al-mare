@@ -40,10 +40,15 @@ const nextConfig = {
   compress: true,
   generateEtags: true,
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: "https",
         hostname: "ccrorpxyvxzzsoafwbsj.supabase.co",
+      },
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
       },
     ],
     deviceSizes: [640, 750, 828, 1080, 1200],
