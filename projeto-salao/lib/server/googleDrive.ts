@@ -53,12 +53,39 @@ function sanitizeDriveFolderSegment(value: string | null | undefined, fallback: 
   const normalized = (value || "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/[<>:"'/\\|?*\u0000-\u001F]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\.+$/g, "");
 
   return normalized || fallback;
+}
+
+function normalizeDriveFolderId(rawValue: string | null | undefined) {
+  const trimmedValue = rawValue?.trim();
+  if (!trimmedValue) {
+    return undefined;
+  }
+
+  const folderMatch = trimmedValue.match(/\/folders\/([a-zA-Z0-9_-]+)/i);
+  if (folderMatch?.[1]) {
+    return folderMatch[1];
+  }
+
+  const queryMatch = trimmedValue.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  if (queryMatch?.[1]) {
+    return queryMatch[1];
+  }
+
+  if (/^[a-zA-Z0-9_-]{10,}$/.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  throw new Error("GOOGLE_DRIVE_FOLDER_ID precisa ser o id da pasta ou um link valido do Google Drive.");
+}
+
+function getConfiguredDriveRootFolderId() {
+  return normalizeDriveFolderId(readServerEnv("GOOGLE_DRIVE_FOLDER_ID"));
 }
 
 function buildClientFolderName(clienteId: string, clientName?: string | null) {
@@ -115,7 +142,7 @@ async function getDriveFolderStructure(clienteId: string, options?: DriveFolderO
   const categoryFolder = sanitizeDriveFolderSegment(options?.category, "referencia");
 
   return [
-    sanitizeDriveFolderSegment(GOOGLE_DRIVE_FOLDER_ROOT, "al mare"),
+    GOOGLE_DRIVE_FOLDER_ROOT,
     ownerContext.ownerEmail,
     ownerContext.clinicName,
     "clientes",
@@ -155,6 +182,16 @@ function normalizeServiceAccountCredentials(value: unknown) {
 }
 
 function getServiceAccountCredentials() {
+  const clientEmail = readServerEnv("GOOGLE_DRIVE_CLIENT_EMAIL");
+  const privateKey = readServerEnv("GOOGLE_DRIVE_PRIVATE_KEY");
+
+  if (clientEmail && privateKey) {
+    return {
+      client_email: clientEmail,
+      private_key: privateKey.replace(/\\n/g, "\n").trim(),
+    };
+  }
+
   let lastParseError: Error | null = null;
 
   for (const envName of GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS) {
@@ -174,7 +211,7 @@ function getServiceAccountCredentials() {
 
   if (lastParseError) {
     throw new Error(
-      `Credenciais inválidas do Google Drive. Revise uma destas variáveis: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
+      `Credenciais inválidas do Google Drive. Revise GOOGLE_DRIVE_CLIENT_EMAIL + GOOGLE_DRIVE_PRIVATE_KEY ou uma destas variáveis JSON: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
     );
   }
 
@@ -186,7 +223,7 @@ async function getGoogleDriveClient() {
 
   if (!credentials) {
     throw new Error(
-      `Configure uma Service Account em uma destas variáveis: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
+      `Configure GOOGLE_DRIVE_CLIENT_EMAIL + GOOGLE_DRIVE_PRIVATE_KEY ou uma Service Account JSON em: ${GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS.join(", ")}.`
     );
   }
 
@@ -198,11 +235,13 @@ async function getGoogleDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folderPath: string): Promise<string> {
+async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folderPath: string, rootFolderId?: string): Promise<string> {
   const parts = folderPath.split("/");
-  let parentId = "root";
+  let parentId = rootFolderId || "root";
+  const startIndex = rootFolderId ? 1 : 0;
 
-  for (const part of parts) {
+  for (let i = startIndex; i < parts.length; i++) {
+    const part = parts[i];
     const existing = await drive.files.list({
       q: `name='${part}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`,
       fields: "files(id, name)",
@@ -243,7 +282,8 @@ export async function uploadToGoogleDrive(
 ): Promise<DriveUploadResult> {
   const drive = await getGoogleDriveClient();
   const folderPath = await getDriveFolderStructure(clienteId, options);
-  const parentId = await ensureFolderExists(drive, folderPath);
+  const rootFolderId = getConfiguredDriveRootFolderId();
+  const parentId = await ensureFolderExists(drive, folderPath, rootFolderId);
 
   const timestamp = Date.now();
   const uniqueFilename = `${timestamp}_${filename}`;

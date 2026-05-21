@@ -684,16 +684,18 @@ export function useClients() {
     } | null;
 
     if (!response.ok) {
-      console.error("Falha ao enviar imagem para o Google Drive:", payload?.error || response.statusText);
-      return null;
+      const message = payload?.error && typeof payload.error === "string"
+        ? payload.error
+        : "Falha ao enviar imagem para o Google Drive.";
+      console.error("Falha ao enviar imagem para o Google Drive:", message);
+      throw new Error(message);
     }
 
     const previewUrl = payload?.previewUrl;
     const driveFileId = payload?.drive?.driveFileId;
 
     if (!previewUrl || !driveFileId) {
-      console.error("Resposta incompleta do upload no Google Drive.");
-      return null;
+      throw new Error("Resposta incompleta do upload no Google Drive.");
     }
 
     return {
