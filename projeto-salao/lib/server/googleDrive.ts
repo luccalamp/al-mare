@@ -198,7 +198,11 @@ function parseServiceAccountCredentialJson(rawValue: string) {
 
 function normalizeDriveFolderId(rawValue: string | null | undefined) {
   const trimmedValue = rawValue?.trim();
-  if (!trimmedValue) {
+  if (!trimmedValue || trimmedValue === ".") {
+    return undefined;
+  }
+
+  if (trimmedValue === "." || trimmedValue === "..") {
     return undefined;
   }
 
@@ -216,7 +220,7 @@ function normalizeDriveFolderId(rawValue: string | null | undefined) {
     return trimmedValue;
   }
 
-  throw new Error("GOOGLE_DRIVE_FOLDER_ID precisa ser o id da pasta ou um link valido do Google Drive.");
+  return undefined;
 }
 
 function getConfiguredDriveRootFolderId() {
@@ -372,8 +376,9 @@ async function getGoogleDriveClient() {
 
 async function ensureFolderExists(drive: ReturnType<typeof google.drive>, folderPath: string, rootFolderId?: string): Promise<string> {
   const parts = folderPath.split("/");
-  let parentId = rootFolderId || "root";
-  const startIndex = rootFolderId ? 1 : 0;
+  const validRootId = rootFolderId && rootFolderId !== "." && rootFolderId !== ".." ? rootFolderId : undefined;
+  let parentId = validRootId || "root";
+  const startIndex = validRootId ? 1 : 0;
 
   for (let i = startIndex; i < parts.length; i++) {
     const part = parts[i];
