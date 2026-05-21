@@ -1,6 +1,5 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
-import { readServerEnv } from "./supabaseAdmin";
 
 interface DriveCredentials {
   client_email: string;
@@ -13,9 +12,14 @@ interface UploadResult {
   thumbnailLink: string | null;
 }
 
+interface UploadMetadata {
+  folderPath?: string[];
+  description?: string;
+}
+
 function getCredentials(): DriveCredentials {
-  const clientEmail = readServerEnv("GOOGLE_DRIVE_CLIENT_EMAIL");
-  const privateKey = readServerEnv("GOOGLE_DRIVE_PRIVATE_KEY");
+  const clientEmail = process.env.GOOGLE_DRIVE_CLIENT_EMAIL;
+  const privateKey = process.env.GOOGLE_DRIVE_PRIVATE_KEY;
 
   if (!clientEmail || !privateKey) {
     throw new Error(
@@ -30,7 +34,7 @@ function getCredentials(): DriveCredentials {
 }
 
 function getFolderId(): string {
-  const folderId = readServerEnv("GOOGLE_DRIVE_FOLDER_ID");
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
   if (!folderId || folderId === "." || folderId === "..") {
     throw new Error("GOOGLE_DRIVE_FOLDER_ID é obrigatório e deve ser um ID válido.");
@@ -50,44 +54,46 @@ async function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
+async function ensureFolderPath(drive: ReturnType<typeof google.drive>, folderPath: string[]): Promise<string> {
+  let targetFolderId = getFolderId();
+
+  for (const folderName of folderPath) {
+    const existing = await drive.files.list({
+      q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and '${targetFolderId}' in parents and trashed=false`,
+      fields: "files(id)",
+      spaces: "drive",
+    });
+
+    if (existing.data.files && existing.data.files.length > 0) {
+      targetFolderId = existing.data.files[0].id!;
+    } else {
+      const newFolder = await drive.files.create({
+        requestBody: {
+          name: folderName,
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [targetFolderId],
+        },
+        fields: "id",
+      });
+
+      targetFolderId = newFolder.data.id!;
+    }
+  }
+
+  return targetFolderId;
+}
+
 export async function uploadImageToDrive(
   fileBuffer: Buffer,
   filename: string,
   mimeType: string,
-  metadata?: {
-    folderPath?: string[];
-    description?: string;
-  }
+  metadata?: UploadMetadata
 ): Promise<UploadResult> {
   const drive = await getDriveClient();
-  const folderId = getFolderId();
 
-  let targetFolderId = folderId;
-
-  if (metadata?.folderPath && metadata.folderPath.length > 0) {
-    for (const folderName of metadata.folderPath) {
-      const existing = await drive.files.list({
-        q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and '${targetFolderId}' in parents and trashed=false`,
-        fields: "files(id)",
-        spaces: "drive",
-      });
-
-      if (existing.data.files && existing.data.files.length > 0) {
-        targetFolderId = existing.data.files[0].id!;
-      } else {
-        const newFolder = await drive.files.create({
-          requestBody: {
-            name: folderName,
-            mimeType: "application/vnd.google-apps.folder",
-            parents: [targetFolderId],
-          },
-          fields: "id",
-        });
-
-        targetFolderId = newFolder.data.id!;
-      }
-    }
-  }
+  const targetFolderId = metadata?.folderPath
+    ? await ensureFolderPath(drive, metadata.folderPath)
+    : getFolderId();
 
   const timestamp = Date.now();
   const uniqueFilename = `${timestamp}_${filename}`;
