@@ -4,7 +4,7 @@ import { Readable } from "stream";
 import { createSupabaseAdminClient, readServerEnv } from "./supabaseAdmin";
 import { BRANDING_CONFIG_PREFERENCE_KEY, DEFAULT_BRANDING_CONFIG, mergeBrandingConfig } from "../brandingConfig";
 
-const GOOGLE_DRIVE_FOLDER_ROOT = "al mare";
+const GOOGLE_DRIVE_FOLDER_ROOT = "almare";
 const GOOGLE_DRIVE_PROXY_BASE_PATH = "/api/google-drive/files";
 const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GOOGLE_DRIVE_CREDENTIAL_ENV_KEYS = [
