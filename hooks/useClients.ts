@@ -661,7 +661,7 @@ export function useClients() {
     const formData = new FormData();
     formData.append("file", preparedFile);
     formData.append("clienteId", clientId);
-    const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto || type);
+    const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto);
 
     if (type) {
       formData.append("category", resolvePhotoCategory(type));
@@ -783,9 +783,7 @@ export function useClients() {
     if (galleryFiles.length > 0) {
       for (const item of galleryFiles) {
         const category = resolvePhotoCategory(item.type);
-        const uploadedPhoto = await uploadImage(sanitized.id, item.file, category, {
-          persistClientPhoto: true,
-        });
+        const uploadedPhoto = await uploadImage(sanitized.id, item.file, category);
         if (!uploadedPhoto) {
           throw new Error(`Falha ao enviar a foto ${item.file.name}.`);
         }

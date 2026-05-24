@@ -2,17 +2,56 @@
 
 import NextImage from "next/image";
 import { useState, useRef, ChangeEvent } from "react";
-import { Download, Image as ImageIcon, Upload, Trash2 } from "lucide-react";
+import { Download, Image as ImageIcon, Save, Upload, Trash2 } from "lucide-react";
 
 interface ImageGridComposerProps {
   title: string;
   subtitle?: string;
   labels: [string, string, string, string];
+  onSaveComposite?: (file: File, previewUrl: string) => Promise<void> | void;
+  saveButtonLabel?: string;
 }
 
-export default function ImageGridComposer({ title, subtitle, labels }: ImageGridComposerProps) {
+function toSafeFilename(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function dataUrlToJpegFile(dataUrl: string, filename: string) {
+  const [header, payload] = dataUrl.split(",");
+  if (!header || !payload || !header.includes("base64")) {
+    throw new Error("Nao foi possivel preparar o mosaico para salvar.");
+  }
+
+  const mimeMatch = header.match(/^data:(.*?);base64$/i);
+  const mimeType = mimeMatch?.[1] || "image/jpeg";
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new File([bytes], filename, { type: mimeType });
+}
+
+export default function ImageGridComposer({
+  title,
+  subtitle,
+  labels,
+  onSaveComposite,
+  saveButtonLabel = "Salvar no perfil",
+}: ImageGridComposerProps) {
   const [images, setImages] = useState<(string | null)[]>([null, null, null, null]);
   const [compositeUrl, setCompositeUrl] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRefs = [
     useRef<HTMLInputElement>(null),
@@ -44,6 +83,8 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
       return next;
     });
     setCompositeUrl(null);
+    setSaveFeedback(null);
+    setSaveError(null);
   };
 
   const generateComposite = () => {
@@ -78,6 +119,9 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
       alert("Adicione pelo menos uma imagem.");
       return;
     }
+
+    setSaveFeedback(null);
+    setSaveError(null);
 
     images.forEach((src, index) => {
       if (src) {
@@ -130,6 +174,26 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
       link.href = compositeUrl;
       link.download = `${title.toLowerCase().replace(/\s+/g, "_")}.jpg`;
       link.click();
+    }
+  };
+
+  const handleSaveComposite = async () => {
+    if (!onSaveComposite || !compositeUrl) return;
+
+    try {
+      setIsSaving(true);
+      setSaveFeedback(null);
+      setSaveError(null);
+
+      const filenameBase = toSafeFilename(title) || "mosaico";
+      const file = dataUrlToJpegFile(compositeUrl, `${filenameBase}-${Date.now()}.jpg`);
+      await onSaveComposite(file, compositeUrl);
+      setSaveFeedback("Mosaico salvo no perfil da paciente.");
+    } catch (error) {
+      console.error(error);
+      setSaveError(error instanceof Error ? error.message : "Nao foi possivel salvar o mosaico.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -205,9 +269,23 @@ export default function ImageGridComposer({ title, subtitle, labels }: ImageGrid
             <Download size={16} /> Exportar
           </button>
         )}
+
+        {compositeUrl && onSaveComposite && (
+          <button
+            onClick={handleSaveComposite}
+            disabled={isSaving}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-white px-4 py-2 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-[var(--color-brand-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Save size={16} /> {isSaving ? "Salvando..." : saveButtonLabel}
+          </button>
+        )}
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
+
+      {(saveFeedback || saveError) && (
+        <p className={`text-sm ${saveError ? "text-rose-700" : "text-emerald-700"}`}>{saveError || saveFeedback}</p>
+      )}
 
       {compositeUrl && (
         <div className="mt-4 overflow-hidden rounded-[20px] border border-[var(--color-brand-line)] bg-white">

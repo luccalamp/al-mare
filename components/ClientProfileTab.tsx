@@ -128,6 +128,13 @@ export default function ClientProfileTab({
     }
   };
 
+  const handleSaveTricoscopyGrid = async (file: File) => {
+    setError(null);
+    setFeedback(null);
+    await Promise.resolve(onUpdate({ ...client, updatedAt: new Date().toISOString() }, [{ file, type: "referencia" }]));
+    setFeedback("Mosaico de tricoscopia salvo no perfil da paciente.");
+  };
+
   const handleDelete = async () => {
     if (confirmText.trim().toLowerCase() !== "arquivar") {
       setError('Digite "arquivar" para confirmar o arquivamento.');
@@ -272,6 +279,8 @@ export default function ClientProfileTab({
             "Área Occipital (Física/Macro)",
             "Área Occipital (Tricoscópio/Micro)"
           ]}
+          onSaveComposite={handleSaveTricoscopyGrid}
+          saveButtonLabel="Salvar Tricoscopia"
         />
         <ImageGridComposer
           title="Módulo de Grelha de Identificação"
