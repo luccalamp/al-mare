@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 const { Client } = require('pg');
 const { getDatabaseConnectionString } = require('./env');
+const { runProtectedDatabaseChange } = require('./backup');
 
 const connectionString = getDatabaseConnectionString();
 
-async function runMigration() {
+async function applyMigration() {
   const client = new Client({
     connectionString,
     ssl: { rejectUnauthorized: false },
   });
   
+  await client.connect();
   try {
-    await client.connect();
     console.log('✓ Conectado ao Supabase');
     
     // Adicionar coluna de assinatura
@@ -38,12 +39,18 @@ async function runMigration() {
     console.log('✓ Migração registrada no histórico');
     
     console.log('\n✓ Migração de assinatura aplicada com sucesso!');
-  } catch (error) {
-    console.error('✗ Erro ao aplicar migração:', error.message);
-    process.exit(1);
   } finally {
     await client.end();
   }
 }
 
-runMigration();
+runProtectedDatabaseChange(
+  'apply_assinatura_migration',
+  applyMigration,
+  {
+    script: 'scripts/apply_assinatura_migration.js',
+  }
+).catch((error) => {
+  console.error('✗ Execucao protegida falhou:', error.message);
+  process.exit(1);
+});

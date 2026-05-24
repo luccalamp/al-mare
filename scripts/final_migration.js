@@ -5,6 +5,9 @@ async function runMigration() {
   const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20260417_iluminare_operational.sql'), 'utf8');
 
   console.log("--- Executando Refatoração Operacional Iluminare Studio ---");
+  console.log("Policy obrigatoria: gere um backup local antes de aplicar qualquer SQL manual.");
+  console.log("Comando recomendado: npm run backup:local -- final-migration");
+  console.log("Os artefatos locais ficam em backups/db/<data>/...");
 
   // Tentativa de execução via RPC se houver uma função helper, 
   // caso contrário, teremos que pedir para o usuário rodar no painel.

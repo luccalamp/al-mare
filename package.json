@@ -7,6 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "backup:local": "node ./scripts/backup.js",
+    "db:migrate:assinatura": "node ./scripts/apply_assinatura_migration.js",
+    "db:migrate:iluminare": "node ./scripts/apply_iluminare.js",
+    "db:migrate:iluminare:final": "node ./scripts/apply_iluminare_final.js",
     "migrate:root": "powershell -ExecutionPolicy Bypass -File ./scripts/migrate-projeto-salao-to-root.ps1"
   },
   "dependencies": {

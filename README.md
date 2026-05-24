@@ -1,5 +1,13 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Operacao Segura
+
+Mudancas de banco agora seguem backup local obrigatorio antes de qualquer migracao executada pelos scripts do projeto.
+
+- Policy: `BACKUP-POLICY.md`
+- Backup manual: `npm run backup:local -- nome-da-alteracao`
+- Migracoes protegidas: `npm run db:migrate:assinatura`, `npm run db:migrate:iluminare`, `npm run db:migrate:iluminare:final`
+
 ## Getting Started
 
 First, run the development server:

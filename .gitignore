@@ -53,3 +53,6 @@ npm-debug.log*
 # temp
 .tmp-*
 scratch/
+/backups/**
+!/backups/
+!/backups/README.md
