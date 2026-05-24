@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import { Readable } from "stream";
+import crypto from "crypto";
 import { readServerEnv } from "./supabaseAdmin";
 
 export interface CloudinaryUploadResult {
@@ -43,8 +44,8 @@ export async function uploadToCloudinary(
 ): Promise<CloudinaryUploadResult> {
   configureCloudinary();
 
-  const timestamp = Date.now();
-  const publicId = `${timestamp}_${filename.replace(/\.[^.]+$/, "")}`;
+  const fileStem = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "").slice(0, 16) || "img";
+  const publicId = `${Date.now()}_${crypto.randomUUID().replace(/-/g, "")}_${fileStem}`;
 
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -53,6 +54,10 @@ export async function uploadToCloudinary(
         public_id: publicId,
         resource_type: CLOUDINARY_RESOURCE_TYPE,
         type: CLOUDINARY_DELIVERY_TYPE,
+        overwrite: false,
+        unique_filename: true,
+        use_filename: false,
+        allowed_formats: ["jpg", "jpeg", "png", "webp", "avif"],
       },
       (error, result) => {
         if (error) {
@@ -125,14 +130,8 @@ export function buildCloudinaryFolder(
   clientName?: string | null,
   category?: string
 ): string {
-  const shortId = clienteId.slice(0, 8);
-  const safeName = (clientName || `cliente-${shortId}`)
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "")
-    .slice(0, 50);
+  void clientName;
+  const safeClientRef = crypto.createHash("sha256").update(clienteId).digest("hex").slice(0, 18);
   const categoryFolder = category || "referencia";
-  return `almare/clientes/${safeName}-${shortId}/${categoryFolder}`;
+  return `almare/clientes/${safeClientRef}/${categoryFolder}`;
 }

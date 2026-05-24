@@ -1,10 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
-import { uploadToCloudinary, deleteFromCloudinary, buildCloudinaryFolder, buildCloudinaryProxyUrl } from "@/lib/server/cloudinary";
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+  buildCloudinaryFolder,
+  buildCloudinaryProxyUrl,
+} from "@/lib/server/cloudinary";
 import { findCloudinaryPhotoRecordByPublicId } from "@/lib/server/cloudinaryAccess";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+
+function sniffMimeTypeFromBuffer(buffer: Buffer): string | null {
+  if (buffer.length < 12) return null;
+
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (
+    buffer[0] === 0x52 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x46 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+
+  const ftyp = buffer.toString("ascii", 4, 8);
+  const brand = buffer.toString("ascii", 8, 12);
+  if (ftyp === "ftyp" && (brand === "avif" || brand === "avis")) {
+    return "image/avif";
+  }
+
+  return null;
+}
 
 async function authorizeUpload(req: NextRequest) {
   const authContext = await requireAuthorizedStaff(req, {
@@ -76,10 +121,7 @@ export async function POST(req: NextRequest) {
     const clientName = (formData.get("clientName") as string)?.trim() || undefined;
 
     if (!file || !clienteId) {
-      return NextResponse.json(
-        { error: "Missing required fields: file, clienteId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing required fields: file, clienteId" }, { status: 400 });
     }
 
     const access = await requireClientAccess(
@@ -94,14 +136,29 @@ export async function POST(req: NextRequest) {
 
     if (!SUPPORTED_MIME_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: "Formato de imagem não suportado. Use JPEG, PNG, WebP ou AVIF." },
+        { error: "Formato de imagem nao suportado. Use JPEG, PNG, WebP ou AVIF." },
         { status: 400 }
       );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
     if (!buffer.byteLength) {
-      return NextResponse.json({ error: "O arquivo enviado está vazio." }, { status: 400 });
+      return NextResponse.json({ error: "O arquivo enviado esta vazio." }, { status: 400 });
+    }
+
+    const detectedMimeType = sniffMimeTypeFromBuffer(buffer);
+    if (!detectedMimeType || !SUPPORTED_MIME_TYPES.includes(detectedMimeType)) {
+      return NextResponse.json(
+        { error: "Nao foi possivel validar o formato real da imagem enviada." },
+        { status: 400 }
+      );
+    }
+
+    if (file.type !== detectedMimeType) {
+      return NextResponse.json(
+        { error: "Tipo de arquivo inconsistente. Reenvie uma imagem valida." },
+        { status: 400 }
+      );
     }
 
     const folder = buildCloudinaryFolder(clienteId, clientName, category);
@@ -109,7 +166,6 @@ export async function POST(req: NextRequest) {
 
     const supabase = createSupabaseAdminClient();
     const now = new Date().toISOString();
-
     const proxyUrl = buildCloudinaryProxyUrl(uploadResult.publicId);
 
     const photoRecord = {
@@ -147,10 +203,7 @@ export async function POST(req: NextRequest) {
         .eq("user_id", auth.userId);
 
       if (clientError) {
-        await supabase
-          .from("client_photos")
-          .delete()
-          .eq("id", savedPhoto.id);
+        await supabase.from("client_photos").delete().eq("id", savedPhoto.id);
         await deleteFromCloudinary(uploadResult.publicId).catch(() => {});
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
@@ -166,10 +219,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Upload failed" }, { status: 500 });
   }
 }
 
@@ -190,11 +240,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing publicId." }, { status: 400 });
     }
 
-    const access = await requireCloudinaryPhotoAccess(
-      auth,
-      publicId,
-      "Seu acesso nao permite remover esta imagem."
-    );
+    const access = await requireCloudinaryPhotoAccess(auth, publicId, "Seu acesso nao permite remover esta imagem.");
     if (access.response || !access.photoRecord) {
       return access.response || buildJsonError("Imagem invalida para esta operacao.", 404);
     }
@@ -230,9 +276,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Cloudinary delete error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Delete failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Delete failed" }, { status: 500 });
   }
 }

@@ -47,13 +47,24 @@ type ClientListResponse = {
   error?: string;
 };
 
-const MAX_UPLOADED_IMAGE_EDGE = 1600;
-const NORMALIZED_IMAGE_QUALITY = 0.82;
-const NORMALIZED_IMAGE_MIME_TYPE = "image/jpeg";
+const MAX_UPLOADED_IMAGE_EDGE = 2200;
+const MAX_UPLOADED_IMAGE_PIXELS = 5_800_000;
+const MAX_IMAGE_QUALITY = 0.9;
+const MIN_IMAGE_QUALITY = 0.72;
+const DEFAULT_IMAGE_QUALITY = 0.84;
+const MIN_EFFECTIVE_SAVING_RATIO = 0.08;
+const WEBP_MIME_TYPE = "image/webp";
+const JPEG_MIME_TYPE = "image/jpeg";
 
 function getNormalizedImageName(file: File) {
   const baseName = file.name.replace(/\.[^.]+$/, "");
   return `${baseName || "image"}.jpg`;
+}
+
+function getNormalizedImageNameByMime(file: File, mimeType: string) {
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
+  const extension = mimeType === WEBP_MIME_TYPE ? "webp" : "jpg";
+  return `${baseName}.${extension}`;
 }
 
 function loadImage(source: string) {
@@ -64,6 +75,71 @@ function loadImage(source: string) {
     image.onerror = () => reject(new Error("Nao foi possivel preparar a imagem para envio."));
     image.src = source;
   });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, type, quality);
+  });
+}
+
+function roundQuality(value: number) {
+  return Math.max(MIN_IMAGE_QUALITY, Math.min(MAX_IMAGE_QUALITY, Math.round(value * 100) / 100));
+}
+
+function getTargetUploadBytes(originalBytes: number, width: number, height: number) {
+  const megaPixels = (width * height) / 1_000_000;
+  const targetByMegapixel =
+    megaPixels <= 4 ? 900_000 :
+    megaPixels <= 8 ? 1_250_000 :
+    megaPixels <= 12 ? 1_700_000 :
+    megaPixels <= 20 ? 2_250_000 :
+    2_900_000;
+
+  if (originalBytes <= targetByMegapixel) return originalBytes;
+  return Math.max(targetByMegapixel, Math.round(originalBytes * 0.45));
+}
+
+function getResizeScale(width: number, height: number) {
+  const edgeScale = Math.min(1, MAX_UPLOADED_IMAGE_EDGE / Math.max(width, height));
+  const pixelScale = Math.min(1, Math.sqrt(MAX_UPLOADED_IMAGE_PIXELS / (width * height)));
+  return Math.min(edgeScale, pixelScale);
+}
+
+async function generateAdaptiveCompressedBlob(
+  canvas: HTMLCanvasElement,
+  originalBytes: number,
+  targetBytes: number
+) {
+  const webpDefault = await canvasToBlob(canvas, WEBP_MIME_TYPE, DEFAULT_IMAGE_QUALITY);
+  const webpSupported = Boolean(webpDefault && webpDefault.type === WEBP_MIME_TYPE);
+  const mimeType = webpSupported ? WEBP_MIME_TYPE : JPEG_MIME_TYPE;
+
+  let bestBlob = await canvasToBlob(canvas, mimeType, DEFAULT_IMAGE_QUALITY);
+  if (!bestBlob) return null;
+
+  if (bestBlob.size > targetBytes) {
+    let low = MIN_IMAGE_QUALITY;
+    let high = DEFAULT_IMAGE_QUALITY;
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const mid = roundQuality((low + high) / 2);
+      const candidate = await canvasToBlob(canvas, mimeType, mid);
+      if (!candidate) break;
+      bestBlob = candidate;
+
+      if (candidate.size > targetBytes) {
+        high = mid - 0.01;
+      } else {
+        low = mid + 0.01;
+      }
+    }
+  }
+
+  const sizeReducedEnough = bestBlob.size < originalBytes * (1 - MIN_EFFECTIVE_SAVING_RATIO);
+  if (!sizeReducedEnough) return null;
+
+  return bestBlob;
 }
 
 async function normalizeImageFileForUpload(file: File) {
@@ -82,8 +158,7 @@ async function normalizeImageFileForUpload(file: File) {
       return file;
     }
 
-    const largestEdge = Math.max(width, height);
-    const scale = Math.min(1, MAX_UPLOADED_IMAGE_EDGE / largestEdge);
+    const scale = getResizeScale(width, height);
     const targetWidth = Math.max(1, Math.round(width * scale));
     const targetHeight = Math.max(1, Math.round(height * scale));
 
@@ -96,17 +171,22 @@ async function normalizeImageFileForUpload(file: File) {
 
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, targetWidth, targetHeight);
     context.drawImage(image, 0, 0, targetWidth, targetHeight);
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, NORMALIZED_IMAGE_MIME_TYPE, NORMALIZED_IMAGE_QUALITY);
-    });
+    const targetBytes = getTargetUploadBytes(file.size, width, height);
+    const adaptiveBlob = await generateAdaptiveCompressedBlob(canvas, file.size, targetBytes);
+    if (adaptiveBlob) {
+      return new File([adaptiveBlob], getNormalizedImageNameByMime(file, adaptiveBlob.type), { type: adaptiveBlob.type });
+    }
 
-    if (!blob) return file;
+    if (targetWidth === width && targetHeight === height) {
+      return file;
+    }
 
-    return new File([blob], getNormalizedImageName(file), { type: NORMALIZED_IMAGE_MIME_TYPE });
+    const fallbackJpegBlob = await canvasToBlob(canvas, JPEG_MIME_TYPE, DEFAULT_IMAGE_QUALITY);
+    if (!fallbackJpegBlob || fallbackJpegBlob.size >= file.size) return file;
+
+    return new File([fallbackJpegBlob], getNormalizedImageName(file), { type: JPEG_MIME_TYPE });
   } catch (error) {
     console.warn("Nao foi possivel reduzir a imagem antes do envio.", error);
     return file;
