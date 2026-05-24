@@ -131,7 +131,25 @@ const serializeProfilePayload = (profile: Client["profile"]) => ({
   estadoCivil: profile.estadoCivil || null,
   therapeuticPlan: profile.therapeuticPlan || null,
   evolutionWeeks: profile.evolutionWeeks ? JSON.parse(JSON.stringify(profile.evolutionWeeks)) : null,
+  tricoscopiaComparativeSlots: Array.isArray(profile.tricoscopiaComparativeSlots)
+    ? profile.tricoscopiaComparativeSlots.map((slot) => (typeof slot === "string" ? slot : null))
+    : null,
+  tricoscopiaIdentificationSlots: Array.isArray(profile.tricoscopiaIdentificationSlots)
+    ? profile.tricoscopiaIdentificationSlots.map((slot) => (typeof slot === "string" ? slot : null))
+    : null,
 });
+
+function normalizeGridSlots(value: unknown): Array<string | null> | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const normalized = [null, null, null, null] as Array<string | null>;
+  for (let index = 0; index < 4; index += 1) {
+    const slot = value[index];
+    normalized[index] = typeof slot === "string" && slot.trim() ? slot : null;
+  }
+
+  return normalized;
+}
 
 const mapDbAppointment = (row: any): ClientAppointment => ({
   id: row.id,
@@ -343,6 +361,8 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         estadoCivil: extraProfile.estadoCivil || undefined,
         therapeuticPlan: extraProfile.therapeuticPlan || undefined,
         evolutionWeeks: Array.isArray(extraProfile.evolutionWeeks) ? extraProfile.evolutionWeeks : undefined,
+        tricoscopiaComparativeSlots: normalizeGridSlots(extraProfile.tricoscopiaComparativeSlots),
+        tricoscopiaIdentificationSlots: normalizeGridSlots(extraProfile.tricoscopiaIdentificationSlots),
       },
       diagnosticos: diagnosticosRows.map((d: any) => ({
         id: d.id,

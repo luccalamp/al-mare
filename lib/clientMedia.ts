@@ -1,12 +1,27 @@
 import { Client } from "@/types";
 
+function isRenderableImageUrl(value: string | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:")
+  );
+}
+
 export function getClientAvatarUrl(client: Client): string | undefined {
-  if (client.profile.photoUrl) return client.profile.photoUrl;
+  if (isRenderableImageUrl(client.profile.photoUrl)) return client.profile.photoUrl;
 
   const preferredReference = client.gallery.find(
-    (photo) => photo.type === "referencia" || photo.type === "referência"
+    (photo) => String(photo.type || "").toLowerCase().includes("refer") && isRenderableImageUrl(photo.url)
   );
   if (preferredReference) return preferredReference.url;
 
-  return client.gallery[0]?.url;
+  const firstValidGalleryPhoto = client.gallery.find((photo) => isRenderableImageUrl(photo.url));
+  return firstValidGalleryPhoto?.url;
 }

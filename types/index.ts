@@ -38,6 +38,8 @@ export type ClientProfile = {
   readonly notes?: string; // Internal notes
   readonly therapeuticPlan?: string;
   readonly evolutionWeeks?: readonly EvolutionPlanWeek[];
+  readonly tricoscopiaComparativeSlots?: readonly (string | null)[];
+  readonly tricoscopiaIdentificationSlots?: readonly (string | null)[];
 };
 
 // 2. Módulo de Diagnóstico

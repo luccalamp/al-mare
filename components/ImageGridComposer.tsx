@@ -1,13 +1,16 @@
 "use client";
 
 import NextImage from "next/image";
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, ChangeEvent, useEffect } from "react";
 import { Download, Image as ImageIcon, Save, Upload, Trash2 } from "lucide-react";
 
 interface ImageGridComposerProps {
   title: string;
   subtitle?: string;
   labels: [string, string, string, string];
+  initialImages?: readonly (string | null)[];
+  onPersistImage?: (index: number, file: File) => Promise<string>;
+  onClearImage?: (index: number) => Promise<void> | void;
   onSaveComposite?: (file: File, previewUrl: string) => Promise<void> | void;
   saveButtonLabel?: string;
 }
@@ -40,15 +43,32 @@ function dataUrlToJpegFile(dataUrl: string, filename: string) {
   return new File([bytes], filename, { type: mimeType });
 }
 
+function normalizeImages(images?: readonly (string | null)[]) {
+  const normalized: (string | null)[] = [null, null, null, null];
+
+  if (!Array.isArray(images)) return normalized;
+
+  for (let index = 0; index < 4; index += 1) {
+    const value = images[index];
+    normalized[index] = typeof value === "string" && value.trim() ? value : null;
+  }
+
+  return normalized;
+}
+
 export default function ImageGridComposer({
   title,
   subtitle,
   labels,
+  initialImages,
+  onPersistImage,
+  onClearImage,
   onSaveComposite,
   saveButtonLabel = "Salvar no perfil",
 }: ImageGridComposerProps) {
-  const [images, setImages] = useState<(string | null)[]>([null, null, null, null]);
+  const [images, setImages] = useState<(string | null)[]>(() => normalizeImages(initialImages));
   const [compositeUrl, setCompositeUrl] = useState<string | null>(null);
+  const [slotSavingIndex, setSlotSavingIndex] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -60,31 +80,63 @@ export default function ImageGridComposer({
     useRef<HTMLInputElement>(null),
   ];
 
-  const handleFileChange = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    setImages(normalizeImages(initialImages));
+  }, [initialImages]);
+
+  const handleFileChange = (index: number) => async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const result = ev.target?.result as string;
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setImages((prev) => {
+        const next = [...prev];
+        next[index] = result;
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+
+    if (onPersistImage) {
+      try {
+        setSlotSavingIndex(index);
+        const persistedUrl = await onPersistImage(index, file);
         setImages((prev) => {
           const next = [...prev];
-          next[index] = result;
+          next[index] = persistedUrl;
           return next;
         });
-      };
-      reader.readAsDataURL(file);
+      } catch (error) {
+        console.error(error);
+        setSaveError(error instanceof Error ? error.message : "Nao foi possivel salvar esta foto.");
+      } finally {
+        setSlotSavingIndex(null);
+      }
     }
   };
 
-  const removeImage = (index: number) => {
-    setImages((prev) => {
-      const next = [...prev];
-      next[index] = null;
-      return next;
-    });
-    setCompositeUrl(null);
-    setSaveFeedback(null);
-    setSaveError(null);
+  const removeImage = async (index: number) => {
+    try {
+      if (onClearImage) {
+        setSlotSavingIndex(index);
+        await onClearImage(index);
+      }
+      setImages((prev) => {
+        const next = [...prev];
+        next[index] = null;
+        return next;
+      });
+      setCompositeUrl(null);
+      setSaveFeedback(null);
+      setSaveError(null);
+    } catch (error) {
+      console.error(error);
+      setSaveError(error instanceof Error ? error.message : "Nao foi possivel remover esta foto.");
+    } finally {
+      setSlotSavingIndex(null);
+    }
   };
 
   const generateComposite = () => {
@@ -223,16 +275,23 @@ export default function ImageGridComposer({
                   />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                     <button
-                      onClick={() => removeImage(index)}
+                      onClick={() => void removeImage(index)}
+                      disabled={slotSavingIndex === index}
                       className="rounded-full bg-red-500 p-2 text-white transition-transform hover:scale-110"
                       title="Remover imagem"
                     >
                       <Trash2 size={16} />
                     </button>
                   </div>
+                  {slotSavingIndex === index && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/35 text-xs font-semibold text-white">
+                      Salvando...
+                    </div>
+                  )}
                 </>
               ) : (
                 <button
+                  disabled={slotSavingIndex === index}
                   onClick={() => fileInputRefs[index].current?.click()}
                   className="flex h-full w-full flex-col items-center justify-center gap-2 text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-brand-deep)]"
                 >

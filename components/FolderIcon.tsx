@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import Image from "next/image";
 import { Client } from "@/types";
 import { getClientAvatarUrl } from "@/lib/clientMedia";
@@ -20,12 +20,17 @@ function FolderIcon({
   onClick,
 }: FolderIconProps) {
   const avatarUrl = getClientAvatarUrl(client);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const initials = client.profile.nome
     .split(" ")
     .slice(0, 2)
     .map((n) => n[0])
     .join("")
     .toUpperCase();
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
 
   const hasAllergy = Boolean(client.fichaAnamnese?.historicoSaudeGeral?.alergia?.trim());
   const activate = () => onDoubleClick(client);
@@ -91,7 +96,7 @@ function FolderIcon({
           </svg>
 
           <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-            {avatarUrl ? (
+            {avatarUrl && !avatarFailed ? (
               <div className="relative h-8 w-8 overflow-hidden rounded-full border border-white/80 bg-white/70 shadow-[0_6px_18px_rgba(0,0,0,0.18)] sm:h-10 sm:w-10">
                 <Image
                   src={avatarUrl}
@@ -100,6 +105,7 @@ function FolderIcon({
                   unoptimized
                   sizes="(min-width: 640px) 40px, 32px"
                   className="object-cover"
+                  onError={() => setAvatarFailed(true)}
                 />
               </div>
             ) : (

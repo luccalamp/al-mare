@@ -1,7 +1,7 @@
 "use client";
 
 import NextImage from "next/image";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Client, ClientProfile } from "@/types";
 import { getClientAvatarUrl } from "@/lib/clientMedia";
 import { AlertTriangle, Loader2, Save, Upload, User } from "lucide-react";
@@ -27,6 +27,31 @@ type EditableProfile = {
 };
 
 const fieldLabel = "text-[10px] font-semibold text-[#6e6e73] uppercase tracking-wider";
+const EMPTY_GRID_SLOTS: Array<string | null> = [null, null, null, null];
+const TRICOSCOPIA_COMPARATIVE_LABELS: [string, string, string, string] = [
+  "Área Central (Física/Macro)",
+  "Área Central (Tricoscópio/Micro)",
+  "Área Occipital (Física/Macro)",
+  "Área Occipital (Tricoscópio/Micro)",
+];
+const TRICOSCOPIA_IDENTIFICATION_LABELS: [string, string, string, string] = [
+  "Central",
+  "Occipital",
+  "Lateral Direita",
+  "Lateral Esquerda",
+];
+
+function normalizeGridSlots(slots: readonly (string | null)[] | undefined) {
+  if (!Array.isArray(slots)) return [...EMPTY_GRID_SLOTS];
+
+  const normalized = [...EMPTY_GRID_SLOTS];
+  for (let index = 0; index < 4; index += 1) {
+    const value = slots[index];
+    normalized[index] = typeof value === "string" && value.trim() ? value : null;
+  }
+
+  return normalized;
+}
 
 function toEditableProfile(profile: ClientProfile): EditableProfile {
   return {
@@ -61,6 +86,7 @@ export default function ClientProfileTab({
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<EditableProfile>(() => toEditableProfile(client.profile));
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(() => getClientAvatarUrl(client));
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -72,6 +98,10 @@ export default function ClientProfileTab({
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarPreview]);
+
   const handleAvatarSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -82,6 +112,7 @@ export default function ClientProfileTab({
     const reader = new FileReader();
     reader.onload = () => {
       setAvatarPreview(typeof reader.result === "string" ? reader.result : undefined);
+      setAvatarLoadFailed(false);
       setAvatarFile(file);
       setFeedback("Nova foto pronta. Salve o perfil para aplicar.");
     };
@@ -135,6 +166,86 @@ export default function ClientProfileTab({
     setFeedback("Mosaico de tricoscopia salvo no perfil da paciente.");
   };
 
+  const uploadGridSlotImage = async (file: File, caption: string) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("clienteId", client.id);
+    formData.append("category", "referencia");
+    formData.append("caption", caption);
+    formData.append("clientName", client.profile.nome || form.nome || "cliente");
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+
+    const payload = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
+    if (!response.ok || !payload?.url) {
+      throw new Error(payload?.error || "Nao foi possivel salvar a foto da tricoscopia.");
+    }
+
+    return payload.url;
+  };
+
+  const persistGridSlot = async (
+    profileKey: "tricoscopiaComparativeSlots" | "tricoscopiaIdentificationSlots",
+    index: number,
+    file: File,
+    slotLabel: string
+  ) => {
+    setError(null);
+    setFeedback(null);
+
+    const slotUrl = await uploadGridSlotImage(file, `${profileKey} - ${slotLabel}`);
+    const currentSlots = normalizeGridSlots(client.profile[profileKey]);
+    currentSlots[index] = slotUrl;
+
+    await Promise.resolve(
+      onUpdate(
+        {
+          ...client,
+          profile: {
+            ...client.profile,
+            [profileKey]: currentSlots,
+          },
+          updatedAt: new Date().toISOString(),
+        },
+        undefined
+      )
+    );
+
+    setFeedback("Foto salva no quadrante com sucesso.");
+    return slotUrl;
+  };
+
+  const clearGridSlot = async (
+    profileKey: "tricoscopiaComparativeSlots" | "tricoscopiaIdentificationSlots",
+    index: number
+  ) => {
+    setError(null);
+    setFeedback(null);
+
+    const currentSlots = normalizeGridSlots(client.profile[profileKey]);
+    currentSlots[index] = null;
+
+    await Promise.resolve(
+      onUpdate(
+        {
+          ...client,
+          profile: {
+            ...client.profile,
+            [profileKey]: currentSlots,
+          },
+          updatedAt: new Date().toISOString(),
+        },
+        undefined
+      )
+    );
+
+    setFeedback("Quadrante limpo com sucesso.");
+  };
+
   const handleDelete = async () => {
     if (confirmText.trim().toLowerCase() !== "arquivar") {
       setError('Digite "arquivar" para confirmar o arquivamento.');
@@ -158,8 +269,16 @@ export default function ClientProfileTab({
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
           <div className="flex flex-col items-start gap-3 lg:w-[220px]">
             <div className="relative flex h-28 w-28 items-center justify-center overflow-hidden rounded-[28px] border border-white bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 shadow-sm">
-              {avatarPreview ? (
-                <NextImage src={avatarPreview} alt={form.nome} fill sizes="112px" className="object-cover" unoptimized />
+              {avatarPreview && !avatarLoadFailed ? (
+                <NextImage
+                  src={avatarPreview}
+                  alt={form.nome}
+                  fill
+                  sizes="112px"
+                  className="object-cover"
+                  unoptimized
+                  onError={() => setAvatarLoadFailed(true)}
+                />
               ) : (
                 <User size={54} strokeWidth={1} />
               )}
@@ -273,24 +392,24 @@ export default function ClientProfileTab({
         <ImageGridComposer
           title="Módulo de Grelha Comparativa (Tricoscopia)"
           subtitle="Consolide 4 imagens em uma visão analítica."
-          labels={[
-            "Área Central (Física/Macro)",
-            "Área Central (Tricoscópio/Micro)",
-            "Área Occipital (Física/Macro)",
-            "Área Occipital (Tricoscópio/Micro)"
-          ]}
+          labels={TRICOSCOPIA_COMPARATIVE_LABELS}
+          initialImages={normalizeGridSlots(client.profile.tricoscopiaComparativeSlots)}
+          onPersistImage={(index, file) =>
+            persistGridSlot("tricoscopiaComparativeSlots", index, file, TRICOSCOPIA_COMPARATIVE_LABELS[index])
+          }
+          onClearImage={(index) => clearGridSlot("tricoscopiaComparativeSlots", index)}
           onSaveComposite={handleSaveTricoscopyGrid}
           saveButtonLabel="Salvar Tricoscopia"
         />
         <ImageGridComposer
           title="Módulo de Grelha de Identificação"
           subtitle="Fotos físicas para identificação das áreas da cabeça."
-          labels={[
-            "Central",
-            "Occipital",
-            "Lateral Direita",
-            "Lateral Esquerda"
-          ]}
+          labels={TRICOSCOPIA_IDENTIFICATION_LABELS}
+          initialImages={normalizeGridSlots(client.profile.tricoscopiaIdentificationSlots)}
+          onPersistImage={(index, file) =>
+            persistGridSlot("tricoscopiaIdentificationSlots", index, file, TRICOSCOPIA_IDENTIFICATION_LABELS[index])
+          }
+          onClearImage={(index) => clearGridSlot("tricoscopiaIdentificationSlots", index)}
         />
       </div>
 
