@@ -392,12 +392,18 @@ export default function HomePage() {
         >
           <div className="flex items-center gap-3">
             <BrandLogo compact subtitle={false} priority />
-            <span
-              className="hidden text-lg font-semibold tracking-tight sm:inline"
-              style={{ fontFamily: "var(--font-brand), serif", color: "#4f2f19" }}
-            >
-              Al&apos;maré Saúde Capilar
-            </span>
+            <div className="hidden items-start gap-1 sm:flex sm:flex-col">
+              <span
+                className="text-[1.12rem] font-semibold leading-none tracking-[0.22em] text-[var(--color-brand-deep)] uppercase"
+                style={{ fontFamily: "var(--font-brand), serif" }}
+              >
+                Al&apos;maré
+              </span>
+              <span className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.48em] text-[var(--color-brand-accent)]">
+                <span className="h-px w-6 bg-[rgba(122,73,33,0.45)]" />
+                Saúde Capilar
+              </span>
+            </div>
           </div>
         </div>
       </header>
