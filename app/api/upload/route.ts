@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizePhotoCategory } from "@/lib/photos";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
@@ -110,7 +111,11 @@ export async function POST(req: NextRequest) {
     const fileEntry = formData.get("file");
     const file = fileEntry instanceof File ? fileEntry : null;
     const clienteId = (formData.get("clienteId") as string)?.trim() || "";
-    const category = (formData.get("category") as string)?.trim() || undefined;
+    const requestedCategory = (formData.get("category") as string)?.trim() || undefined;
+    const storageCategory = (formData.get("storageCategory") as string)?.trim() || requestedCategory;
+    const recordCategory = normalizePhotoCategory(
+      (formData.get("photoCategory") as string)?.trim() || requestedCategory
+    );
     const caption = (formData.get("caption") as string)?.trim() || undefined;
     const anotacaoTecnica = (formData.get("anotacaoTecnica") as string)?.trim() || undefined;
     const capturedAt = (formData.get("capturedAt") as string)?.trim() || undefined;
@@ -169,7 +174,7 @@ export async function POST(req: NextRequest) {
       file.name || "photo.jpg",
       detectedMimeType,
       clienteId,
-      category
+      storageCategory
     );
 
     const supabase = createSupabaseAdminClient();
@@ -179,8 +184,8 @@ export async function POST(req: NextRequest) {
     const photoRecord = {
       cliente_id: clienteId,
       url: proxyUrl,
-      type: category || "referencia",
-      categoria: category || "referencia",
+      type: recordCategory,
+      categoria: recordCategory,
       caption: caption || null,
       anotacao_tecnica: anotacaoTecnica || null,
       captured_at: capturedAt || now,
