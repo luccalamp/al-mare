@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { buildCloudinaryProxyUrl } from "@/lib/server/cloudinary";
+import { buildR2ProxyUrl, getR2StorageBucketLabel } from "@/lib/server/r2";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { createSignedStorageUrl } from "@/lib/server/storageUrls";
 import {
@@ -109,6 +110,9 @@ function resolveMediaUrl(
   const normalizedBucket = bucket?.trim().toLowerCase();
   if (normalizedBucket === "cloudinary" && path) {
     return buildCloudinaryProxyUrl(path);
+  }
+  if (normalizedBucket === getR2StorageBucketLabel() && path) {
+    return buildR2ProxyUrl(path);
   }
   return null;
 }

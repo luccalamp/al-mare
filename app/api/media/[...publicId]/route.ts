@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
-import { findCloudinaryPhotoRecordByPublicId } from "@/lib/server/cloudinaryAccess";
+import { findPhotoRecordByStoragePath } from "@/lib/server/cloudinaryAccess";
+import { downloadFromR2, getR2StorageBucketLabel } from "@/lib/server/r2";
 
 export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
   try {
@@ -13,10 +14,10 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return authContext;
     }
 
-    const publicId = params.publicId.join("/");
-    const { data: photoRecord, error: photoLookupError } = await findCloudinaryPhotoRecordByPublicId(publicId);
+    const storagePath = params.publicId.join("/");
+    const { data: photoRecord, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
     if (photoLookupError) {
-      console.error("Media proxy: failed to load Cloudinary photo reference", photoLookupError);
+      console.error("Media proxy: failed to load photo reference", photoLookupError);
       return buildJsonError("Nao foi possivel validar a imagem agora.", 500);
     }
 
@@ -34,20 +35,39 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return access.response;
     }
 
-    const imageResponse = await fetch(getCloudinarySignedUrl(publicId), {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    });
+    let imageBuffer: ArrayBuffer | Buffer;
+    let contentType = "image/jpeg";
 
-    if (!imageResponse.ok) {
-      console.error("Media proxy: Cloudinary fetch failed", imageResponse.status);
-      return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
+    if (photoRecord.storageBucket === "cloudinary") {
+      const imageResponse = await fetch(getCloudinarySignedUrl(photoRecord.storagePath), {
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!imageResponse.ok) {
+        console.error("Media proxy: Cloudinary fetch failed", imageResponse.status);
+        return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
+      }
+
+      imageBuffer = await imageResponse.arrayBuffer();
+      contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+    } else if (photoRecord.storageBucket === getR2StorageBucketLabel()) {
+      try {
+        const downloaded = await downloadFromR2(photoRecord.storagePath);
+        imageBuffer = downloaded.buffer;
+        contentType = downloaded.contentType || "image/jpeg";
+      } catch (downloadError) {
+        console.error("Media proxy: R2 fetch failed", downloadError);
+        return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
+      }
+    } else {
+      console.error("Media proxy: unsupported storage bucket", photoRecord.storageBucket);
+      return NextResponse.json({ error: "Midia com armazenamento nao suportado." }, { status: 500 });
     }
 
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+    const body = imageBuffer instanceof ArrayBuffer ? imageBuffer : new Uint8Array(imageBuffer);
 
-    return new NextResponse(imageBuffer, {
+    return new NextResponse(body, {
       status: 200,
       headers: {
         "Content-Type": contentType,

@@ -1,5 +1,7 @@
 import type { RecoverableTableName, RestoreOperationResult, RowChangeAuditEntry } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { deleteFromCloudinary } from "@/lib/server/cloudinary";
+import { deleteFromR2, getR2StorageBucketLabel } from "@/lib/server/r2";
 
 const QUARANTINE_BUCKET = "recovery-quarantine";
 
@@ -49,6 +51,44 @@ function resolveSnapshotId(snapshot: Record<string, unknown>) {
 function buildQuarantinePath(kind: string, recordId: string, sourcePath?: string | null) {
   const fileName = sourcePath?.split("/").filter(Boolean).pop() || `${recordId}.bin`;
   return `${kind}/${recordId}/${Date.now()}-${fileName}`;
+}
+
+function isCloudinaryBucket(bucket: string | undefined) {
+  return (bucket || "").trim().toLowerCase() === "cloudinary";
+}
+
+function isR2Bucket(bucket: string | undefined) {
+  return (bucket || "").trim().toLowerCase() === getR2StorageBucketLabel();
+}
+
+async function removeCloudinaryAssetIfPresent(publicId: string | undefined, context: string) {
+  if (!publicId) return;
+
+  try {
+    await deleteFromCloudinary(publicId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (/not found|does not exist|resource not found/i.test(message)) {
+      return;
+    }
+    console.error(`${context}: cloudinary delete failed`, error);
+    throw error;
+  }
+}
+
+async function removeR2AssetIfPresent(objectKey: string | undefined, context: string) {
+  if (!objectKey) return;
+
+  try {
+    await deleteFromR2(objectKey);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (/not found|does not exist|no such key/i.test(message)) {
+      return;
+    }
+    console.error(`${context}: r2 delete failed`, error);
+    throw error;
+  }
 }
 
 async function removeIfExists(supabase: SupabaseAdminClient, bucket: string, path: string) {
@@ -153,7 +193,7 @@ async function restoreClientStorage(
   const quarantinedBucket = asString(row.profile_photo_quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.profile_photo_quarantined_path);
 
-  if (["google-drive", "cloudinary"].includes(storageBucket.toLowerCase())) {
+  if (["google-drive", "cloudinary", getR2StorageBucketLabel()].includes(storageBucket.toLowerCase())) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
   }
 
@@ -173,7 +213,7 @@ async function restorePhotoStorage(
   const quarantinedBucket = asString(row.quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.quarantined_storage_path);
 
-  if (["google-drive", "cloudinary"].includes(storageBucket.toLowerCase())) {
+  if (["google-drive", "cloudinary", getR2StorageBucketLabel()].includes(storageBucket.toLowerCase())) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
   }
 
@@ -544,8 +584,59 @@ async function archiveClientPhotoRow(
 
   const storageBucket = asString(photoRow.storage_bucket) || "anamnese-fotos";
   const storagePath = asString(photoRow.storage_path);
-  if (["google-drive", "cloudinary"].includes(storageBucket.toLowerCase())) {
-    console.log("archiveClientPhotoRow: external-backed photo, skipping quarantine", photoId);
+  const clientId = asString(photoRow.cliente_id);
+  if (isCloudinaryBucket(storageBucket)) {
+    console.log("archiveClientPhotoRow: deleting cloudinary-backed photo", photoId, storagePath);
+    await removeCloudinaryAssetIfPresent(storagePath, "archiveClientPhotoRow");
+
+    if (clientId && storagePath) {
+      const { error: profileResetError } = await supabase
+        .from("clientes")
+        .update({
+          photo_url: null,
+          profile_photo_storage_bucket: null,
+          profile_photo_storage_path: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", clientId)
+        .eq("profile_photo_storage_bucket", storageBucket)
+        .eq("profile_photo_storage_path", storagePath);
+
+      if (profileResetError) {
+        console.error("archiveClientPhotoRow: failed to clear matching profile photo", profileResetError);
+        throw profileResetError;
+      }
+    }
+    return;
+  }
+
+  if (isR2Bucket(storageBucket)) {
+    console.log("archiveClientPhotoRow: deleting r2-backed photo", photoId, storagePath);
+    await removeR2AssetIfPresent(storagePath, "archiveClientPhotoRow");
+
+    if (clientId && storagePath) {
+      const { error: profileResetError } = await supabase
+        .from("clientes")
+        .update({
+          photo_url: null,
+          profile_photo_storage_bucket: null,
+          profile_photo_storage_path: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", clientId)
+        .eq("profile_photo_storage_bucket", storageBucket)
+        .eq("profile_photo_storage_path", storagePath);
+
+      if (profileResetError) {
+        console.error("archiveClientPhotoRow: failed to clear matching profile photo", profileResetError);
+        throw profileResetError;
+      }
+    }
+    return;
+  }
+
+  if (storageBucket.toLowerCase() === "google-drive") {
+    console.log("archiveClientPhotoRow: google-drive photo, skipping quarantine", photoId);
     return;
   }
 
@@ -717,29 +808,77 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   const avatarStorageBucket = asString(clientRow.profile_photo_storage_bucket) || "anamnese-fotos";
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
-    console.log("archiveClient: moving avatar to quarantine", recordId);
-    const quarantineResult = await moveObject(
-      supabase,
-      avatarStorageBucket,
-      avatarStoragePath,
-      QUARANTINE_BUCKET,
-      buildQuarantinePath("client-avatar", recordId, avatarStoragePath)
-    );
+    if (isCloudinaryBucket(avatarStorageBucket)) {
+      console.log("archiveClient: deleting cloudinary avatar", recordId, avatarStoragePath);
+      await removeCloudinaryAssetIfPresent(avatarStoragePath, "archiveClient");
 
-    const { error: avatarUpdateError } = await supabase
-      .from("clientes")
-      .update({
-        profile_photo_quarantined_bucket: quarantineResult.targetBucket || QUARANTINE_BUCKET,
-        profile_photo_quarantined_path: quarantineResult.targetPath || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", recordId)
-      .select("id")
-      .single();
+      const { error: avatarCleanupError } = await supabase
+        .from("clientes")
+        .update({
+          photo_url: null,
+          profile_photo_storage_bucket: null,
+          profile_photo_storage_path: null,
+          profile_photo_quarantined_bucket: null,
+          profile_photo_quarantined_path: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", recordId)
+        .select("id")
+        .single();
 
-    if (avatarUpdateError) {
-      console.error("archiveClient: avatar update error", avatarUpdateError);
-      throw avatarUpdateError;
+      if (avatarCleanupError) {
+        console.error("archiveClient: cloudinary avatar cleanup error", avatarCleanupError);
+        throw avatarCleanupError;
+      }
+    } else if (isR2Bucket(avatarStorageBucket)) {
+      console.log("archiveClient: deleting r2 avatar", recordId, avatarStoragePath);
+      await removeR2AssetIfPresent(avatarStoragePath, "archiveClient");
+
+      const { error: avatarCleanupError } = await supabase
+        .from("clientes")
+        .update({
+          photo_url: null,
+          profile_photo_storage_bucket: null,
+          profile_photo_storage_path: null,
+          profile_photo_quarantined_bucket: null,
+          profile_photo_quarantined_path: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", recordId)
+        .select("id")
+        .single();
+
+      if (avatarCleanupError) {
+        console.error("archiveClient: r2 avatar cleanup error", avatarCleanupError);
+        throw avatarCleanupError;
+      }
+    } else if (avatarStorageBucket.toLowerCase() === "google-drive") {
+      console.log("archiveClient: google-drive avatar, skipping quarantine move", recordId);
+    } else {
+      console.log("archiveClient: moving avatar to quarantine", recordId);
+      const quarantineResult = await moveObject(
+        supabase,
+        avatarStorageBucket,
+        avatarStoragePath,
+        QUARANTINE_BUCKET,
+        buildQuarantinePath("client-avatar", recordId, avatarStoragePath)
+      );
+
+      const { error: avatarUpdateError } = await supabase
+        .from("clientes")
+        .update({
+          profile_photo_quarantined_bucket: quarantineResult.targetBucket || QUARANTINE_BUCKET,
+          profile_photo_quarantined_path: quarantineResult.targetPath || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", recordId)
+        .select("id")
+        .single();
+
+      if (avatarUpdateError) {
+        console.error("archiveClient: avatar update error", avatarUpdateError);
+        throw avatarUpdateError;
+      }
     }
   }
 

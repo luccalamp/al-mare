@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import {
-  uploadToCloudinary,
   deleteFromCloudinary,
-  buildCloudinaryFolder,
-  buildCloudinaryProxyUrl,
 } from "@/lib/server/cloudinary";
-import { findCloudinaryPhotoRecordByPublicId } from "@/lib/server/cloudinaryAccess";
+import { findPhotoRecordByStoragePath } from "@/lib/server/cloudinaryAccess";
+import { uploadToR2, deleteFromR2, buildR2ProxyUrl, getR2StorageBucketLabel } from "@/lib/server/r2";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 
@@ -63,18 +61,18 @@ async function authorizeUpload(req: NextRequest) {
   return authContext;
 }
 
-async function requireCloudinaryPhotoAccess(
+async function requireStoredPhotoAccess(
   auth: Awaited<ReturnType<typeof authorizeUpload>>,
-  publicId: string,
+  storagePath: string,
   forbiddenMessage: string
 ) {
   if (auth instanceof NextResponse) {
     return { response: auth, photoRecord: null };
   }
 
-  const { data: photoRecord, error: photoLookupError } = await findCloudinaryPhotoRecordByPublicId(publicId);
+  const { data: photoRecord, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
   if (photoLookupError) {
-    console.error("Failed to load Cloudinary photo reference:", photoLookupError);
+    console.error("Failed to load stored photo reference:", photoLookupError);
     return {
       response: buildJsonError("Nao foi possivel validar a imagem agora.", 500),
       photoRecord: null,
@@ -118,7 +116,6 @@ export async function POST(req: NextRequest) {
     const anotacaoTecnica = (formData.get("anotacaoTecnica") as string)?.trim() || undefined;
     const capturedAt = (formData.get("capturedAt") as string)?.trim() || undefined;
     const persistClientPhoto = formData.get("persistClientPhoto") === "true";
-    const clientName = (formData.get("clientName") as string)?.trim() || undefined;
 
     if (!file || !clienteId) {
       return NextResponse.json({ error: "Missing required fields: file, clienteId" }, { status: 400 });
@@ -161,12 +158,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const folder = buildCloudinaryFolder(clienteId, clientName, category);
-    const uploadResult = await uploadToCloudinary(buffer, file.name || "photo.jpg", folder);
+    const uploadResult = await uploadToR2(
+      buffer,
+      file.name || "photo.jpg",
+      detectedMimeType,
+      clienteId,
+      category
+    );
 
     const supabase = createSupabaseAdminClient();
     const now = new Date().toISOString();
-    const proxyUrl = buildCloudinaryProxyUrl(uploadResult.publicId);
+    const proxyUrl = buildR2ProxyUrl(uploadResult.objectKey);
 
     const photoRecord = {
       cliente_id: clienteId,
@@ -176,8 +178,8 @@ export async function POST(req: NextRequest) {
       caption: caption || null,
       anotacao_tecnica: anotacaoTecnica || null,
       captured_at: capturedAt || now,
-      storage_bucket: "cloudinary",
-      storage_path: uploadResult.publicId,
+      storage_bucket: getR2StorageBucketLabel(),
+      storage_path: uploadResult.objectKey,
     };
 
     const { data: savedPhoto, error: photoError } = await supabase
@@ -187,7 +189,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (photoError) {
-      await deleteFromCloudinary(uploadResult.publicId).catch(() => {});
+      await deleteFromR2(uploadResult.objectKey).catch(() => {});
       throw new Error(`Failed to save photo reference: ${photoError.message}`);
     }
 
@@ -196,15 +198,15 @@ export async function POST(req: NextRequest) {
         .from("clientes")
         .update({
           photo_url: proxyUrl,
-          profile_photo_storage_bucket: "cloudinary",
-          profile_photo_storage_path: uploadResult.publicId,
+          profile_photo_storage_bucket: getR2StorageBucketLabel(),
+          profile_photo_storage_path: uploadResult.objectKey,
         })
         .eq("id", clienteId)
         .eq("user_id", auth.userId);
 
       if (clientError) {
         await supabase.from("client_photos").delete().eq("id", savedPhoto.id);
-        await deleteFromCloudinary(uploadResult.publicId).catch(() => {});
+        await deleteFromR2(uploadResult.objectKey).catch(() => {});
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
     }
@@ -212,9 +214,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       url: proxyUrl,
-      publicId: uploadResult.publicId,
-      width: uploadResult.width,
-      height: uploadResult.height,
+      publicId: uploadResult.objectKey,
       bytes: uploadResult.bytes,
     });
   } catch (error) {
@@ -235,17 +235,21 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
     }
 
-    const publicId = typeof body.publicId === "string" ? body.publicId.trim() : "";
-    if (!publicId) {
-      return NextResponse.json({ error: "Missing publicId." }, { status: 400 });
+    const storagePath = typeof body.publicId === "string" ? body.publicId.trim() : "";
+    if (!storagePath) {
+      return NextResponse.json({ error: "Missing storage path identifier." }, { status: 400 });
     }
 
-    const access = await requireCloudinaryPhotoAccess(auth, publicId, "Seu acesso nao permite remover esta imagem.");
+    const access = await requireStoredPhotoAccess(auth, storagePath, "Seu acesso nao permite remover esta imagem.");
     if (access.response || !access.photoRecord) {
       return access.response || buildJsonError("Imagem invalida para esta operacao.", 404);
     }
 
-    await deleteFromCloudinary(publicId);
+    if (access.photoRecord.storageBucket === "cloudinary") {
+      await deleteFromCloudinary(access.photoRecord.storagePath);
+    } else if (access.photoRecord.storageBucket === getR2StorageBucketLabel()) {
+      await deleteFromR2(access.photoRecord.storagePath);
+    }
 
     const supabase = createSupabaseAdminClient();
     const { error: photoDeleteError } = await supabase
@@ -266,8 +270,8 @@ export async function DELETE(req: NextRequest) {
       })
       .eq("id", access.photoRecord.clientId)
       .eq("user_id", auth.userId)
-      .eq("profile_photo_storage_bucket", "cloudinary")
-      .eq("profile_photo_storage_path", publicId);
+      .eq("profile_photo_storage_bucket", access.photoRecord.storageBucket)
+      .eq("profile_photo_storage_path", access.photoRecord.storagePath);
 
     if (profileResetError) {
       console.error("Failed to clear deleted Cloudinary profile photo:", profileResetError);
