@@ -4,6 +4,36 @@ import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
 import { findPhotoRecordByStoragePath } from "@/lib/server/cloudinaryAccess";
 import { downloadFromR2, getR2StorageBucketLabel } from "@/lib/server/r2";
 
+function decodePathFragment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeStoragePathFromRoute(pathSegments: string[]) {
+  const joinedPath = pathSegments.join("/").trim().replace(/^\/+|\/+$/g, "");
+  if (!joinedPath) {
+    return "";
+  }
+
+  let normalizedPath = joinedPath;
+  for (let index = 0; index < 2; index += 1) {
+    const decodedPath = decodePathFragment(normalizedPath);
+    if (decodedPath === normalizedPath) {
+      break;
+    }
+    normalizedPath = decodedPath;
+  }
+
+  normalizedPath = normalizedPath.replace(/\\/g, "/");
+  return normalizedPath
+    .split("/")
+    .filter(Boolean)
+    .join("/");
+}
+
 export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
   try {
     const authContext = await requireAuthorizedStaff(req, {
@@ -14,7 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return authContext;
     }
 
-    const storagePath = params.publicId.join("/");
+    const storagePath = normalizeStoragePathFromRoute(params.publicId);
     const { data: photoRecord, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
     if (photoLookupError) {
       console.error("Media proxy: failed to load photo reference", photoLookupError);

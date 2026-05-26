@@ -9,6 +9,7 @@ import { useClients, SyncStatus } from "@/hooks/useClients";
 import FolderIcon from "@/components/FolderIcon";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
+import BrandLogo from "@/components/BrandLogo";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -389,12 +390,7 @@ export default function HomePage() {
           className="mx-auto flex h-16 max-w-7xl items-center rounded-b-2xl px-5"
           style={{ backgroundColor: "rgba(244, 236, 223, 0.85)" }}
         >
-          <h1
-            className="text-lg font-semibold tracking-tight"
-            style={{ fontFamily: "var(--font-brand), serif", color: "#4f2f19" }}
-          >
-            Al&apos;maré Saúde Capilar
-          </h1>
+          <BrandLogo compact subtitle={false} priority />
         </div>
       </header>
 

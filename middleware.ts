@@ -9,6 +9,7 @@ const API_ALLOWED_ORIGIN = "https://jakoliveira.com.br";
 
 function buildCsp(nonce: string) {
   const isDev = process.env.NODE_ENV !== "production";
+  const isPreviewDeployment = process.env.VERCEL_ENV === "preview";
   const { supabaseUrl } = getSupabasePublicConfig();
   const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
@@ -18,9 +19,17 @@ function buildCsp(nonce: string) {
   const scriptSrc = [
     "'self'",
     `'nonce-${nonce}'`,
-    "'strict-dynamic'",
     "https://va.vercel-scripts.com",
   ];
+
+  if (!isPreviewDeployment) {
+    scriptSrc.push("'strict-dynamic'");
+  }
+
+  if (isPreviewDeployment) {
+    scriptSrc.push("https://vercel.live");
+    connectSrc.push("https://vercel.live", "wss://vercel.live");
+  }
 
   if (isDev) {
     scriptSrc.push("'unsafe-eval'");

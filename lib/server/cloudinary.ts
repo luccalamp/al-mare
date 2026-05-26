@@ -121,8 +121,21 @@ export function getCloudinarySignedUrl(
   });
 }
 
+function encodeProxyPath(path: string) {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
 export function buildCloudinaryProxyUrl(publicId: string): string {
-  return `/api/media/${encodeURIComponent(publicId.trim())}`;
+  const normalizedPublicId = publicId.trim();
+  if (!normalizedPublicId) {
+    return "/api/media";
+  }
+
+  return `/api/media/${encodeProxyPath(normalizedPublicId)}`;
 }
 
 export function buildCloudinaryFolder(
