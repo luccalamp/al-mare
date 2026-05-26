@@ -390,7 +390,15 @@ export default function HomePage() {
           className="mx-auto flex h-16 max-w-7xl items-center rounded-b-2xl px-5"
           style={{ backgroundColor: "rgba(244, 236, 223, 0.85)" }}
         >
-          <BrandLogo compact subtitle={false} priority />
+          <div className="flex items-center gap-3">
+            <BrandLogo compact subtitle={false} priority />
+            <span
+              className="hidden text-lg font-semibold tracking-tight sm:inline"
+              style={{ fontFamily: "var(--font-brand), serif", color: "#4f2f19" }}
+            >
+              Al&apos;maré Saúde Capilar
+            </span>
+          </div>
         </div>
       </header>
 
