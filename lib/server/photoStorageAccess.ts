@@ -1,44 +1,11 @@
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
-export type CloudinaryPhotoRecord = {
+export type StoredPhotoRecord = {
   id: string;
   clientId: string;
   storageBucket: string;
   storagePath: string;
 };
-
-export async function findCloudinaryPhotoRecordByPublicId(publicId: string) {
-  const normalizedPublicId = publicId.trim();
-  if (!normalizedPublicId) {
-    return { data: null, error: null };
-  }
-
-  const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase
-    .from("client_photos")
-    .select("id, cliente_id, storage_bucket, storage_path")
-    .eq("storage_bucket", "cloudinary")
-    .eq("storage_path", normalizedPublicId)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (error || !data?.id || !data?.cliente_id) {
-    return {
-      data: null,
-      error,
-    };
-  }
-
-  return {
-    data: {
-      id: data.id,
-      clientId: data.cliente_id,
-      storageBucket: data.storage_bucket,
-      storagePath: data.storage_path,
-    } satisfies CloudinaryPhotoRecord,
-    error: null,
-  };
-}
 
 export async function findPhotoRecordByStoragePath(storagePath: string) {
   const normalizedPath = storagePath.trim();
@@ -69,7 +36,7 @@ export async function findPhotoRecordByStoragePath(storagePath: string) {
       clientId: data.cliente_id,
       storageBucket: data.storage_bucket,
       storagePath: data.storage_path,
-    } satisfies CloudinaryPhotoRecord,
+    } satisfies StoredPhotoRecord,
     error: null,
   };
 }

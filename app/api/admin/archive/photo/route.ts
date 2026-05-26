@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archivePhoto } from "@/lib/server/recovery";
-import { requireAuthorizedStaff, buildJsonError } from "@/lib/server/tenantAccess";
+import { requireAuthorizedStaff, buildJsonError, requirePhotoAccess } from "@/lib/server/tenantAccess";
 
 const archivePhotoSchema = z.object({
   photoId: z.string().uuid(),
@@ -23,6 +23,16 @@ export async function POST(request: Request) {
   }
 
   console.log("archive photo request:", parsedBody.data);
+
+  const access = await requirePhotoAccess(
+    authContext,
+    parsedBody.data.photoId,
+    "Seu acesso nao permite arquivar esta foto.",
+    "Foto invalida para esta operacao."
+  );
+  if (access.response) {
+    return access.response;
+  }
 
   try {
     const result = await archivePhoto(

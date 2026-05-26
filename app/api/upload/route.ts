@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
-import {
-  deleteFromCloudinary,
-} from "@/lib/server/cloudinary";
-import { findPhotoRecordByStoragePath } from "@/lib/server/cloudinaryAccess";
-import { uploadToR2, deleteFromR2, buildR2ProxyUrl, getR2StorageBucketLabel } from "@/lib/server/r2";
+import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
+import { deleteManagedPhoto } from "@/lib/server/photoStorage";
+import { uploadToS3, deleteFromS3, buildS3ProxyUrl, getS3StorageBucketLabel } from "@/lib/server/s3";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 
@@ -158,7 +156,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const uploadResult = await uploadToR2(
+    const uploadResult = await uploadToS3(
       buffer,
       file.name || "photo.jpg",
       detectedMimeType,
@@ -168,7 +166,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createSupabaseAdminClient();
     const now = new Date().toISOString();
-    const proxyUrl = buildR2ProxyUrl(uploadResult.objectKey);
+    const proxyUrl = buildS3ProxyUrl(uploadResult.objectKey);
 
     const photoRecord = {
       cliente_id: clienteId,
@@ -178,7 +176,7 @@ export async function POST(req: NextRequest) {
       caption: caption || null,
       anotacao_tecnica: anotacaoTecnica || null,
       captured_at: capturedAt || now,
-      storage_bucket: getR2StorageBucketLabel(),
+      storage_bucket: getS3StorageBucketLabel(),
       storage_path: uploadResult.objectKey,
     };
 
@@ -189,7 +187,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (photoError) {
-      await deleteFromR2(uploadResult.objectKey).catch(() => {});
+      await deleteFromS3(uploadResult.objectKey).catch(() => {});
       throw new Error(`Failed to save photo reference: ${photoError.message}`);
     }
 
@@ -198,7 +196,7 @@ export async function POST(req: NextRequest) {
         .from("clientes")
         .update({
           photo_url: proxyUrl,
-          profile_photo_storage_bucket: getR2StorageBucketLabel(),
+          profile_photo_storage_bucket: getS3StorageBucketLabel(),
           profile_photo_storage_path: uploadResult.objectKey,
         })
         .eq("id", clienteId)
@@ -206,7 +204,7 @@ export async function POST(req: NextRequest) {
 
       if (clientError) {
         await supabase.from("client_photos").delete().eq("id", savedPhoto.id);
-        await deleteFromR2(uploadResult.objectKey).catch(() => {});
+        await deleteFromS3(uploadResult.objectKey).catch(() => {});
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
     }
@@ -245,10 +243,8 @@ export async function DELETE(req: NextRequest) {
       return access.response || buildJsonError("Imagem invalida para esta operacao.", 404);
     }
 
-    if (access.photoRecord.storageBucket === "cloudinary") {
-      await deleteFromCloudinary(access.photoRecord.storagePath);
-    } else if (access.photoRecord.storageBucket === getR2StorageBucketLabel()) {
-      await deleteFromR2(access.photoRecord.storagePath);
+    if (access.photoRecord.storagePath) {
+      await deleteManagedPhoto(access.photoRecord.storageBucket, access.photoRecord.storagePath);
     }
 
     const supabase = createSupabaseAdminClient();
@@ -258,7 +254,7 @@ export async function DELETE(req: NextRequest) {
       .eq("id", access.photoRecord.id);
 
     if (photoDeleteError) {
-      console.error("Failed to delete Cloudinary photo reference:", photoDeleteError);
+      console.error("Failed to delete stored photo reference:", photoDeleteError);
     }
 
     const { error: profileResetError } = await supabase
@@ -274,12 +270,12 @@ export async function DELETE(req: NextRequest) {
       .eq("profile_photo_storage_path", access.photoRecord.storagePath);
 
     if (profileResetError) {
-      console.error("Failed to clear deleted Cloudinary profile photo:", profileResetError);
+      console.error("Failed to clear deleted profile photo:", profileResetError);
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Cloudinary delete error:", error);
+    console.error("Stored photo delete error:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Delete failed" }, { status: 500 });
   }
 }

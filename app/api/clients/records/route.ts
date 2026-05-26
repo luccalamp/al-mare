@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { buildCloudinaryProxyUrl } from "@/lib/server/cloudinary";
+import { resolveManagedPhotoUrl } from "@/lib/server/photoStorage";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
@@ -135,12 +135,10 @@ export async function POST(request: Request) {
 
   switch (parsedBody.data.action) {
     case "gallery-photo": {
-      const isCloudinary = parsedBody.data.storageBucket.trim().toLowerCase() === "cloudinary";
-      const canonicalUrl = isCloudinary
-        ? buildCloudinaryProxyUrl(parsedBody.data.storagePath)
-        : (parsedBody.data.url ||
-        buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) ||
-        "");
+      const canonicalUrl = resolveManagedPhotoUrl(
+        parsedBody.data.storageBucket,
+        parsedBody.data.storagePath
+      ) || parsedBody.data.url || buildStorageObjectPublicUrl(parsedBody.data.storageBucket, parsedBody.data.storagePath) || "";
 
       const { data, error } = await authContext.admin
         .from("client_photos")

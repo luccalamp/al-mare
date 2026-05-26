@@ -53,7 +53,7 @@ type DeletedPhotoRow = {
   deleted_at: string;
   delete_reason: string | null;
   quarantined_storage_path: string | null;
-  clientes: { nome: string } | { nome: string }[] | null;
+  clientes: { nome: string; user_id?: string | null } | { nome: string; user_id?: string | null }[] | null;
 };
 
 type DeletedDocumentRow = {
@@ -121,18 +121,21 @@ export async function GET(request: Request) {
       supabase
         .from("clientes")
         .select("id, nome, whatsapp, deleted_at, delete_reason, profile_photo_quarantined_path")
+        .eq("user_id", authContext.userId)
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(18),
       supabase
         .from("client_photos")
-        .select("id, cliente_id, caption, url, deleted_at, delete_reason, quarantined_storage_path, clientes(nome)")
+        .select("id, cliente_id, caption, url, deleted_at, delete_reason, quarantined_storage_path, clientes!inner(nome, user_id)")
+        .eq("clientes.user_id", authContext.userId)
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(18),
       supabase
         .from("company_documents")
         .select("id, nome, arquivo_nome, deleted_at, delete_reason, quarantined_storage_path, company_document_folders(nome)")
+        .eq("user_id", authContext.userId)
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(18),

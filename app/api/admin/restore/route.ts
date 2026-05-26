@@ -33,8 +33,8 @@ export async function POST(request: Request) {
 
   try {
     const results = parsedBody.data.transactionId
-      ? await restoreTransaction(parsedBody.data.transactionId, authContext.userId)
-      : [await restoreRecord(parsedBody.data.tableName!, parsedBody.data.recordId!, authContext.userId)];
+      ? await restoreTransaction(parsedBody.data.transactionId, authContext.userId, authContext.userId)
+      : [await restoreRecord(parsedBody.data.tableName!, parsedBody.data.recordId!, authContext.userId, authContext.userId)];
 
     return NextResponse.json({ results }, { status: 200 });
   } catch (error) {

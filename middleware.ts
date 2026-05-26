@@ -14,8 +14,8 @@ function buildCsp(nonce: string) {
   const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
 
-  const imgSrc = ["'self'", "data:", "blob:", "https://res.cloudinary.com"];
-  const connectSrc = ["'self'", "https://api.cloudinary.com"];
+  const imgSrc = ["'self'", "data:", "blob:"];
+  const connectSrc = ["'self'"];
   const scriptSrc = [
     "'self'",
     `'nonce-${nonce}'`,

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { encodeStoragePathForRoute } from "@/lib/server/mediaProxy";
+import { isManagedPhotoBucket } from "@/lib/server/photoStorage";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 
@@ -7,6 +9,10 @@ const UUID_PATTERN =
 
 function isMissingColumnError(message?: string) {
   return /column .* does not exist/i.test(message || "");
+}
+
+function buildPortalMediaProxyUrl(storagePath: string, token: string) {
+  return `/api/portal/media/${encodeStoragePathForRoute(storagePath)}?token=${encodeURIComponent(token)}`;
 }
 
 export async function GET(request: Request) {
@@ -83,12 +89,13 @@ export async function GET(request: Request) {
     if (homecareRes.error) console.error("[portal] homecare error:", JSON.stringify(homecareRes.error));
     if (galleryRes.error) console.error("[portal] gallery error:", JSON.stringify(galleryRes.error));
 
-    const signedGallery = await Promise.all(
-      (galleryRes.data ?? []).map(async (photo) => ({
-        ...photo,
-        url: buildStorageObjectPublicUrl(photo.storage_bucket, photo.storage_path) || photo.url,
-      }))
-    );
+    const signedGallery = (galleryRes.data ?? []).map((photo) => ({
+      ...photo,
+      url:
+        isManagedPhotoBucket(photo.storage_bucket) && typeof photo.storage_path === "string"
+          ? buildPortalMediaProxyUrl(photo.storage_path, token)
+          : buildStorageObjectPublicUrl(photo.storage_bucket, photo.storage_path) || photo.url,
+    }));
 
     return NextResponse.json({
       status: "ready",

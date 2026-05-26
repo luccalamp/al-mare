@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archiveDocument } from "@/lib/server/recovery";
-import { requireAuthorizedStaff, buildJsonError } from "@/lib/server/tenantAccess";
+import { requireAuthorizedStaff, buildJsonError, requireCompanyDocumentAccess } from "@/lib/server/tenantAccess";
 
 const archiveDocumentSchema = z.object({
   documentId: z.string().uuid(),
@@ -19,6 +19,16 @@ export async function POST(request: Request) {
   const parsedBody = archiveDocumentSchema.safeParse(await request.json().catch(() => null));
   if (!parsedBody.success) {
     return buildJsonError("Payload invalido para arquivar o documento.", 400);
+  }
+
+  const access = await requireCompanyDocumentAccess(
+    authContext,
+    parsedBody.data.documentId,
+    "Seu acesso nao permite arquivar este documento.",
+    "Documento invalido para esta operacao."
+  );
+  if (access.response) {
+    return access.response;
   }
 
   try {

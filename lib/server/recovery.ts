@@ -1,7 +1,6 @@
 import type { RecoverableTableName, RestoreOperationResult, RowChangeAuditEntry } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { deleteFromCloudinary } from "@/lib/server/cloudinary";
-import { deleteFromR2, getR2StorageBucketLabel } from "@/lib/server/r2";
+import { deleteManagedPhoto, isManagedPhotoBucket } from "@/lib/server/photoStorage";
 
 const QUARANTINE_BUCKET = "recovery-quarantine";
 
@@ -53,40 +52,21 @@ function buildQuarantinePath(kind: string, recordId: string, sourcePath?: string
   return `${kind}/${recordId}/${Date.now()}-${fileName}`;
 }
 
-function isCloudinaryBucket(bucket: string | undefined) {
-  return (bucket || "").trim().toLowerCase() === "cloudinary";
-}
-
-function isR2Bucket(bucket: string | undefined) {
-  return (bucket || "").trim().toLowerCase() === getR2StorageBucketLabel();
-}
-
-async function removeCloudinaryAssetIfPresent(publicId: string | undefined, context: string) {
-  if (!publicId) return;
+async function removeManagedAssetIfPresent(
+  storageBucket: string | undefined,
+  storagePath: string | undefined,
+  context: string
+) {
+  if (!storagePath || !isManagedPhotoBucket(storageBucket)) return;
 
   try {
-    await deleteFromCloudinary(publicId);
+    await deleteManagedPhoto(storageBucket, storagePath);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "");
-    if (/not found|does not exist|resource not found/i.test(message)) {
+    if (/not found|does not exist|resource not found|no such key/i.test(message)) {
       return;
     }
-    console.error(`${context}: cloudinary delete failed`, error);
-    throw error;
-  }
-}
-
-async function removeR2AssetIfPresent(objectKey: string | undefined, context: string) {
-  if (!objectKey) return;
-
-  try {
-    await deleteFromR2(objectKey);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "");
-    if (/not found|does not exist|no such key/i.test(message)) {
-      return;
-    }
-    console.error(`${context}: r2 delete failed`, error);
+    console.error(`${context}: managed asset delete failed`, error);
     throw error;
   }
 }
@@ -168,6 +148,132 @@ export async function listAuditEntries(
   return ((data as AuditRpcRow[] | null) || []).map(normalizeAuditEntry);
 }
 
+function relationUserId(
+  value: { user_id?: string | null } | { user_id?: string | null }[] | null | undefined
+) {
+  if (!value) return undefined;
+
+  const row = Array.isArray(value) ? value[0] : value;
+  return asString(row?.user_id);
+}
+
+async function loadRecoverableRecordOwnerUserId(
+  supabase: SupabaseAdminClient,
+  tableName: RecoverableTableName,
+  recordId: string
+) {
+  if (tableName === "clientes" || tableName === "company_documents") {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("user_id")
+      .eq("id", recordId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return asString(data?.user_id) || null;
+  }
+
+  const { data, error } = await supabase
+    .from("client_photos")
+    .select("clientes!inner(user_id)")
+    .eq("id", recordId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return relationUserId(data?.clientes as { user_id?: string | null } | { user_id?: string | null }[] | null) || null;
+}
+
+async function loadRecoverableRecordOwnerUserIdFromAudit(
+  tableName: RecoverableTableName,
+  recordId: string
+) {
+  const { snapshot } = await fetchAuditSnapshot(tableName, recordId);
+  const directUserId = asString(snapshot.user_id);
+  if (directUserId) {
+    return directUserId;
+  }
+
+  if (tableName === "client_photos") {
+    const clientId = asString(snapshot.cliente_id);
+    if (!clientId) {
+      return null;
+    }
+
+    const { snapshot: clientSnapshot } = await fetchAuditSnapshot("clientes", clientId);
+    return asString(clientSnapshot.user_id) || null;
+  }
+
+  return null;
+}
+
+export async function isRecoverableRecordOwnedByUser(
+  tableName: RecoverableTableName,
+  recordId: string,
+  ownerUserId: string
+) {
+  const supabase = createSupabaseAdminClient();
+  const currentOwnerUserId = await loadRecoverableRecordOwnerUserId(supabase, tableName, recordId);
+
+  if (currentOwnerUserId) {
+    return currentOwnerUserId === ownerUserId;
+  }
+
+  try {
+    const auditOwnerUserId = await loadRecoverableRecordOwnerUserIdFromAudit(tableName, recordId);
+    return Boolean(auditOwnerUserId && auditOwnerUserId === ownerUserId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/Nao encontrei snapshot suficiente no log de auditoria/i.test(message)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function listOwnedAuditEntries(
+  ownerUserId: string,
+  tableName?: string,
+  recordIdentity?: Record<string, unknown>,
+  transactionId?: number,
+  limit = 50
+) {
+  const entries = await listAuditEntries(tableName, recordIdentity, transactionId, limit);
+  const filteredEntries: RowChangeAuditEntry[] = [];
+  const ownershipCache = new Map<string, boolean>();
+
+  for (const entry of entries) {
+    const recoverableTable = entry.tableName as RecoverableTableName;
+    if (!( ["clientes", "client_photos", "company_documents"] as const).includes(recoverableTable)) {
+      continue;
+    }
+
+    const recordId = asString(entry.recordIdentity.id);
+    if (!recordId) {
+      continue;
+    }
+
+    const cacheKey = `${recoverableTable}:${recordId}`;
+    let isOwned = ownershipCache.get(cacheKey);
+
+    if (typeof isOwned !== "boolean") {
+      isOwned = await isRecoverableRecordOwnedByUser(recoverableTable, recordId, ownerUserId);
+      ownershipCache.set(cacheKey, isOwned);
+    }
+
+    if (isOwned) {
+      filteredEntries.push(entry);
+    }
+  }
+
+  return filteredEntries;
+}
+
 async function fetchAuditSnapshot(tableName: RecoverableTableName, recordId: string) {
   const entries = await listAuditEntries(tableName, { id: recordId }, undefined, 80);
 
@@ -193,7 +299,7 @@ async function restoreClientStorage(
   const quarantinedBucket = asString(row.profile_photo_quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.profile_photo_quarantined_path);
 
-  if (["google-drive", "cloudinary", getR2StorageBucketLabel()].includes(storageBucket.toLowerCase())) {
+  if (storageBucket.toLowerCase() === "google-drive" || isManagedPhotoBucket(storageBucket)) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
   }
 
@@ -213,7 +319,7 @@ async function restorePhotoStorage(
   const quarantinedBucket = asString(row.quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.quarantined_storage_path);
 
-  if (["google-drive", "cloudinary", getR2StorageBucketLabel()].includes(storageBucket.toLowerCase())) {
+  if (storageBucket.toLowerCase() === "google-drive" || isManagedPhotoBucket(storageBucket)) {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
   }
 
@@ -496,7 +602,12 @@ async function restoreDocumentRecord(supabase: SupabaseAdminClient, recordId: st
   };
 }
 
-export async function restoreRecord(tableName: RecoverableTableName, recordId: string, actor: string) {
+export async function restoreRecord(tableName: RecoverableTableName, recordId: string, actor: string, ownerUserId: string) {
+  const allowed = await isRecoverableRecordOwnedByUser(tableName, recordId, ownerUserId);
+  if (!allowed) {
+    throw new Error("O registro arquivado solicitado nao pertence ao seu ambiente.");
+  }
+
   const supabase = createSupabaseAdminClient();
 
   if (tableName === "clientes") {
@@ -510,8 +621,8 @@ export async function restoreRecord(tableName: RecoverableTableName, recordId: s
   return restoreDocumentRecord(supabase, recordId, actor);
 }
 
-export async function restoreTransaction(transactionId: number, actor: string) {
-  const entries = await listAuditEntries(undefined, undefined, transactionId, 250);
+export async function restoreTransaction(transactionId: number, actor: string, ownerUserId: string) {
+  const entries = await listOwnedAuditEntries(ownerUserId, undefined, undefined, transactionId, 250);
   const recoverableTables: RecoverableTableName[] = ["clientes", "client_photos", "company_documents"];
   const pending = new Map<string, RecoverableTableName>();
 
@@ -538,7 +649,11 @@ export async function restoreTransaction(transactionId: number, actor: string) {
   const results: RestoreOperationResult[] = [];
   for (const key of orderedKeys) {
     const [tableName, recordId] = key.split(":") as [RecoverableTableName, string];
-    results.push(await restoreRecord(tableName, recordId, actor));
+    results.push(await restoreRecord(tableName, recordId, actor, ownerUserId));
+  }
+
+  if (results.length === 0) {
+    throw new Error("Nao encontrei arquivamentos do seu ambiente para esse transaction_id.");
   }
 
   return results;
@@ -585,34 +700,9 @@ async function archiveClientPhotoRow(
   const storageBucket = asString(photoRow.storage_bucket) || "anamnese-fotos";
   const storagePath = asString(photoRow.storage_path);
   const clientId = asString(photoRow.cliente_id);
-  if (isCloudinaryBucket(storageBucket)) {
-    console.log("archiveClientPhotoRow: deleting cloudinary-backed photo", photoId, storagePath);
-    await removeCloudinaryAssetIfPresent(storagePath, "archiveClientPhotoRow");
-
-    if (clientId && storagePath) {
-      const { error: profileResetError } = await supabase
-        .from("clientes")
-        .update({
-          photo_url: null,
-          profile_photo_storage_bucket: null,
-          profile_photo_storage_path: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", clientId)
-        .eq("profile_photo_storage_bucket", storageBucket)
-        .eq("profile_photo_storage_path", storagePath);
-
-      if (profileResetError) {
-        console.error("archiveClientPhotoRow: failed to clear matching profile photo", profileResetError);
-        throw profileResetError;
-      }
-    }
-    return;
-  }
-
-  if (isR2Bucket(storageBucket)) {
-    console.log("archiveClientPhotoRow: deleting r2-backed photo", photoId, storagePath);
-    await removeR2AssetIfPresent(storagePath, "archiveClientPhotoRow");
+  if (isManagedPhotoBucket(storageBucket)) {
+    console.log("archiveClientPhotoRow: deleting externally-managed photo", photoId, storageBucket, storagePath);
+    await removeManagedAssetIfPresent(storageBucket, storagePath, "archiveClientPhotoRow");
 
     if (clientId && storagePath) {
       const { error: profileResetError } = await supabase
@@ -808,9 +898,9 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   const avatarStorageBucket = asString(clientRow.profile_photo_storage_bucket) || "anamnese-fotos";
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
-    if (isCloudinaryBucket(avatarStorageBucket)) {
-      console.log("archiveClient: deleting cloudinary avatar", recordId, avatarStoragePath);
-      await removeCloudinaryAssetIfPresent(avatarStoragePath, "archiveClient");
+    if (isManagedPhotoBucket(avatarStorageBucket)) {
+      console.log("archiveClient: deleting externally-managed avatar", recordId, avatarStorageBucket, avatarStoragePath);
+      await removeManagedAssetIfPresent(avatarStorageBucket, avatarStoragePath, "archiveClient");
 
       const { error: avatarCleanupError } = await supabase
         .from("clientes")
@@ -827,29 +917,7 @@ export async function archiveClient(recordId: string, actor: string, reason: str
         .single();
 
       if (avatarCleanupError) {
-        console.error("archiveClient: cloudinary avatar cleanup error", avatarCleanupError);
-        throw avatarCleanupError;
-      }
-    } else if (isR2Bucket(avatarStorageBucket)) {
-      console.log("archiveClient: deleting r2 avatar", recordId, avatarStoragePath);
-      await removeR2AssetIfPresent(avatarStoragePath, "archiveClient");
-
-      const { error: avatarCleanupError } = await supabase
-        .from("clientes")
-        .update({
-          photo_url: null,
-          profile_photo_storage_bucket: null,
-          profile_photo_storage_path: null,
-          profile_photo_quarantined_bucket: null,
-          profile_photo_quarantined_path: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", recordId)
-        .select("id")
-        .single();
-
-      if (avatarCleanupError) {
-        console.error("archiveClient: r2 avatar cleanup error", avatarCleanupError);
+        console.error("archiveClient: externally-managed avatar cleanup error", avatarCleanupError);
         throw avatarCleanupError;
       }
     } else if (avatarStorageBucket.toLowerCase() === "google-drive") {

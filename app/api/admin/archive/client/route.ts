@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archiveClient } from "@/lib/server/recovery";
-import { requireAuthorizedStaff, buildJsonError } from "@/lib/server/tenantAccess";
+import { requireAuthorizedStaff, buildJsonError, requireClientAccess } from "@/lib/server/tenantAccess";
 
 const archiveClientSchema = z.object({
   clientId: z.string().uuid(),
@@ -21,6 +21,16 @@ export async function POST(request: Request) {
   }
 
   console.log("archive client request:", parsedBody.data);
+
+  const access = await requireClientAccess(
+    authContext,
+    parsedBody.data.clientId,
+    "Seu acesso nao permite arquivar esta paciente.",
+    "Cliente invalido para esta operacao."
+  );
+  if (access.response) {
+    return access.response;
+  }
 
   try {
     const result = await archiveClient(

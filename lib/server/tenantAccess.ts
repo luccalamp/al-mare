@@ -228,3 +228,74 @@ export async function requireCompanyDocumentFolderAccess(
     "Não foi possível validar a pasta agora."
   );
 }
+
+export async function requireCompanyDocumentAccess(
+  context: AuthorizedStaffContext,
+  documentId: string,
+  forbiddenMessage = "Seu acesso não permite gerenciar este documento.",
+  notFoundMessage = "Documento inválido para esta operação."
+) {
+  return requireOwnedRowAccess(
+    context,
+    "company_documents",
+    documentId,
+    forbiddenMessage,
+    notFoundMessage,
+    "Não foi possível validar o documento agora."
+  );
+}
+
+export async function requirePhotoAccess(
+  context: AuthorizedStaffContext,
+  photoId: string,
+  forbiddenMessage = "Seu acesso não permite gerenciar esta foto.",
+  notFoundMessage = "Foto inválida para esta operação."
+) {
+  const { admin } = context;
+
+  const { data, error } = await admin
+    .from("client_photos")
+    .select("cliente_id, clientes!inner(user_id)")
+    .eq("id", photoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingColumnError(error.message)) {
+      return {
+        userId: null,
+        response: buildJsonError("O isolamento por usuário ainda não está disponível neste ambiente.", 503),
+      };
+    }
+
+    console.error("Failed to validate client_photos owner:", error);
+    return {
+      userId: null,
+      response: buildJsonError("Não foi possível validar a foto agora.", 500),
+    };
+  }
+
+  const ownerRelation = Array.isArray(data?.clientes) ? data.clientes[0] : data?.clientes;
+  const ownerUserId = typeof ownerRelation?.user_id === "string" && ownerRelation.user_id.trim()
+    ? ownerRelation.user_id
+    : null;
+
+  if (!ownerUserId) {
+    return {
+      userId: null,
+      response: buildJsonError(notFoundMessage, 404),
+    };
+  }
+
+  if (ownerUserId !== context.userId) {
+    return {
+      userId: null,
+      response: buildJsonError(forbiddenMessage, 403),
+    };
+  }
+
+  return {
+    userId: ownerUserId,
+    response: null,
+  };
+}

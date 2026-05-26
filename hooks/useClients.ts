@@ -865,7 +865,7 @@ export function useClients() {
           },
           ...(avatarPublicId
             ? {
-                profilePhotoStorageBucket: "cloudinary",
+                profilePhotoStorageBucket: "s3",
                 profilePhotoStoragePath: avatarPublicId,
               }
             : {}),

@@ -1,38 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeStoragePathFromRoute } from "@/lib/server/mediaProxy";
+import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
+import { downloadManagedPhoto } from "@/lib/server/photoStorage";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
-import { getCloudinarySignedUrl } from "@/lib/server/cloudinary";
-import { findPhotoRecordByStoragePath } from "@/lib/server/cloudinaryAccess";
-import { downloadFromR2, getR2StorageBucketLabel } from "@/lib/server/r2";
-
-function decodePathFragment(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function normalizeStoragePathFromRoute(pathSegments: string[]) {
-  const joinedPath = pathSegments.join("/").trim().replace(/^\/+|\/+$/g, "");
-  if (!joinedPath) {
-    return "";
-  }
-
-  let normalizedPath = joinedPath;
-  for (let index = 0; index < 2; index += 1) {
-    const decodedPath = decodePathFragment(normalizedPath);
-    if (decodedPath === normalizedPath) {
-      break;
-    }
-    normalizedPath = decodedPath;
-  }
-
-  normalizedPath = normalizedPath.replace(/\\/g, "/");
-  return normalizedPath
-    .split("/")
-    .filter(Boolean)
-    .join("/");
-}
 
 export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
   try {
@@ -65,44 +35,22 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return access.response;
     }
 
-    let imageBuffer: ArrayBuffer | Buffer;
-    let contentType = "image/jpeg";
-
-    if (photoRecord.storageBucket === "cloudinary") {
-      const imageResponse = await fetch(getCloudinarySignedUrl(photoRecord.storagePath), {
-        cache: "no-store",
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!imageResponse.ok) {
-        console.error("Media proxy: Cloudinary fetch failed", imageResponse.status);
-        return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
-      }
-
-      imageBuffer = await imageResponse.arrayBuffer();
-      contentType = imageResponse.headers.get("content-type") || "image/jpeg";
-    } else if (photoRecord.storageBucket === getR2StorageBucketLabel()) {
-      try {
-        const downloaded = await downloadFromR2(photoRecord.storagePath);
-        imageBuffer = downloaded.buffer;
-        contentType = downloaded.contentType || "image/jpeg";
-      } catch (downloadError) {
-        console.error("Media proxy: R2 fetch failed", downloadError);
-        return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
-      }
-    } else {
-      console.error("Media proxy: unsupported storage bucket", photoRecord.storageBucket);
-      return NextResponse.json({ error: "Midia com armazenamento nao suportado." }, { status: 500 });
+    let downloaded;
+    try {
+      downloaded = await downloadManagedPhoto(photoRecord.storageBucket, photoRecord.storagePath);
+    } catch (downloadError) {
+      console.error("Media proxy: managed photo fetch failed", downloadError);
+      return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
     }
 
-    const body = imageBuffer instanceof ArrayBuffer ? imageBuffer : new Uint8Array(imageBuffer);
+    const body = new Uint8Array(downloaded.buffer);
 
     return new NextResponse(body, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": downloaded.contentType || "image/jpeg",
         "Cache-Control": "private, no-store, max-age=0",
-        "Content-Length": imageBuffer.byteLength.toString(),
+        "Content-Length": downloaded.buffer.byteLength.toString(),
         "Vary": "Cookie, Authorization",
         "X-Content-Type-Options": "nosniff",
       },

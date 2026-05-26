@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listAuditEntries } from "@/lib/server/recovery";
+import { listOwnedAuditEntries } from "@/lib/server/recovery";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 export async function GET(request: Request) {
@@ -16,7 +16,8 @@ export async function GET(request: Request) {
     const limitValue = Number(searchParams.get("limit") || "60");
     const transactionId = transactionIdValue ? Number(transactionIdValue) : undefined;
 
-    const entries = await listAuditEntries(
+    const entries = await listOwnedAuditEntries(
+      authContext.userId,
       tableName,
       recordId ? { id: recordId } : undefined,
       Number.isFinite(transactionId) ? transactionId : undefined,
