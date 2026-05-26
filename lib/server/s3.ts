@@ -134,10 +134,28 @@ async function streamToBuffer(stream: Readable) {
   return Buffer.concat(chunks);
 }
 
-export async function downloadFromS3(objectKey: string) {
-  const client = createS3Client();
-  const { bucket } = getS3Config();
+function isS3ObjectMissingError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
 
+  const candidate = error as {
+    name?: string;
+    code?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+
+  const names = [candidate.name, candidate.code, candidate.Code]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  return names.includes("nosuchkey")
+    || names.includes("notfound")
+    || candidate.$metadata?.httpStatusCode === 404;
+}
+
+async function downloadS3ObjectByKey(client: S3Client, bucket: string, objectKey: string) {
   const response = await client.send(
     new GetObjectCommand({
       Bucket: bucket,
@@ -163,7 +181,41 @@ export async function downloadFromS3(objectKey: string) {
   return {
     buffer,
     contentType: response.ContentType || "application/octet-stream",
+    resolvedObjectKey: objectKey,
   };
+}
+
+function buildFallbackObjectKeys(objectKey: string) {
+  if (/\.[a-z0-9]{2,5}$/i.test(objectKey)) {
+    return [];
+  }
+
+  return ["jpg", "jpeg", "png", "webp", "avif"].map((extension) => `${objectKey}.${extension}`);
+}
+
+export async function downloadFromS3(objectKey: string) {
+  const client = createS3Client();
+  const { bucket } = getS3Config();
+
+  try {
+    return await downloadS3ObjectByKey(client, bucket, objectKey);
+  } catch (error) {
+    if (!isS3ObjectMissingError(error)) {
+      throw error;
+    }
+
+    for (const fallbackObjectKey of buildFallbackObjectKeys(objectKey)) {
+      try {
+        return await downloadS3ObjectByKey(client, bucket, fallbackObjectKey);
+      } catch (fallbackError) {
+        if (!isS3ObjectMissingError(fallbackError)) {
+          throw fallbackError;
+        }
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function deleteFromS3(objectKey: string) {

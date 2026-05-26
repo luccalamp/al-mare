@@ -8,7 +8,6 @@
     "start": "next start",
     "lint": "next lint",
     "backup:local": "node ./scripts/backup.js",
-    "storage:migrate:photos-to-s3": "node ./scripts/migrate_photo_storage_to_s3.js",
     "db:migrate:assinatura": "node ./scripts/apply_assinatura_migration.js",
     "db:migrate:iluminare": "node ./scripts/apply_iluminare.js",
     "db:migrate:iluminare:final": "node ./scripts/apply_iluminare_final.js",
