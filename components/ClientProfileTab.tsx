@@ -4,6 +4,7 @@ import NextImage from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { Client, ClientProfile } from "@/types";
 import { getClientAvatarUrl } from "@/lib/clientMedia";
+import { GRID_CATEGORIES } from "@/lib/photos";
 import { AlertTriangle, Loader2, Save, Upload, User } from "lucide-react";
 import ImageGridComposer from "./ImageGridComposer";
 
@@ -162,15 +163,15 @@ export default function ClientProfileTab({
   const handleSaveTricoscopyGrid = async (file: File) => {
     setError(null);
     setFeedback(null);
-    await Promise.resolve(onUpdate({ ...client, updatedAt: new Date().toISOString() }, [{ file, type: "referencia" }]));
+    await Promise.resolve(onUpdate({ ...client, updatedAt: new Date().toISOString() }, [{ file, type: GRID_CATEGORIES.MOSAICO }]));
     setFeedback("Mosaico de tricoscopia salvo no perfil da paciente.");
   };
 
-  const uploadGridSlotImage = async (file: File, caption: string) => {
+  const uploadGridSlotImage = async (file: File, caption: string, category: string) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("clienteId", client.id);
-    formData.append("category", "referencia");
+    formData.append("category", category);
     formData.append("caption", caption);
     formData.append("clientName", client.profile.nome || form.nome || "cliente");
 
@@ -197,7 +198,8 @@ export default function ClientProfileTab({
     setError(null);
     setFeedback(null);
 
-    const slotUrl = await uploadGridSlotImage(file, `${profileKey} - ${slotLabel}`);
+    const category = profileKey === "tricoscopiaComparativeSlots" ? GRID_CATEGORIES.COMPARATIVA : GRID_CATEGORIES.IDENTIFICACAO;
+    const slotUrl = await uploadGridSlotImage(file, `${profileKey} - ${slotLabel}`, category);
     const currentSlots = normalizeGridSlots(client.profile[profileKey]);
     currentSlots[index] = slotUrl;
 
@@ -227,6 +229,29 @@ export default function ClientProfileTab({
     setFeedback(null);
 
     const currentSlots = normalizeGridSlots(client.profile[profileKey]);
+    const slotUrl = currentSlots[index];
+
+    if (slotUrl) {
+      try {
+        const response = await fetch("/api/admin/archive/photo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            photoUrl: slotUrl,
+            reason: `Removido da grelha de ${profileKey === "tricoscopiaComparativeSlots" ? "comparativa" : "identificacao"}.`,
+          }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || "Nao foi possivel arquivar a foto.");
+        }
+      } catch (archiveError) {
+        setError(archiveError instanceof Error ? archiveError.message : "Erro ao arquivar a foto.");
+        return;
+      }
+    }
+
     currentSlots[index] = null;
 
     await Promise.resolve(

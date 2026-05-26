@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archivePhoto } from "@/lib/server/recovery";
 import { requireAuthorizedStaff, buildJsonError, requirePhotoAccess } from "@/lib/server/tenantAccess";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
 const archivePhotoSchema = z.object({
-  photoId: z.string().uuid(),
+  photoId: z.string().uuid().optional(),
+  photoUrl: z.string().optional(),
   reason: z.string().trim().max(240).optional(),
+}).refine((data) => data.photoId || data.photoUrl, {
+  message: "photoId or photoUrl is required",
 });
 
 export async function POST(request: Request) {
@@ -22,11 +26,30 @@ export async function POST(request: Request) {
     return buildJsonError("Payload invalido para arquivar a foto.", 400);
   }
 
-  console.log("archive photo request:", parsedBody.data);
+  let photoId = parsedBody.data.photoId;
+
+  if (!photoId && parsedBody.data.photoUrl) {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("client_photos")
+      .select("id")
+      .eq("url", parsedBody.data.photoUrl)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    if (error) {
+      console.error("archive photo lookup error:", error);
+      return buildJsonError("Nao foi possivel encontrar a foto.", 500);
+    }
+    if (!data) {
+      return buildJsonError("Foto nao encontrada ou ja arquivada.", 404);
+    }
+    photoId = data.id;
+  }
 
   const access = await requirePhotoAccess(
     authContext,
-    parsedBody.data.photoId,
+    photoId!,
     "Seu acesso nao permite arquivar esta foto.",
     "Foto invalida para esta operacao."
   );
@@ -36,7 +59,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await archivePhoto(
-      parsedBody.data.photoId,
+      photoId!,
       authContext.userId,
       parsedBody.data.reason || "Arquivamento administrativo da galeria com quarentena privada."
     );

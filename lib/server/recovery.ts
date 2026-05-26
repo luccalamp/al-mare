@@ -1,6 +1,6 @@
 import type { RecoverableTableName, RestoreOperationResult, RowChangeAuditEntry } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { deleteManagedPhoto, isManagedPhotoBucket } from "@/lib/server/photoStorage";
+import { isManagedPhotoBucket } from "@/lib/server/photoStorage";
 
 const QUARANTINE_BUCKET = "recovery-quarantine";
 
@@ -50,25 +50,6 @@ function resolveSnapshotId(snapshot: Record<string, unknown>) {
 function buildQuarantinePath(kind: string, recordId: string, sourcePath?: string | null) {
   const fileName = sourcePath?.split("/").filter(Boolean).pop() || `${recordId}.bin`;
   return `${kind}/${recordId}/${Date.now()}-${fileName}`;
-}
-
-async function removeManagedAssetIfPresent(
-  storageBucket: string | undefined,
-  storagePath: string | undefined,
-  context: string
-) {
-  if (!storagePath || !isManagedPhotoBucket(storageBucket)) return;
-
-  try {
-    await deleteManagedPhoto(storageBucket, storagePath);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "");
-    if (/not found|does not exist|resource not found|no such key/i.test(message)) {
-      return;
-    }
-    console.error(`${context}: managed asset delete failed`, error);
-    throw error;
-  }
 }
 
 async function removeIfExists(supabase: SupabaseAdminClient, bucket: string, path: string) {
@@ -701,8 +682,7 @@ async function archiveClientPhotoRow(
   const storagePath = asString(photoRow.storage_path);
   const clientId = asString(photoRow.cliente_id);
   if (isManagedPhotoBucket(storageBucket)) {
-    console.log("archiveClientPhotoRow: deleting externally-managed photo", photoId, storageBucket, storagePath);
-    await removeManagedAssetIfPresent(storageBucket, storagePath, "archiveClientPhotoRow");
+    console.log("archiveClientPhotoRow: soft-deleted managed photo, will purge from S3 after 3 days", photoId, storageBucket, storagePath);
 
     if (clientId && storagePath) {
       const { error: profileResetError } = await supabase
@@ -899,26 +879,27 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
     if (isManagedPhotoBucket(avatarStorageBucket)) {
-      console.log("archiveClient: deleting externally-managed avatar", recordId, avatarStorageBucket, avatarStoragePath);
-      await removeManagedAssetIfPresent(avatarStorageBucket, avatarStoragePath, "archiveClient");
+      console.log("archiveClient: soft-deleted managed avatar, will purge from S3 after 3 days", recordId, avatarStorageBucket, avatarStoragePath);
 
-      const { error: avatarCleanupError } = await supabase
-        .from("clientes")
-        .update({
-          photo_url: null,
-          profile_photo_storage_bucket: null,
-          profile_photo_storage_path: null,
-          profile_photo_quarantined_bucket: null,
-          profile_photo_quarantined_path: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", recordId)
-        .select("id")
-        .single();
+      if (recordId && avatarStoragePath) {
+        const { error: avatarCleanupError } = await supabase
+          .from("clientes")
+          .update({
+            photo_url: null,
+            profile_photo_storage_bucket: null,
+            profile_photo_storage_path: null,
+            profile_photo_quarantined_bucket: null,
+            profile_photo_quarantined_path: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", recordId)
+          .select("id")
+          .single();
 
-      if (avatarCleanupError) {
-        console.error("archiveClient: externally-managed avatar cleanup error", avatarCleanupError);
-        throw avatarCleanupError;
+        if (avatarCleanupError) {
+          console.error("archiveClient: externally-managed avatar cleanup error", avatarCleanupError);
+          throw avatarCleanupError;
+        }
       }
     } else if (avatarStorageBucket.toLowerCase() === "google-drive") {
       console.log("archiveClient: google-drive avatar, skipping quarantine move", recordId);

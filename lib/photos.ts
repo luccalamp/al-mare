@@ -2,6 +2,12 @@ import { GalleryPhoto } from "@/types";
 
 export type NormalizedPhotoCategory = "antes" | "depois" | "referencia";
 
+export const GRID_CATEGORIES = {
+  COMPARATIVA: "grelha/comparativa",
+  IDENTIFICACAO: "grelha/identificacao",
+  MOSAICO: "grelha/mosaico",
+} as const;
+
 export type PhotoComparisonPair = {
   before: GalleryPhoto;
   after: GalleryPhoto;
