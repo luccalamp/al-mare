@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeStoragePathFromRoute } from "@/lib/server/mediaProxy";
-import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
+import { findPhotoRecordByStoragePath, findPhotoRecordByUrl } from "@/lib/server/photoStorageAccess";
 import { downloadManagedPhoto } from "@/lib/server/photoStorage";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 
@@ -15,10 +15,22 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
     }
 
     const storagePath = normalizeStoragePathFromRoute(params.publicId);
-    const { data: photoRecord, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
+    const { data: storageMatch, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
+
     if (photoLookupError) {
       console.error("Media proxy: failed to load photo reference", photoLookupError);
       return buildJsonError("Nao foi possivel validar a imagem agora.", 500);
+    }
+
+    let photoRecord = storageMatch;
+
+    if (!photoRecord) {
+      const { data: fallbackRecord, error: fallbackError } = await findPhotoRecordByUrl(req.nextUrl.pathname);
+      if (fallbackError) {
+        console.error("Media proxy: fallback lookup failed", fallbackError);
+      } else if (fallbackRecord) {
+        photoRecord = fallbackRecord;
+      }
     }
 
     if (!photoRecord) {

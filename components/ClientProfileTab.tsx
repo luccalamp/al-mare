@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Client, ClientProfile } from "@/types";
 import { getClientAvatarUrl } from "@/lib/clientMedia";
 import { GRID_CATEGORIES } from "@/lib/photos";
+import { normalizeImageFileForUpload } from "@/lib/clientImageCompression";
 import { AlertTriangle, Loader2, Save, Upload, User } from "lucide-react";
 import ImageGridComposer from "./ImageGridComposer";
 
@@ -168,8 +169,9 @@ export default function ClientProfileTab({
   };
 
   const uploadGridSlotImage = async (file: File, caption: string, category: string) => {
+    const preparedFile = await normalizeImageFileForUpload(file);
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", preparedFile);
     formData.append("clienteId", client.id);
     formData.append("category", category);
     formData.append("caption", caption);

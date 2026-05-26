@@ -6,6 +6,7 @@ import { deleteManagedPhoto } from "@/lib/server/photoStorage";
 import { uploadToS3, deleteFromS3, buildS3ProxyUrl, getS3StorageBucketLabel } from "@/lib/server/s3";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB
 
 function sniffMimeTypeFromBuffer(buffer: Buffer): string | null {
   if (buffer.length < 12) return null;
@@ -139,6 +140,13 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     if (!buffer.byteLength) {
       return NextResponse.json({ error: "O arquivo enviado esta vazio." }, { status: 400 });
+    }
+
+    if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: "A imagem e muito grande. O tamanho maximo permitido e 15 MB." },
+        { status: 413 }
+      );
     }
 
     const detectedMimeType = sniffMimeTypeFromBuffer(buffer);
