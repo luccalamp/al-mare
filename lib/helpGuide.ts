@@ -81,9 +81,9 @@ export const HELP_GUIDE_SECTIONS: readonly HelpGuideSection[] = [
       {
         id: "workspace-documents",
         title: "Central de arquivos",
-        purpose: "Guarda documentos, materiais e pastas internas em um ponto único da clínica.",
-        whenToUse: "Use quando precisar consultar PDFs, subir materiais, organizar documentos por pasta ou recuperar um arquivo rápido.",
-        example: "Você precisa reenviar um termo ou um material interno e abre Arquivos em vez de procurar fora do sistema.",
+        purpose: "Guarda documentos e materiais em um acervo por pastas, com contexto claro para a equipe.",
+        whenToUse: "Use quando precisar buscar um arquivo, registrar instruções de uma pasta ou enviar novos documentos para um destino definido.",
+        example: "Antes de subir um contrato, você seleciona a pasta correta, valida o texto principal e envia o arquivo sem risco de cair no lugar errado.",
       },
       {
         id: "workspace-branding",

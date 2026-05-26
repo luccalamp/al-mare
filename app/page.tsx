@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Search, X, FolderPlus, Users, Menu, AlertTriangle, CheckCircle2, RefreshCw, CircleHelp } from "lucide-react";
+import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
 import FolderIcon from "@/components/FolderIcon";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
-import BrandLogo from "@/components/BrandLogo";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -57,7 +56,6 @@ export default function HomePage() {
     togglePreConsultationToken,
     syncStatus,
     lastSyncedAt,
-    lastSnapshotAt,
     refreshClients,
   } = useClients();
   const [openClientModal, setOpenClientModal] = useState<{ client: Client, initialTab: WindowTab } | null>(null);
@@ -67,11 +65,8 @@ export default function HomePage() {
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [spotlightFocused, setSpotlightFocused] = useState(false);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [journeyFilter, setJourneyFilter] = useState<"todos" | ClientJourneyStage>("todos");
   const [pageFeedback, setPageFeedback] = useState<PageFeedback | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
 
   const journeyCounts = useMemo(() => {
     const initialCounts: Record<ClientJourneyStage, number> = {
@@ -97,10 +92,6 @@ export default function HomePage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
       if (e.key === "Escape") {
         setOpenClientModal(null);
         setShowDashboard(false);
@@ -108,11 +99,9 @@ export default function HomePage() {
         setShowBrandingSettings(false);
         setShowGuide(false);
         setShowNewForm(false);
-        setShowMobileMenu(false);
         setJourneyFilter("todos");
         setPageFeedback(null);
         setSearchQuery("");
-        searchRef.current?.blur();
       }
     };
     window.addEventListener("keydown", handler);
@@ -156,32 +145,27 @@ export default function HomePage() {
   const handleOpenDocuments = () => {
     setSelectedId("documents");
     setShowDocuments(true);
-    setShowMobileMenu(false);
   };
 
   const handleOpenBrandingSettings = () => {
     setSelectedId(null);
     setShowBrandingSettings(true);
-    setShowMobileMenu(false);
   };
 
   const handleOpenGuide = () => {
     setSelectedId(null);
     setShowGuide(true);
-    setShowMobileMenu(false);
   };
 
   const handleOpenClient = (client: Client, initialTab: WindowTab = "perfil") => {
     setOpenClientModal({ client, initialTab });
     setSelectedId(null);
-    setShowMobileMenu(false);
   };
 
   const handleDeleteClient = async (clientId: string) => {
     await deleteClient(clientId);
     setSelectedId((prev) => (prev === clientId ? null : prev));
     setOpenClientModal((prev) => (prev?.client.id === clientId ? null : prev));
-    setShowMobileMenu(false);
     setPageFeedback({
       tone: "success",
       message: "Paciente arquivada com sucesso. A restauração fica disponível no painel administrativo de proteção.",
@@ -381,8 +365,6 @@ export default function HomePage() {
     return appointment;
   };
 
-  const formattedSnapshotAt =
-    lastSnapshotAt ? new Date(lastSnapshotAt).toLocaleString("pt-BR") : null;
   const formattedLastSyncedAt =
     lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("pt-BR") : null;
   const activeJourneyLabel = JOURNEY_FILTERS.find((filter) => filter.id === journeyFilter)?.label ?? "Tudo";
@@ -402,152 +384,19 @@ export default function HomePage() {
 
   return (
     <div className="relative min-h-[var(--app-dvh)] pb-4">
-      <header className="app-sticky-header px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
-        <div className="premium-panel flex flex-wrap items-center gap-3 rounded-[2rem] px-4 py-3 sm:flex-nowrap sm:px-5">
-          <div className="mr-0 flex shrink-0 items-center gap-3 sm:mr-1">
-            <BrandLogo compact subtitle={false} className="hidden sm:flex" priority />
-            <p className="premium-kicker hidden sm:inline-flex">Painel da clinica</p>
-          </div>
-
-          <div
-            className="order-3 flex w-full items-center gap-2 rounded-[1.4rem] px-3 py-2.5 transition-all duration-200 sm:order-none sm:mx-auto sm:max-w-xl sm:flex-1"
-            style={{
-              background: spotlightFocused ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.58)",
-              border: spotlightFocused ? "1px solid rgba(140,90,45,0.24)" : "1px solid rgba(113,76,43,0.08)",
-              boxShadow: spotlightFocused
-                ? "0 0 0 4px rgba(140,90,45,0.08), 0 16px 34px rgba(62,44,28,0.08)"
-                : "0 12px 24px rgba(62,44,28,0.05)",
-            }}
+      <header className="app-sticky-header px-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4">
+        <div
+          className="mx-auto flex h-16 max-w-7xl items-center rounded-b-2xl px-5"
+          style={{ backgroundColor: "rgba(244, 236, 223, 0.85)" }}
+        >
+          <h1
+            className="text-lg font-semibold tracking-tight"
+            style={{ fontFamily: "var(--font-brand), serif", color: "#4f2f19" }}
           >
-            <Search size={14} className={`shrink-0 transition-colors ${spotlightFocused ? "text-[var(--color-brand-accent)]" : "text-[var(--color-text-tertiary)]"}`} />
-            <input
-              ref={searchRef}
-              id="search-input"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setSpotlightFocused(true)}
-              onBlur={() => setSpotlightFocused(false)}
-              placeholder="Buscar paciente, protocolo ou prontuario..."
-              className="min-h-6 flex-1 bg-transparent text-sm text-[var(--color-ink)] placeholder:text-[var(--color-text-tertiary)] outline-none"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="rounded-full p-1.5 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text)]"
-                aria-label="Limpar busca"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-
-          <div className="hidden lg:flex">
-            <span className="premium-chip text-xs font-semibold">
-              <Users size={14} />
-              {visibleClients.length} paciente{visibleClients.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-
-          <button
-            id="new-client-btn"
-            onClick={() => setShowNewForm(true)}
-            className="premium-button-primary hidden items-center gap-2 px-4 py-3 text-sm md:flex"
-            title="Novo paciente"
-          >
-            <span className="relative z-10 flex items-center gap-2">
-              <FolderPlus size={15} />
-              Novo paciente
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenBrandingSettings}
-            className="premium-button-secondary hidden items-center gap-2 px-4 py-3 text-sm md:flex"
-            title="Personalizar a marca e os textos"
-          >
-            <span className="relative z-10">Personalizar</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenGuide}
-            className="premium-button-secondary hidden h-11 w-11 items-center justify-center md:inline-flex"
-            aria-label="Abrir guia de uso"
-            title="Dúvidas e como cada área funciona"
-          >
-            <span className="relative z-10">
-              <CircleHelp size={18} />
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleOpenGuide}
-            className="premium-button-secondary inline-flex h-11 w-11 items-center justify-center sm:hidden"
-            aria-label="Abrir guia de uso"
-            title="Dúvidas e como cada área funciona"
-          >
-            <span className="relative z-10">
-              <CircleHelp size={18} />
-            </span>
-          </button>
-
-          <button
-            onClick={() => setShowMobileMenu((prev) => !prev)}
-            className="premium-button-secondary inline-flex h-11 w-11 items-center justify-center sm:hidden"
-            aria-label="Abrir menu"
-            aria-expanded={showMobileMenu}
-          >
-            <span className="relative z-10">
-              <Menu size={18} />
-            </span>
-          </button>
+            Al&apos;maré Saúde Capilar
+          </h1>
         </div>
       </header>
-
-      <AnimatePresence>
-        {showMobileMenu && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="premium-panel sticky top-[calc(env(safe-area-inset-top)+5.1rem)] z-20 mx-3 mt-2 rounded-[1.6rem] p-3 sm:hidden"
-          >
-            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.22em] text-[var(--color-text-secondary)]">
-              <span>Acoes</span>
-              <span>{filteredClients.length} pacientes</span>
-            </div>
-            <button
-              onClick={() => {
-                setShowNewForm(true);
-                setShowMobileMenu(false);
-              }}
-              className="premium-button-primary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-sm"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                <FolderPlus size={15} />
-                Novo paciente
-              </span>
-            </button>
-            <button
-              onClick={handleOpenBrandingSettings}
-              className="premium-button-secondary mt-3 flex w-full items-center justify-center px-4 py-3 text-sm"
-            >
-              <span className="relative z-10">Personalizar marca e textos</span>
-            </button>
-            <button
-              onClick={handleOpenGuide}
-              className="premium-button-secondary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-sm"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                <CircleHelp size={15} />
-                Guia de uso
-              </span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <main
         className="relative px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] sm:pt-5"
@@ -625,34 +474,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="premium-grid-board mb-4 hidden px-4 py-5 sm:block sm:px-6 sm:py-6">
-          <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="premium-kicker">Workspace clinico</p>
-              <h1 className="premium-title mt-3 text-4xl font-semibold leading-none sm:text-[3.35rem]">{baseTitle}</h1>
-            </div>
 
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[28rem]">
-              <div className="premium-stat rounded-[1.5rem] p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Pacientes visiveis</p>
-                <p className="mt-3 text-3xl font-semibold text-[var(--color-ink)]">{visibleClients.length}</p>
-                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Prontuarios no recorte atual.</p>
-              </div>
-              <div className="premium-stat rounded-[1.5rem] p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Filtro atual</p>
-                <p className="mt-3 text-2xl font-semibold text-[var(--color-ink)]">{activeJourneyLabel}</p>
-                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Jornada selecionada para a grade principal.</p>
-              </div>
-              <div className="premium-stat rounded-[1.5rem] p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Snapshot local</p>
-                <p className="mt-3 text-2xl font-semibold text-[var(--color-ink)]">{snapshotStatusLabel}</p>
-                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-                  {formattedSnapshotAt ? `Ultima copia em ${formattedSnapshotAt}` : "Sem alerta de sincronizacao no momento."}
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {pageFeedback && (
           <div
@@ -770,7 +592,7 @@ export default function HomePage() {
             className="fixed inset-x-0 bottom-0 z-20 px-3 pt-3 sm:hidden"
             style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
           >
-            <div className="ios-bottom-dock grid grid-cols-[1.2fr_1fr_auto] gap-2 rounded-[1.8rem] p-2.5">
+            <div className="ios-bottom-dock grid grid-cols-2 gap-2 rounded-[1.8rem] p-2.5">
               <button
                 type="button"
                 onClick={() => setShowNewForm(true)}
@@ -788,18 +610,6 @@ export default function HomePage() {
                 className="premium-button-secondary ios-touch-target px-4 py-3 text-sm"
               >
                 <span className="relative z-10">Arquivos</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowMobileMenu((prev) => !prev)}
-                className="premium-button-secondary ios-touch-target inline-flex h-11 w-11 items-center justify-center"
-                aria-label="Mais ações"
-                aria-expanded={showMobileMenu}
-              >
-                <span className="relative z-10">
-                  <Menu size={18} />
-                </span>
               </button>
             </div>
           </motion.div>

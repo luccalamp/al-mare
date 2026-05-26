@@ -16,6 +16,7 @@ import {
   FolderOpen,
   FolderPlus,
   Loader2,
+  Search,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -66,6 +67,7 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
   const [folderDraft, setFolderDraft] = useState("");
   const [folderNoteDraft, setFolderNoteDraft] = useState("");
   const [newFolderNoteDraft, setNewFolderNoteDraft] = useState("");
+  const [documentQuery, setDocumentQuery] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<"success" | "error">("success");
   const [uploading, setUploading] = useState(false);
@@ -80,22 +82,69 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
   }, [folders, selectedFolderId]);
 
   const selectedFolder = selectedFolderId === "all" ? null : folders.find((folder) => folder.id === selectedFolderId) ?? null;
-  const targetFolderId = selectedFolder?.id ?? folders[0]?.id ?? null;
+  const targetFolderId = selectedFolder?.id ?? null;
   const folderNoteDirty = (selectedFolder?.notes ?? "") !== folderNoteDraft;
+  const hasFolders = folders.length > 0;
 
   useEffect(() => {
     setFolderNoteDraft(selectedFolder?.notes ?? "");
   }, [selectedFolder?.id, selectedFolder?.notes, selectedFolder?.updatedAt]);
+
+  const folderDocumentCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const document of documents) {
+      counts.set(document.folderId, (counts.get(document.folderId) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [documents]);
 
   const visibleDocuments = useMemo(() => {
     if (selectedFolderId === "all") return documents;
     return documents.filter((document) => document.folderId === selectedFolderId);
   }, [documents, selectedFolderId]);
 
+  const filteredDocuments = useMemo(() => {
+    const query = documentQuery.trim().toLowerCase();
+    if (!query) {
+      return visibleDocuments;
+    }
+
+    return visibleDocuments.filter((document) => {
+      const haystack = [document.name, document.fileName, document.folderName].join(" ").toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [documentQuery, visibleDocuments]);
+
   const totalSize = useMemo(
-    () => visibleDocuments.reduce((accumulator, document) => accumulator + document.sizeBytes, 0),
-    [visibleDocuments]
+    () => documents.reduce((accumulator, document) => accumulator + document.sizeBytes, 0),
+    [documents]
   );
+
+  const visibleSize = useMemo(
+    () => filteredDocuments.reduce((accumulator, document) => accumulator + document.sizeBytes, 0),
+    [filteredDocuments]
+  );
+
+  const searchActive = documentQuery.trim().length > 0;
+  const uploadLabel = !hasFolders
+    ? "Crie uma pasta primeiro"
+    : !selectedFolder
+      ? "Selecione uma pasta para enviar"
+      : `Enviar para ${selectedFolder.name}`;
+  const uploadHint = !hasFolders
+    ? "Crie a primeira pasta para comecar a organizar a central."
+    : !selectedFolder
+      ? "Escolha uma pasta no painel esquerdo para definir o destino do upload."
+      : `Novos arquivos serao enviados para ${selectedFolder.name}.`;
+  const emptyStateMessage = searchActive
+    ? "Nenhum arquivo corresponde a essa busca. Ajuste o termo ou troque a pasta selecionada."
+    : !hasFolders
+      ? "Nenhuma pasta criada ainda. Comece criando uma pasta para estruturar a central."
+      : selectedFolder
+        ? `Ainda nao existem arquivos em ${selectedFolder.name}.`
+        : "Nenhum documento nesta visualizacao ainda. Selecione uma pasta para enviar novos arquivos.";
 
   const applyFeedback = (tone: "success" | "error", message: string) => {
     setFeedbackTone(tone);
@@ -232,13 +281,16 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                   </div>
                   <div className="rounded-2xl bg-white/70 px-3 py-3 text-[var(--color-brand-deep)]">
                     <strong className="block text-lg">{formatBytes(totalSize)}</strong>
-                    Volume
+                    Volume total
                   </div>
                 </div>
               </div>
               <p className={`mt-3 text-xs ${syncing || uploading ? "text-[var(--color-brand-deep)]" : "text-[#6e6e73]"}`}>
                 {syncing || uploading ? "Sincronizando central de arquivos na nuvem." : "Base pronta para novas pastas e uploads."}
               </p>
+              <div className="mt-4 rounded-2xl border border-[var(--color-brand-line)] bg-white/70 px-4 py-3 text-sm text-[var(--color-text-secondary)]">
+                Fluxo recomendado: 1) selecione uma pasta 2) salve o texto principal da pasta 3) envie arquivos para esse contexto.
+              </div>
             </div>
 
             {(feedback || error) && (
@@ -265,6 +317,9 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                   <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">
                     <FolderOpen size={14} /> Pastas internas
                   </div>
+                  <p className="mt-3 text-sm text-[var(--color-text-secondary)]">
+                    Selecione uma pasta para contextualizar a area e liberar envio de arquivos para o destino certo.
+                  </p>
                   <div className="mt-4 space-y-3">
                     <input
                       className="input-light"
@@ -292,13 +347,20 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                     <button
                       type="button"
                       onClick={() => setSelectedFolderId("all")}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+                      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
                         selectedFolderId === "all"
                           ? "bg-[#7a4921] text-white"
                           : "bg-[var(--color-brand-soft)] text-[var(--color-brand-deep)] hover:bg-white"
                       }`}
                     >
                       Todas as pastas
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] ${
+                          selectedFolderId === "all" ? "bg-white/20 text-white" : "bg-white text-[var(--color-brand-deep)]"
+                        }`}
+                      >
+                        {documents.length}
+                      </span>
                     </button>
                     {folders.map((folder) => (
                       <button
@@ -313,6 +375,13 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                       >
                         {folder.name}
                         {folder.notes ? <FileText size={12} aria-hidden="true" /> : null}
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] ${
+                            selectedFolderId === folder.id ? "bg-white/20 text-white" : "bg-white text-[var(--color-brand-deep)]"
+                          }`}
+                        >
+                          {folderDocumentCounts.get(folder.id) ?? 0}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -376,13 +445,22 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                       <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">
                         {selectedFolder ? `${branding.documentsTitle} em ${selectedFolder.name}` : branding.documentsTitle}
                       </h3>
+                      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+                        {selectedFolder
+                          ? `Visualizando somente arquivos da pasta ${selectedFolder.name}.`
+                          : "Visualizando todas as pastas. Para enviar arquivo, escolha uma pasta especifica."}
+                      </p>
                     </div>
 
-                    <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-3 text-sm font-semibold text-[var(--color-brand-deep)] transition hover:bg-white">
+                    <label
+                      className={`inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                        targetFolderId && !uploading
+                          ? "cursor-pointer border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] text-[var(--color-brand-deep)] hover:bg-white"
+                          : "cursor-not-allowed border-[var(--color-brand-line)] bg-[#f5efe7] text-[#9f8a78]"
+                      }`}
+                    >
                       {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                      {targetFolderId
-                        ? `Enviar para ${selectedFolder?.name || folders[0]?.name || "pasta padrão"}`
-                        : "Crie uma pasta primeiro"}
+                      {uploadLabel}
                       <input
                         type="file"
                         multiple
@@ -393,13 +471,46 @@ export default function DocumentsWindow({ onClose }: DocumentsWindowProps) {
                     </label>
                   </div>
 
+                  <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">
+                        Buscar arquivos
+                      </label>
+                      <div className="relative mt-2">
+                        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)]" />
+                        <input
+                          className="input-light pl-10"
+                          value={documentQuery}
+                          onChange={(event) => setDocumentQuery(event.target.value)}
+                          placeholder="Procure por nome do arquivo, documento ou pasta"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-4">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Em tela</p>
+                      <p className="mt-2 text-lg font-semibold text-[var(--color-text)]">{filteredDocuments.length} arquivo(s)</p>
+                      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">{formatBytes(visibleSize)} na visualizacao atual</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[24px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-4 text-sm text-[var(--color-text-secondary)] shadow-[0_12px_34px_rgba(94,58,28,0.06)]">
+                    <p className="font-semibold text-[var(--color-text)]">{selectedFolder ? `Pasta ativa: ${selectedFolder.name}` : "Modo visao geral"}</p>
+                    <p className="mt-1">{uploadHint}</p>
+                    {searchActive ? (
+                      <p className="mt-2">
+                        Busca ativa por: <strong className="text-[var(--color-text)]">{documentQuery.trim()}</strong>
+                      </p>
+                    ) : null}
+                  </div>
+
                   <div className="mt-5 grid gap-3">
-                    {visibleDocuments.length === 0 ? (
+                    {filteredDocuments.length === 0 ? (
                       <div className="rounded-[24px] border border-dashed border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-6 text-sm text-[var(--color-text-secondary)]">
-                        Nenhum documento nesta visualização ainda. Crie uma pasta ou envie o primeiro arquivo da clínica.
+                        {emptyStateMessage}
                       </div>
                     ) : (
-                      visibleDocuments.map((document) => (
+                      filteredDocuments.map((document) => (
                         <div
                           key={document.id}
                           className="flex flex-col gap-4 rounded-[24px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.82)] p-4 shadow-[0_12px_34px_rgba(94,58,28,0.06)] sm:flex-row sm:items-center sm:justify-between"
