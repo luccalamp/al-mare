@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw, Sparkles, FolderOpen, Activity, Clock, ArrowRight } from "lucide-react";
+import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw, Sparkles, FolderOpen, Activity } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
@@ -435,17 +435,17 @@ export default function HomePage() {
 
   const rootWorkspaceStats = useMemo(
     () => [
-      { label: "Prontuários ativos", value: clients.length, description: "base pronta para operar" },
-      { label: "Demandam atenção", value: priorityPatientsCount, description: "resposta, avaliação ou retorno" },
-      { label: "Agenda viva", value: upcomingAppointmentsCount, description: "pacientes com próxima sessão" },
+      { label: "Prontuários ativos", value: clients.length, description: "ativos" },
+      { label: "Demandam atenção", value: priorityPatientsCount, description: "prioridade" },
+      { label: "Agenda viva", value: upcomingAppointmentsCount, description: "agendados" },
     ],
     [clients.length, priorityPatientsCount, upcomingAppointmentsCount]
   );
 
   const rootFlowHighlights = useMemo(
     () => [
-      { label: "Triagem", value: onboardingPatientsCount, description: "cadastros no início da jornada" },
-      { label: "Acompanhamento", value: trackingPatientsCount, description: "casos com esteira ativa" },
+      { label: "Triagem", value: onboardingPatientsCount, description: "entrada" },
+      { label: "Acompanhamento", value: trackingPatientsCount, description: "andamento" },
       { label: "Sincronia", value: syncStatus === "error" ? "offline" : "ok", description: snapshotStatusLabel },
     ],
     [onboardingPatientsCount, snapshotStatusLabel, syncStatus, trackingPatientsCount]
@@ -453,9 +453,9 @@ export default function HomePage() {
 
   const patientFolderStats = useMemo(
     () => [
-      { label: "Visíveis agora", value: visibleClients.length, description: searchQuery ? "resultado da busca" : "no recorte atual" },
-      { label: "Em atenção", value: filteredAttentionCount, description: "triagem, avaliação ou retorno" },
-      { label: "Acompanhamento", value: journeyCounts["em-acompanhamento"], description: "casos estáveis na esteira" },
+      { label: "Visíveis agora", value: visibleClients.length, description: searchQuery ? "busca" : "recorte atual" },
+      { label: "Em atenção", value: filteredAttentionCount, description: "prioridade" },
+      { label: "Acompanhamento", value: journeyCounts["em-acompanhamento"], description: "andamento" },
     ],
     [filteredAttentionCount, journeyCounts, searchQuery, visibleClients.length]
   );
@@ -503,14 +503,11 @@ export default function HomePage() {
                 <div>
                   <p className="premium-kicker">
                     <Sparkles size={14} />
-                    Workspace clínico
+                    Operação
                   </p>
                   <h1 className="premium-heading mt-4 max-w-4xl text-[clamp(2.8rem,5vw,4.9rem)]">
-                    Uma frente mais viva, atual e ainda focada no que importa.
+                    {baseTitle}
                   </h1>
-                  <p className="premium-subtitle mt-4 max-w-2xl text-base">
-                    A raiz ficou reservada para os módulos centrais, os prontuários foram agrupados em uma pasta dedicada e a leitura do ambiente ficou mais rápida sem perder leveza.
-                  </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -531,8 +528,7 @@ export default function HomePage() {
                   >
                     <span className="relative z-10 flex items-center gap-2">
                       <FolderOpen size={16} />
-                      Abrir pacientes
-                      <ArrowRight size={15} />
+                      Pacientes
                     </span>
                   </button>
                   <button
@@ -558,51 +554,22 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="workspace-aside-card p-4 sm:p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Pulso da clínica</p>
-                      <h2 className="mt-2 text-lg font-semibold text-[var(--color-ink)]">Como a base está se movendo hoje</h2>
-                    </div>
-                    <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
-                      {snapshotStatusLabel}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                    {rootFlowHighlights.map((item) => (
-                      <div key={item.label} className="workspace-metric-card p-4">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">{item.label}</p>
-                        <strong className="mt-3 block text-[1.7rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
-                        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
-                      </div>
-                    ))}
-                  </div>
+              <div className="workspace-aside-card p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Situação</p>
+                  <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
+                    {snapshotStatusLabel}
+                  </span>
                 </div>
 
-                <div className="workspace-aside-card p-4 sm:p-5">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Roteiro de uso</p>
-                  <div className="mt-4 space-y-3 text-sm text-[var(--color-text-secondary)]">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-accent)]">
-                        <FolderOpen size={16} />
-                      </span>
-                      <div>
-                        <p className="font-semibold text-[var(--color-ink)]">Prontuários concentrados</p>
-                        <p className="mt-1">A pasta Pacientes virou a entrada principal dos casos, deixando a home mais limpa e legível.</p>
-                      </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  {rootFlowHighlights.map((item) => (
+                    <div key={item.label} className="workspace-metric-card p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">{item.label}</p>
+                      <strong className="mt-3 block text-[1.7rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[rgba(92,117,100,0.12)] text-[var(--color-sage)]">
-                        <Clock size={16} />
-                      </span>
-                      <div>
-                        <p className="font-semibold text-[var(--color-ink)]">Leitura rápida da operação</p>
-                        <p className="mt-1">Financeiro, documentos e status da base continuam acessíveis logo de cara, sem disputar atenção com todos os prontuários.</p>
-                      </div>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -611,7 +578,7 @@ export default function HomePage() {
         <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:hidden">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="premium-kicker">Workspace mobile</p>
+              <p className="premium-kicker">Operação</p>
               <h1 className="premium-title mt-3 text-[2.35rem] font-semibold leading-none text-[var(--color-ink)]">
                 {baseTitle}
               </h1>
@@ -639,20 +606,13 @@ export default function HomePage() {
             <div className="premium-stat rounded-[1.3rem] p-3.5">
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Pacientes</p>
               <p className="mt-2 text-2xl font-semibold text-[var(--color-ink)]">{visibleClients.length}</p>
-              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Na tela agora</p>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Ativos</p>
             </div>
             <div className="premium-stat rounded-[1.3rem] p-3.5">
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Filtro</p>
               <p className="mt-2 text-lg font-semibold text-[var(--color-ink)]">{activeJourneyLabel}</p>
-              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Jornada ativa</p>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Atual</p>
             </div>
-          </div>
-
-          <div className="workspace-aside-card mt-4 p-4">
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Home renovada</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
-              Os módulos principais ficaram na raiz e os prontuários agora entram por uma pasta dedicada para a tela respirar melhor.
-            </p>
           </div>
 
           <div className="hide-scrollbar -mx-1 mt-4 flex gap-2 overflow-x-auto px-1">
@@ -722,19 +682,16 @@ export default function HomePage() {
                 <div className="min-w-0">
                   <p className="premium-kicker">
                     <FolderOpen size={14} />
-                    Home / {PATIENTS_FOLDER_LABEL}
+                    Pacientes
                   </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-[var(--color-ink)] sm:text-[2.2rem]">Prontuários das pacientes</h2>
-                  <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--color-text-secondary)]">
-                    Aqui a navegação fica focada em casos, jornadas e próximos passos. A raiz segue limpa para alternar entre módulos e a pasta concentra toda a leitura clínica.
-                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-[var(--color-ink)] sm:text-[2.2rem]">Prontuários</h2>
 
                   <div className="workspace-search-shell mt-5">
                     <Search size={16} className="shrink-0 text-[var(--color-brand-accent)]" />
                     <input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Buscar paciente, prontuário ou etapa"
+                      placeholder="Buscar paciente"
                       aria-label="Buscar paciente"
                     />
                     {searchQuery ? (
@@ -818,7 +775,7 @@ export default function HomePage() {
                   {journeyFilter === "todos" ? "Nenhum paciente encontrado" : "Nenhum paciente neste estagio"}
                 </p>
                 <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
-                  Ajuste a busca, mude o recorte da jornada ou cadastre um novo prontuario para manter o fluxo da clinica organizado.
+                  Ajuste a busca, troque o filtro ou cadastre um novo prontuario.
                 </p>
                 {!searchQuery && journeyFilter === "todos" && (
                   <button
@@ -854,22 +811,16 @@ export default function HomePage() {
           </>
         ) : (
           <section className="space-y-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="premium-kicker">
                   <Sparkles size={14} />
-                  Ambientes principais
+                  Módulos
                 </p>
-                <h2 className="mt-2 text-xl font-semibold text-[var(--color-ink)] sm:text-2xl">A raiz agora funciona como uma mesa clínica mais curada.</h2>
-                <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-secondary)]">
-                  Os prontuários deixaram de disputar espaço com os módulos principais. O resultado é uma home mais preenchida, atual e mais fácil de ler no primeiro olhar.
-                </p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--color-ink)] sm:text-2xl">Acesso rápido</h2>
               </div>
 
-              <div className="workspace-aside-card px-4 py-4 text-sm text-[var(--color-text-secondary)] lg:max-w-sm">
-                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Atalho principal</p>
-                <p className="mt-2 font-semibold text-[var(--color-ink)]">Entre por Pacientes quando o foco for prontuário e use a raiz para alternar rápido entre operação, arquivos e indicadores.</p>
-              </div>
+              <span className={`premium-chip px-4 py-2 text-xs ${syncStatus === "error" ? "" : "is-active"}`}>{snapshotStatusLabel}</span>
             </div>
 
             <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
