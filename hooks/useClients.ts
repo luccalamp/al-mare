@@ -611,48 +611,60 @@ export function useClients() {
     options?: { persistClientPhoto?: boolean }
   ): Promise<UploadedImageAsset | null> => {
     const preparedFile = await normalizeImageFileForUpload(file);
-    const formData = new FormData();
-    formData.append("file", preparedFile);
-    formData.append("clienteId", clientId);
     const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto);
 
-    if (type) {
-      formData.append("category", type);
-    }
-
-    if (shouldPersistClientPhoto) {
-      formData.append("persistClientPhoto", "true");
-    }
-
-    const response = await fetch("/api/upload", {
+    const presignedResponse = await fetch("/api/upload/presigned", {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clienteId: clientId,
+        originalName: preparedFile.name,
+        mimeType: preparedFile.type,
+        category: type,
+        photoCategory: type,
+      }),
     });
 
-    const payload = (await response.json().catch(() => null)) as {
-      url?: string;
-      publicId?: string;
-      error?: string;
-    } | null;
-
-    if (!response.ok) {
-      const message = payload?.error && typeof payload.error === "string"
-        ? payload.error
-        : "Falha ao enviar imagem.";
-      console.error("Falha ao enviar imagem:", message);
-      throw new Error(message);
+    if (!presignedResponse.ok) {
+      const err = await presignedResponse.json().catch(() => null);
+      throw new Error(err?.error || "Falha ao gerar URL de upload.");
     }
 
-    const url = payload?.url;
-    const publicId = payload?.publicId;
+    const { presignedUrl, objectKey, proxyUrl } = await presignedResponse.json();
 
-    if (!url || !publicId) {
-      throw new Error("Resposta incompleta do upload.");
+    const uploadResponse = await fetch(presignedUrl, {
+      method: "PUT",
+      body: preparedFile,
+      headers: { "Content-Type": preparedFile.type },
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error("Falha ao enviar imagem para o storage.");
     }
+
+    const confirmResponse = await fetch("/api/upload/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clienteId: clientId,
+        objectKey,
+        proxyUrl,
+        category: type,
+        photoCategory: type,
+        persistClientPhoto: shouldPersistClientPhoto,
+      }),
+    });
+
+    if (!confirmResponse.ok) {
+      const err = await confirmResponse.json().catch(() => null);
+      throw new Error(err?.error || "Falha ao confirmar upload.");
+    }
+
+    const result = await confirmResponse.json();
 
     return {
-      url,
-      publicId,
+      url: result.url || proxyUrl,
+      publicId: result.publicId || objectKey,
     };
   };
 

@@ -35,7 +35,7 @@ function readFirstServerEnv(names: string[]) {
   return null;
 }
 
-function getS3Config(): S3Config {
+export function getS3Config(): S3Config {
   const region = readFirstServerEnv(["AWS_S3_REGION", "AWS_REGION"]);
   const accessKeyId = readServerEnv("AWS_ACCESS_KEY_ID");
   const secretAccessKey = readServerEnv("AWS_SECRET_ACCESS_KEY");
@@ -55,7 +55,7 @@ function getS3Config(): S3Config {
   };
 }
 
-function createS3Client() {
+export function createS3Client() {
   const config = getS3Config();
 
   return new S3Client({

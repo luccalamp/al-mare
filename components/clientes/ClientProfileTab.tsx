@@ -168,27 +168,56 @@ export default function ClientProfileTab({
     setFeedback("Mosaico de tricoscopia salvo no perfil da paciente.");
   };
 
-  const uploadGridSlotImage = async (file: File, caption: string, category: string) => {
+  const uploadGridSlotImage = async (file: File, _caption: string, category: string) => {
     const preparedFile = await normalizeImageFileForUpload(file);
-    const formData = new FormData();
-    formData.append("file", preparedFile);
-    formData.append("clienteId", client.id);
-    formData.append("category", category);
-    formData.append("caption", caption);
-    formData.append("clientName", client.profile.nome || form.nome || "cliente");
 
-    const response = await fetch("/api/upload", {
+    const presignedRes = await fetch("/api/upload/presigned", {
       method: "POST",
-      body: formData,
-      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clienteId: client.id,
+        originalName: preparedFile.name,
+        mimeType: preparedFile.type,
+        category,
+        photoCategory: category,
+      }),
     });
 
-    const payload = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
-    if (!response.ok || !payload?.url) {
-      throw new Error(payload?.error || "Nao foi possivel salvar a foto da tricoscopia.");
+    if (!presignedRes.ok) {
+      const err = await presignedRes.json().catch(() => null);
+      throw new Error(err?.error || "Nao foi possivel salvar a foto da tricoscopia.");
     }
 
-    return payload.url;
+    const { presignedUrl, objectKey, proxyUrl } = await presignedRes.json();
+
+    const uploadRes = await fetch(presignedUrl, {
+      method: "PUT",
+      body: preparedFile,
+      headers: { "Content-Type": preparedFile.type },
+    });
+
+    if (!uploadRes.ok) {
+      throw new Error("Nao foi possivel salvar a foto da tricoscopia.");
+    }
+
+    const confirmRes = await fetch("/api/upload/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clienteId: client.id,
+        objectKey,
+        proxyUrl,
+        category,
+        photoCategory: category,
+      }),
+    });
+
+    if (!confirmRes.ok) {
+      const err = await confirmRes.json().catch(() => null);
+      throw new Error(err?.error || "Nao foi possivel salvar a foto da tricoscopia.");
+    }
+
+    return proxyUrl;
   };
 
   const persistGridSlot = async (
