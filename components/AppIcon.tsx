@@ -5,6 +5,7 @@ import { useSafeIconInteraction } from "@/hooks/useSafeIconInteraction";
 
 interface AppIconProps {
   label: string;
+  caption?: string;
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
@@ -12,6 +13,7 @@ interface AppIconProps {
 
 function AppIcon({
   label,
+  caption = "Visao macro",
   selected,
   onClick,
   onDoubleClick,
@@ -73,7 +75,7 @@ function AppIcon({
       </span>
 
       <span className="folder-item-caption text-center text-[10px] uppercase tracking-[0.18em]">
-        Visao macro
+        {caption}
       </span>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw, Sparkles, FolderOpen, Activity, Clock, ArrowRight } from "lucide-react";
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
@@ -96,6 +96,43 @@ export default function HomePage() {
     return filteredClients.filter((client) => client.journey?.stage === journeyFilter);
   }, [filteredClients, journeyFilter]);
 
+  const priorityPatientsCount = useMemo(
+    () =>
+      clients.filter((client) => {
+        const stage = client.journey?.stage;
+        return stage === "pre-consulta-pendente" || stage === "avaliacao-pendente" || stage === "retorno-pendente";
+      }).length,
+    [clients]
+  );
+
+  const onboardingPatientsCount = useMemo(
+    () => clients.filter((client) => client.journey?.stage === "cadastro-inicial").length,
+    [clients]
+  );
+
+  const trackingPatientsCount = useMemo(
+    () => clients.filter((client) => client.journey?.stage === "em-acompanhamento").length,
+    [clients]
+  );
+
+  const upcomingAppointmentsCount = useMemo(() => {
+    const now = Date.now();
+    return clients.filter((client) =>
+      client.appointments.some((appointment) =>
+        ["agendado", "confirmado"].includes(appointment.status) && new Date(appointment.inicioEm).getTime() >= now
+      )
+    ).length;
+  }, [clients]);
+
+  const filteredAttentionCount = useMemo(
+    () =>
+      journeyCounts["cadastro-inicial"]
+      + journeyCounts["pre-consulta-pendente"]
+      + journeyCounts["avaliacao-pendente"]
+      + journeyCounts["retorno-pendente"],
+    [journeyCounts]
+  );
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -178,6 +215,8 @@ export default function HomePage() {
   const handleReturnToRootWorkspace = () => {
     setWorkspaceFolder("root");
     setSelectedId(null);
+    setSearchQuery("");
+    setJourneyFilter("todos");
   };
 
   const handleDeleteClient = async (clientId: string) => {
@@ -394,6 +433,33 @@ export default function HomePage() {
   };
   const snapshotStatusLabel = syncLabelMap[syncStatus];
 
+  const rootWorkspaceStats = useMemo(
+    () => [
+      { label: "Prontuários ativos", value: clients.length, description: "base pronta para operar" },
+      { label: "Demandam atenção", value: priorityPatientsCount, description: "resposta, avaliação ou retorno" },
+      { label: "Agenda viva", value: upcomingAppointmentsCount, description: "pacientes com próxima sessão" },
+    ],
+    [clients.length, priorityPatientsCount, upcomingAppointmentsCount]
+  );
+
+  const rootFlowHighlights = useMemo(
+    () => [
+      { label: "Triagem", value: onboardingPatientsCount, description: "cadastros no início da jornada" },
+      { label: "Acompanhamento", value: trackingPatientsCount, description: "casos com esteira ativa" },
+      { label: "Sincronia", value: syncStatus === "error" ? "offline" : "ok", description: snapshotStatusLabel },
+    ],
+    [onboardingPatientsCount, snapshotStatusLabel, syncStatus, trackingPatientsCount]
+  );
+
+  const patientFolderStats = useMemo(
+    () => [
+      { label: "Visíveis agora", value: visibleClients.length, description: searchQuery ? "resultado da busca" : "no recorte atual" },
+      { label: "Em atenção", value: filteredAttentionCount, description: "triagem, avaliação ou retorno" },
+      { label: "Acompanhamento", value: journeyCounts["em-acompanhamento"], description: "casos estáveis na esteira" },
+    ],
+    [filteredAttentionCount, journeyCounts, searchQuery, visibleClients.length]
+  );
+
   const handleManualSync = async () => {
     if (syncStatus === "syncing") return;
     await refreshClients();
@@ -430,6 +496,118 @@ export default function HomePage() {
         className="relative px-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] pt-4 sm:px-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] sm:pt-5"
         onClick={() => setSelectedId(null)}
       >
+        <div className="workspace-shell space-y-4">
+          <section className="premium-panel hidden rounded-[2.1rem] p-6 sm:block xl:p-7">
+            <div className="workspace-hero-grid items-start">
+              <div className="space-y-5">
+                <div>
+                  <p className="premium-kicker">
+                    <Sparkles size={14} />
+                    Workspace clínico
+                  </p>
+                  <h1 className="premium-heading mt-4 max-w-4xl text-[clamp(2.8rem,5vw,4.9rem)]">
+                    Uma frente mais viva, atual e ainda focada no que importa.
+                  </h1>
+                  <p className="premium-subtitle mt-4 max-w-2xl text-base">
+                    A raiz ficou reservada para os módulos centrais, os prontuários foram agrupados em uma pasta dedicada e a leitura do ambiente ficou mais rápida sem perder leveza.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {rootWorkspaceStats.map((item) => (
+                    <div key={item.label} className="workspace-metric-card p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
+                      <strong className="mt-3 block text-[2rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={handleOpenPatientsFolder}
+                    className="premium-button-primary inline-flex items-center gap-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <FolderOpen size={16} />
+                      Abrir pacientes
+                      <ArrowRight size={15} />
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDashboard(true)}
+                    className="premium-button-secondary inline-flex items-center gap-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <Activity size={16} />
+                      Financeiro
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenDocuments}
+                    className="premium-button-secondary inline-flex items-center gap-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <FolderOpen size={16} />
+                      Arquivos internos
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="workspace-aside-card p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Pulso da clínica</p>
+                      <h2 className="mt-2 text-lg font-semibold text-[var(--color-ink)]">Como a base está se movendo hoje</h2>
+                    </div>
+                    <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
+                      {snapshotStatusLabel}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                    {rootFlowHighlights.map((item) => (
+                      <div key={item.label} className="workspace-metric-card p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">{item.label}</p>
+                        <strong className="mt-3 block text-[1.7rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="workspace-aside-card p-4 sm:p-5">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Roteiro de uso</p>
+                  <div className="mt-4 space-y-3 text-sm text-[var(--color-text-secondary)]">
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-accent)]">
+                        <FolderOpen size={16} />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-[var(--color-ink)]">Prontuários concentrados</p>
+                        <p className="mt-1">A pasta Pacientes virou a entrada principal dos casos, deixando a home mais limpa e legível.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[rgba(92,117,100,0.12)] text-[var(--color-sage)]">
+                        <Clock size={16} />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-[var(--color-ink)]">Leitura rápida da operação</p>
+                        <p className="mt-1">Financeiro, documentos e status da base continuam acessíveis logo de cara, sem disputar atenção com todos os prontuários.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
         <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:hidden">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -470,7 +648,21 @@ export default function HomePage() {
             </div>
           </div>
 
+          <div className="workspace-aside-card mt-4 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Home renovada</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">
+              Os módulos principais ficaram na raiz e os prontuários agora entram por uma pasta dedicada para a tela respirar melhor.
+            </p>
+          </div>
+
           <div className="hide-scrollbar -mx-1 mt-4 flex gap-2 overflow-x-auto px-1">
+            <button
+              type="button"
+              onClick={handleOpenPatientsFolder}
+              className="premium-button-primary ios-touch-target shrink-0 px-4 py-3 text-sm"
+            >
+              <span className="relative z-10">Pacientes</span>
+            </button>
             <button
               type="button"
               onClick={() => setShowDashboard(true)}
@@ -525,44 +717,63 @@ export default function HomePage() {
 
         {isPatientsFolderOpen ? (
           <>
-            <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <section className="premium-panel mb-4 rounded-[2rem] p-4 sm:p-6">
+              <div className="workspace-hero-grid items-start">
                 <div className="min-w-0">
-                  <p className="premium-kicker">Home / {PATIENTS_FOLDER_LABEL}</p>
-                  <h2 className="mt-2 text-xl font-semibold text-[var(--color-ink)] sm:text-2xl">Prontuários das pacientes</h2>
-                  <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-secondary)]">
-                    Todos os prontuários ficam concentrados aqui para a home principal ficar mais limpa e o acesso continuar rápido.
+                  <p className="premium-kicker">
+                    <FolderOpen size={14} />
+                    Home / {PATIENTS_FOLDER_LABEL}
                   </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-[var(--color-ink)] sm:text-[2.2rem]">Prontuários das pacientes</h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--color-text-secondary)]">
+                    Aqui a navegação fica focada em casos, jornadas e próximos passos. A raiz segue limpa para alternar entre módulos e a pasta concentra toda a leitura clínica.
+                  </p>
+
+                  <div className="workspace-search-shell mt-5">
+                    <Search size={16} className="shrink-0 text-[var(--color-brand-accent)]" />
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Buscar paciente, prontuário ou etapa"
+                      aria-label="Buscar paciente"
+                    />
+                    {searchQuery ? (
+                      <button type="button" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReturnToRootWorkspace}
+                      className="premium-button-secondary px-4 py-3 text-sm"
+                    >
+                      <span className="relative z-10">Voltar para home</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewForm(true)}
+                      className="premium-button-primary px-4 py-3 text-sm"
+                    >
+                      <span className="relative z-10 flex items-center justify-center gap-2">
+                        <FolderPlus size={16} />
+                        Novo paciente
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleReturnToRootWorkspace}
-                    className="premium-button-secondary px-4 py-3 text-sm"
-                  >
-                    <span className="relative z-10">Voltar para home</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewForm(true)}
-                    className="premium-button-primary px-4 py-3 text-sm"
-                  >
-                    <span className="relative z-10 flex items-center justify-center gap-2">
-                      <FolderPlus size={16} />
-                      Novo paciente
-                    </span>
-                  </button>
+                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  {patientFolderStats.map((item) => (
+                    <div key={item.label} className="workspace-metric-card p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
+                      <strong className="mt-3 block text-[1.8rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                <span className="premium-chip is-active px-4 py-2">
-                  {visibleClients.length} paciente{visibleClients.length !== 1 ? "s" : ""} no recorte atual
-                </span>
-                <span className="premium-chip px-4 py-2">
-                  Filtro: {activeJourneyLabel}
-                </span>
               </div>
             </section>
 
@@ -642,30 +853,53 @@ export default function HomePage() {
             )}
           </>
         ) : (
-          <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
-              <GenericFolderIcon
-                label={PATIENTS_FOLDER_LABEL}
-                caption="Prontuarios"
-                selected={selectedId === "patients"}
-                onClick={() => setSelectedId("patients")}
-                onDoubleClick={handleOpenPatientsFolder}
-              />
-              <GenericFolderIcon
-                label={branding.documentsLabel}
-                selected={selectedId === "documents"}
-                onClick={() => setSelectedId("documents")}
-                onDoubleClick={handleOpenDocuments}
-              />
-              <AppIcon
-                label={branding.dashboardLabel}
-                selected={selectedId === "dashboard"}
-                onClick={() => setSelectedId("dashboard")}
-                onDoubleClick={() => setShowDashboard(true)}
-              />
+          <section className="space-y-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="premium-kicker">
+                  <Sparkles size={14} />
+                  Ambientes principais
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--color-ink)] sm:text-2xl">A raiz agora funciona como uma mesa clínica mais curada.</h2>
+                <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-secondary)]">
+                  Os prontuários deixaram de disputar espaço com os módulos principais. O resultado é uma home mais preenchida, atual e mais fácil de ler no primeiro olhar.
+                </p>
+              </div>
+
+              <div className="workspace-aside-card px-4 py-4 text-sm text-[var(--color-text-secondary)] lg:max-w-sm">
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Atalho principal</p>
+                <p className="mt-2 font-semibold text-[var(--color-ink)]">Entre por Pacientes quando o foco for prontuário e use a raiz para alternar rápido entre operação, arquivos e indicadores.</p>
+              </div>
             </div>
-          </div>
+
+            <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+              <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
+                <GenericFolderIcon
+                  label={PATIENTS_FOLDER_LABEL}
+                  caption={`${clients.length} ativos`}
+                  selected={selectedId === "patients"}
+                  onClick={() => setSelectedId("patients")}
+                  onDoubleClick={handleOpenPatientsFolder}
+                />
+                <GenericFolderIcon
+                  label={branding.documentsLabel}
+                  caption="Acervo interno"
+                  selected={selectedId === "documents"}
+                  onClick={() => setSelectedId("documents")}
+                  onDoubleClick={handleOpenDocuments}
+                />
+                <AppIcon
+                  label={branding.dashboardLabel}
+                  caption="Indicadores"
+                  selected={selectedId === "dashboard"}
+                  onClick={() => setSelectedId("dashboard")}
+                  onDoubleClick={() => setShowDashboard(true)}
+                />
+              </div>
+            </div>
+          </section>
         )}
+        </div>
       </main>
 
       <AnimatePresence>
@@ -678,24 +912,46 @@ export default function HomePage() {
             style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
           >
             <div className="ios-bottom-dock grid grid-cols-2 gap-2 rounded-[1.8rem] p-2.5">
-              <button
-                type="button"
-                onClick={() => setShowNewForm(true)}
-                className="premium-button-primary ios-touch-target px-4 py-3 text-sm"
-              >
-                <span className="relative z-10 flex items-center justify-center gap-2">
-                  <FolderPlus size={16} />
-                  Novo paciente
-                </span>
-              </button>
+              {isPatientsFolderOpen ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewForm(true)}
+                    className="premium-button-primary ios-touch-target px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center justify-center gap-2">
+                      <FolderPlus size={16} />
+                      Novo paciente
+                    </span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleOpenDocuments}
-                className="premium-button-secondary ios-touch-target px-4 py-3 text-sm"
-              >
-                <span className="relative z-10">Arquivos</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleReturnToRootWorkspace}
+                    className="premium-button-secondary ios-touch-target px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Home</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleOpenPatientsFolder}
+                    className="premium-button-primary ios-touch-target px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Pacientes</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenDocuments}
+                    className="premium-button-secondary ios-touch-target px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Arquivos</span>
+                  </button>
+                </>
+              )}
             </div>
           </motion.div>
         )}
