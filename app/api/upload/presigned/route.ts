@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const objectKey = buildS3ObjectKey(clienteId, originalName, mimeType, storageCategory);
     const proxyUrl = buildS3ProxyUrl(objectKey);
 
-    const client = createS3Client(true);
+    const client = createS3Client();
     const { bucket } = getS3Config();
 
     const command = new PutObjectCommand({
