@@ -13,6 +13,9 @@ function buildCsp(nonce: string) {
   const { supabaseUrl } = getSupabasePublicConfig();
   const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
+  const s3Bucket = process.env.WS_BUCKET_NAME || process.env.AWS_S3_BUCKET || "";
+  const s3Region = process.env.AWS_S3_REGION || process.env.AWS_REGION || "";
+  const s3Endpoint = s3Bucket && s3Region ? `https://${s3Bucket}.s3.${s3Region}.amazonaws.com` : null;
 
   const imgSrc = ["'self'", "data:", "blob:"];
   const connectSrc = ["'self'"];
@@ -42,6 +45,10 @@ function buildCsp(nonce: string) {
 
   if (supabaseWsOrigin) {
     connectSrc.push(supabaseWsOrigin);
+  }
+
+  if (s3Endpoint) {
+    connectSrc.push(s3Endpoint);
   }
 
   return [
