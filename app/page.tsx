@@ -6,19 +6,19 @@ import { Search, X, FolderPlus, Users, AlertTriangle, CheckCircle2, RefreshCw } 
 import { AppointmentDraft, Client, ClientAppointment, ClientJourneyStage, FichaAnamneseCapilarDados, WindowTab } from "@/types";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
-import FolderIcon from "@/components/FolderIcon";
+import FolderIcon from "@/components/clientes/FolderIcon";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
 import BrandLogo from "@/components/BrandLogo";
 import { getBrandDisplayTitle } from "@/lib/brandingConfig";
 import { AnimatePresence, motion } from "framer-motion";
 
-const AnamnesisWindow = dynamic(() => import("@/components/AnamnesisWindow"), { ssr: false });
+const AnamnesisWindow = dynamic(() => import("@/components/clientes/AnamnesisWindow"), { ssr: false });
 const DashboardWindow = dynamic(() => import("@/components/DashboardWindow"), { ssr: false });
 const DocumentsWindow = dynamic(() => import("@/components/DocumentsWindow"), { ssr: false });
 const BrandingSettingsWindow = dynamic(() => import("@/components/BrandingSettingsWindow"), { ssr: false });
 const GuideWindow = dynamic(() => import("@/components/GuideWindow"), { ssr: false });
-const NewClientForm = dynamic(() => import("@/components/NewClientForm"), { ssr: false });
+const NewClientForm = dynamic(() => import("@/components/clientes/NewClientForm"), { ssr: false });
 
 const JOURNEY_FILTERS: Array<{ id: "todos" | ClientJourneyStage; label: string }> = [
   { id: "todos", label: "Tudo" },

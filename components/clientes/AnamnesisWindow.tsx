@@ -6,15 +6,15 @@ import dynamic from "next/dynamic";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { AppointmentDraft, Client, FichaAnamneseCapilarDados, PortalLink, WindowTab, HOME_CARE_PRODUCTS, calcularPrecoComDesconto, calcularParcelas } from "@/types";
-import PhotoEvolutionComparison from "@/components/PhotoEvolutionComparison";
+import PhotoEvolutionComparison from "./PhotoEvolutionComparison";
 
-const AnamneseCapilarTab = dynamic(() => import("@/components/AnamneseCapilarTab"), { ssr: false });
-import ClientProfileTab from "@/components/ClientProfileTab";
-import ClientEvolutionTab from "@/components/ClientEvolutionTab";
-import ClientAgendaTab from "@/components/ClientAgendaTab";
-import ClientFinanceiroTab from "@/components/ClientFinanceiroTab";
-import ClientAssinaturasTab from "@/components/ClientAssinaturasTab";
-import ClientLinksTab from "@/components/ClientLinksTab";
+const AnamneseCapilarTab = dynamic(() => import("./AnamneseCapilarTab"), { ssr: false });
+import ClientProfileTab from "./ClientProfileTab";
+import ClientEvolutionTab from "./ClientEvolutionTab";
+import ClientAgendaTab from "./ClientAgendaTab";
+import ClientFinanceiroTab from "./ClientFinanceiroTab";
+import ClientAssinaturasTab from "./ClientAssinaturasTab";
+import ClientLinksTab from "./ClientLinksTab";
 import {
   CAPILLARY_THERAPY_BUDGET_PRESETS,
   CAPILLARY_THERAPY_MANUAL_TOPICS,
