@@ -34,6 +34,10 @@ type PageFeedback = {
   message: string;
 };
 
+type WorkspaceFolderView = "root" | "patients";
+
+const PATIENTS_FOLDER_LABEL = "Pacientes";
+
 export default function HomePage() {
   const { config: branding } = useBrandingConfig();
   const baseTitle = getBrandDisplayTitle(branding);
@@ -68,6 +72,7 @@ export default function HomePage() {
   const [showNewForm, setShowNewForm] = useState(false);
   const [journeyFilter, setJourneyFilter] = useState<"todos" | ClientJourneyStage>("todos");
   const [pageFeedback, setPageFeedback] = useState<PageFeedback | null>(null);
+  const [workspaceFolder, setWorkspaceFolder] = useState<WorkspaceFolderView>("root");
 
   const journeyCounts = useMemo(() => {
     const initialCounts: Record<ClientJourneyStage, number> = {
@@ -100,6 +105,7 @@ export default function HomePage() {
         setShowBrandingSettings(false);
         setShowGuide(false);
         setShowNewForm(false);
+        setWorkspaceFolder("root");
         setJourneyFilter("todos");
         setPageFeedback(null);
         setSearchQuery("");
@@ -133,6 +139,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const sections: string[] = [];
+    if (workspaceFolder === "patients") sections.push(PATIENTS_FOLDER_LABEL);
     if (showDashboard) sections.push(branding.dashboardLabel);
     if (showDocuments) sections.push(branding.documentsTitle);
     if (showBrandingSettings) sections.push("Personalização");
@@ -141,7 +148,7 @@ export default function HomePage() {
     if (openClientModal?.client.profile.nome) sections.push(openClientModal.client.profile.nome);
     sections.push(baseTitle);
     document.title = sections.join(" | ");
-  }, [baseTitle, branding.dashboardLabel, branding.documentsTitle, openClientModal?.client.profile.nome, showDashboard, showDocuments, showBrandingSettings, showGuide, showNewForm]);
+  }, [baseTitle, branding.dashboardLabel, branding.documentsTitle, openClientModal?.client.profile.nome, showDashboard, showDocuments, showBrandingSettings, showGuide, showNewForm, workspaceFolder]);
 
   const handleOpenDocuments = () => {
     setSelectedId("documents");
@@ -160,6 +167,16 @@ export default function HomePage() {
 
   const handleOpenClient = (client: Client, initialTab: WindowTab = "perfil") => {
     setOpenClientModal({ client, initialTab });
+    setSelectedId(null);
+  };
+
+  const handleOpenPatientsFolder = () => {
+    setWorkspaceFolder("patients");
+    setSelectedId("patients");
+  };
+
+  const handleReturnToRootWorkspace = () => {
+    setWorkspaceFolder("root");
     setSelectedId(null);
   };
 
@@ -382,6 +399,7 @@ export default function HomePage() {
     await refreshClients();
   };
   const hasOverlayOpen = Boolean(openClientModal || showDashboard || showDocuments || showBrandingSettings || showGuide || showNewForm);
+  const isPatientsFolderOpen = workspaceFolder === "patients";
 
   return (
     <div className="relative min-h-[var(--app-dvh)] pb-4">
@@ -505,61 +523,134 @@ export default function HomePage() {
           </div>
         )}
 
-        {searchQuery && (
-          <div className="spotlight-appear mb-4 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-            <Search size={13} />
-            <span>
-              {visibleClients.length} resultado{visibleClients.length !== 1 ? "s" : ""} para &quot;{searchQuery}&quot;
-            </span>
-          </div>
-        )}
+        {isPatientsFolderOpen ? (
+          <>
+            <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <p className="premium-kicker">Home / {PATIENTS_FOLDER_LABEL}</p>
+                  <h2 className="mt-2 text-xl font-semibold text-[var(--color-ink)] sm:text-2xl">Prontuários das pacientes</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-[var(--color-text-secondary)]">
+                    Todos os prontuários ficam concentrados aqui para a home principal ficar mais limpa e o acesso continuar rápido.
+                  </p>
+                </div>
 
-        {filteredClients.length > 0 && (
-          <div className="hide-scrollbar -mx-1 mb-4 flex gap-2 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-            {JOURNEY_FILTERS.map((filter) => {
-              const count = filter.id === "todos" ? filteredClients.length : journeyCounts[filter.id];
-              const active = journeyFilter === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  type="button"
-                  onClick={() => setJourneyFilter(filter.id)}
-                  className={`premium-chip ios-touch-target shrink-0 gap-2 px-4 py-2.5 text-xs font-semibold ${active ? "is-active" : ""}`}
-                  data-active={active}
-                >
-                  <span>{filter.label}</span>
-                  <span className={`rounded-full px-2 py-0.5 ${active ? "bg-white/15 text-white" : "bg-black/5 text-[var(--color-brand-accent)]"}`}>
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleReturnToRootWorkspace}
+                    className="premium-button-secondary px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Voltar para home</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewForm(true)}
+                    className="premium-button-primary px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center justify-center gap-2">
+                      <FolderPlus size={16} />
+                      Novo paciente
+                    </span>
+                  </button>
+                </div>
+              </div>
 
-        {visibleClients.length === 0 ? (
-          <div className="premium-panel flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded-[2rem] px-6 py-10 text-center text-[var(--color-text-secondary)] sm:min-h-[18rem]">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-accent)]">
-              <Users size={28} className="opacity-90" />
-            </div>
-            <p className="text-base font-semibold text-[var(--color-ink)]">
-              {journeyFilter === "todos" ? "Nenhum paciente encontrado" : "Nenhum paciente neste estagio"}
-            </p>
-            <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
-              Ajuste a busca, mude o recorte da jornada ou cadastre um novo prontuario para manter o fluxo da clinica organizado.
-            </p>
-            {!searchQuery && journeyFilter === "todos" && (
-              <button
-                onClick={() => setShowNewForm(true)}
-                className="premium-button-primary mt-2 px-5 py-3 text-sm"
-              >
-                <span className="relative z-10">Adicionar primeiro paciente</span>
-              </button>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                <span className="premium-chip is-active px-4 py-2">
+                  {visibleClients.length} paciente{visibleClients.length !== 1 ? "s" : ""} no recorte atual
+                </span>
+                <span className="premium-chip px-4 py-2">
+                  Filtro: {activeJourneyLabel}
+                </span>
+              </div>
+            </section>
+
+            {searchQuery && (
+              <div className="spotlight-appear mb-4 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                <Search size={13} />
+                <span>
+                  {visibleClients.length} resultado{visibleClients.length !== 1 ? "s" : ""} para &quot;{searchQuery}&quot;
+                </span>
+              </div>
             )}
-          </div>
+
+            {filteredClients.length > 0 && (
+              <div className="hide-scrollbar -mx-1 mb-4 flex gap-2 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+                {JOURNEY_FILTERS.map((filter) => {
+                  const count = filter.id === "todos" ? filteredClients.length : journeyCounts[filter.id];
+                  const active = journeyFilter === filter.id;
+                  return (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => setJourneyFilter(filter.id)}
+                      className={`premium-chip ios-touch-target shrink-0 gap-2 px-4 py-2.5 text-xs font-semibold ${active ? "is-active" : ""}`}
+                      data-active={active}
+                    >
+                      <span>{filter.label}</span>
+                      <span className={`rounded-full px-2 py-0.5 ${active ? "bg-white/15 text-white" : "bg-black/5 text-[var(--color-brand-accent)]"}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {visibleClients.length === 0 ? (
+              <div className="premium-panel flex min-h-[45vh] flex-col items-center justify-center gap-3 rounded-[2rem] px-6 py-10 text-center text-[var(--color-text-secondary)] sm:min-h-[18rem]">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-accent)]">
+                  <Users size={28} className="opacity-90" />
+                </div>
+                <p className="text-base font-semibold text-[var(--color-ink)]">
+                  {journeyFilter === "todos" ? "Nenhum paciente encontrado" : "Nenhum paciente neste estagio"}
+                </p>
+                <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
+                  Ajuste a busca, mude o recorte da jornada ou cadastre um novo prontuario para manter o fluxo da clinica organizado.
+                </p>
+                {!searchQuery && journeyFilter === "todos" && (
+                  <button
+                    onClick={() => setShowNewForm(true)}
+                    className="premium-button-primary mt-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Adicionar primeiro paciente</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
+                <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
+                  {visibleClients.map((client) => (
+                    <motion.div
+                      key={client.id}
+                      layout="position"
+                      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.22 }}
+                    >
+                      <FolderIcon
+                        client={client}
+                        selected={openClientModal?.client.id === client.id}
+                        onClick={() => handleOpenClient(client, "perfil")}
+                        onDoubleClick={() => handleOpenClient(client, "perfil")}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="premium-grid-board p-3 sm:p-4" onClick={(e) => e.stopPropagation()}>
             <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
+              <GenericFolderIcon
+                label={PATIENTS_FOLDER_LABEL}
+                caption="Prontuarios"
+                selected={selectedId === "patients"}
+                onClick={() => setSelectedId("patients")}
+                onDoubleClick={handleOpenPatientsFolder}
+              />
               <GenericFolderIcon
                 label={branding.documentsLabel}
                 selected={selectedId === "documents"}
@@ -572,22 +663,6 @@ export default function HomePage() {
                 onClick={() => setSelectedId("dashboard")}
                 onDoubleClick={() => setShowDashboard(true)}
               />
-              {visibleClients.map((client) => (
-                <motion.div
-                  key={client.id}
-                  layout="position"
-                  initial={{ opacity: 0, y: 12, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.22 }}
-                >
-                  <FolderIcon
-                    client={client}
-                    selected={openClientModal?.client.id === client.id}
-                    onClick={() => handleOpenClient(client, "perfil")}
-                    onDoubleClick={() => handleOpenClient(client, "perfil")}
-                  />
-                </motion.div>
-              ))}
             </div>
           </div>
         )}

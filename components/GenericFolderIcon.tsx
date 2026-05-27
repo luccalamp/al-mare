@@ -5,6 +5,7 @@ import { useSafeIconInteraction } from "@/hooks/useSafeIconInteraction";
 
 interface GenericFolderIconProps {
   label: string;
+  caption?: string;
   selected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
@@ -12,6 +13,7 @@ interface GenericFolderIconProps {
 
 function GenericFolderIcon({
   label,
+  caption = "Biblioteca",
   selected,
   onClick,
   onDoubleClick,
@@ -79,7 +81,7 @@ function GenericFolderIcon({
       </span>
 
       <span className="folder-item-caption text-center text-[10px] uppercase tracking-[0.18em]">
-        Biblioteca
+        {caption}
       </span>
     </div>
   );
