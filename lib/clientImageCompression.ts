@@ -1,9 +1,8 @@
-const MAX_UPLOADED_IMAGE_EDGE = 4000;
-const MAX_UPLOADED_IMAGE_PIXELS = 15_000_000;
-const MAX_IMAGE_QUALITY = 0.96;
-const MIN_IMAGE_QUALITY = 0.85;
-const DEFAULT_IMAGE_QUALITY = 0.92;
-const MIN_EFFECTIVE_SAVING_RATIO = 0.08;
+const MAX_UPLOADED_IMAGE_EDGE = 6000;
+const MAX_UPLOADED_IMAGE_PIXELS = 40_000_000;
+const MAX_IMAGE_QUALITY = 0.98;
+const MIN_IMAGE_QUALITY = 0.92;
+const DEFAULT_IMAGE_QUALITY = 0.96;
 const WEBP_MIME_TYPE = "image/webp";
 const JPEG_MIME_TYPE = "image/jpeg";
 
@@ -41,14 +40,14 @@ function roundQuality(value: number) {
 function getTargetUploadBytes(originalBytes: number, width: number, height: number) {
   const megaPixels = (width * height) / 1_000_000;
   const targetByMegapixel =
-    megaPixels <= 4 ? 2_500_000 :
-    megaPixels <= 8 ? 3_500_000 :
-    megaPixels <= 12 ? 5_000_000 :
-    megaPixels <= 20 ? 7_000_000 :
-    10_000_000;
+    megaPixels <= 4 ? 5_000_000 :
+    megaPixels <= 8 ? 8_000_000 :
+    megaPixels <= 12 ? 12_000_000 :
+    megaPixels <= 20 ? 16_000_000 :
+    20_000_000;
 
   if (originalBytes <= targetByMegapixel) return originalBytes;
-  return Math.max(targetByMegapixel, Math.round(originalBytes * 0.7));
+  return Math.round(originalBytes * 0.85);
 }
 
 function getResizeScale(width: number, height: number) {
@@ -86,9 +85,6 @@ async function generateAdaptiveCompressedBlob(
       }
     }
   }
-
-  const sizeReducedEnough = bestBlob.size < originalBytes * (1 - MIN_EFFECTIVE_SAVING_RATIO);
-  if (!sizeReducedEnough) return null;
 
   return bestBlob;
 }
