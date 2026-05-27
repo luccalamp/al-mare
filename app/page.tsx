@@ -678,59 +678,64 @@ export default function HomePage() {
         {isPatientsFolderOpen ? (
           <>
             <section className="premium-panel mb-4 rounded-[2rem] p-4 sm:p-6">
-              <div className="workspace-hero-grid items-start">
-                <div className="min-w-0">
-                  <p className="premium-kicker">
-                    <FolderOpen size={14} />
-                    Pacientes
-                  </p>
-                  <h2 className="mt-3 text-2xl font-semibold text-[var(--color-ink)] sm:text-[2.2rem]">Prontuários</h2>
+              <nav className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                <button
+                  onClick={handleReturnToRootWorkspace}
+                  className="transition-colors hover:text-[var(--color-brand-deep)]"
+                >
+                  Home
+                </button>
+                <span className="text-[var(--color-brand-accent)]">/</span>
+                <span className="flex items-center gap-1.5 font-semibold text-[var(--color-ink)]">
+                  <FolderOpen size={14} />
+                  Pacientes
+                </span>
+              </nav>
 
-                  <div className="workspace-search-shell mt-5">
-                    <Search size={16} className="shrink-0 text-[var(--color-brand-accent)]" />
-                    <input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Buscar paciente"
-                      aria-label="Buscar paciente"
-                    />
-                    {searchQuery ? (
-                      <button type="button" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
-                        <X size={14} />
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={handleReturnToRootWorkspace}
-                      className="premium-button-secondary px-4 py-3 text-sm"
-                    >
-                      <span className="relative z-10">Voltar para home</span>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="workspace-search-shell max-w-md flex-1">
+                  <Search size={16} className="shrink-0 text-[var(--color-brand-accent)]" />
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Buscar paciente"
+                    aria-label="Buscar paciente"
+                  />
+                  {searchQuery ? (
+                    <button type="button" onClick={() => setSearchQuery("")} aria-label="Limpar busca">
+                      <X size={14} />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowNewForm(true)}
-                      className="premium-button-primary px-4 py-3 text-sm"
-                    >
-                      <span className="relative z-10 flex items-center justify-center gap-2">
-                        <FolderPlus size={16} />
-                        Novo paciente
-                      </span>
-                    </button>
-                  </div>
+                  ) : null}
                 </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleReturnToRootWorkspace}
+                    className="premium-button-secondary px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10">Voltar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewForm(true)}
+                    className="premium-button-primary px-4 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <FolderPlus size={16} />
+                      Novo
+                    </span>
+                  </button>
+                </div>
+              </div>
 
-                <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {patientFolderStats.map((item) => (
-                    <div key={item.label} className="workspace-metric-card p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
-                      <strong className="mt-3 block text-[1.8rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
-                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {patientFolderStats.map((item) => (
+                  <div key={item.label} className="workspace-metric-card px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
+                    <strong className="mt-1 block text-[1.5rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                    <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{item.description}</p>
+                  </div>
+                ))}
               </div>
             </section>
 
