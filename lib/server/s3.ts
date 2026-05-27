@@ -9,6 +9,12 @@ export interface S3UploadResult {
   contentType: string;
 }
 
+export interface S3MoveResult {
+  moved: boolean;
+  sourceKey: string;
+  targetKey: string;
+}
+
 const S3_STORAGE_BUCKET = "s3";
 
 type S3Config = {
@@ -126,6 +132,23 @@ export async function uploadToS3(
   };
 }
 
+async function uploadS3ObjectByKey(
+  client: S3Client,
+  bucket: string,
+  objectKey: string,
+  fileBuffer: Buffer,
+  contentType?: string
+) {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      Body: fileBuffer,
+      ContentType: contentType,
+    })
+  );
+}
+
 async function streamToBuffer(stream: Readable) {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) {
@@ -228,6 +251,60 @@ export async function deleteFromS3(objectKey: string) {
       Key: objectKey,
     })
   );
+}
+
+export async function moveWithinS3(sourceKey: string, targetKey: string): Promise<S3MoveResult> {
+  const normalizedSourceKey = sourceKey.trim();
+  const normalizedTargetKey = targetKey.trim();
+
+  if (!normalizedSourceKey || !normalizedTargetKey) {
+    throw new Error("Origem e destino sao obrigatorios para mover objeto no S3.");
+  }
+
+  if (normalizedSourceKey === normalizedTargetKey) {
+    return {
+      moved: false,
+      sourceKey: normalizedSourceKey,
+      targetKey: normalizedTargetKey,
+    };
+  }
+
+  const client = createS3Client();
+  const { bucket } = getS3Config();
+
+  try {
+    const downloaded = await downloadFromS3(normalizedSourceKey);
+    await uploadS3ObjectByKey(
+      client,
+      bucket,
+      normalizedTargetKey,
+      downloaded.buffer,
+      downloaded.contentType
+    );
+
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: downloaded.resolvedObjectKey,
+      })
+    );
+
+    return {
+      moved: true,
+      sourceKey: downloaded.resolvedObjectKey,
+      targetKey: normalizedTargetKey,
+    };
+  } catch (error) {
+    if (isS3ObjectMissingError(error)) {
+      return {
+        moved: false,
+        sourceKey: normalizedSourceKey,
+        targetKey: normalizedTargetKey,
+      };
+    }
+
+    throw error;
+  }
 }
 
 export function buildS3ProxyUrl(objectKey: string) {

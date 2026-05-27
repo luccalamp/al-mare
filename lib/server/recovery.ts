@@ -1,8 +1,10 @@
 import type { RecoverableTableName, RestoreOperationResult, RowChangeAuditEntry } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { isManagedPhotoBucket } from "@/lib/server/photoStorage";
+import { getS3StorageBucketLabel, moveWithinS3 } from "@/lib/server/s3";
 
 const QUARANTINE_BUCKET = "recovery-quarantine";
+const MANAGED_PHOTO_ARCHIVE_PREFIX = "almare/arquivados";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type StorageMoveResult = {
@@ -50,6 +52,31 @@ function resolveSnapshotId(snapshot: Record<string, unknown>) {
 function buildQuarantinePath(kind: string, recordId: string, sourcePath?: string | null) {
   const fileName = sourcePath?.split("/").filter(Boolean).pop() || `${recordId}.bin`;
   return `${kind}/${recordId}/${Date.now()}-${fileName}`;
+}
+
+function buildManagedArchivePath(kind: string, recordId: string, sourcePath?: string | null) {
+  return `${MANAGED_PHOTO_ARCHIVE_PREFIX}/${buildQuarantinePath(kind, recordId, sourcePath)}`;
+}
+
+async function archiveManagedPhotoObject(kind: string, recordId: string, sourcePath: string) {
+  const targetPath = buildManagedArchivePath(kind, recordId, sourcePath);
+  const moveResult = await moveWithinS3(sourcePath, targetPath);
+
+  return {
+    archivedStorage: moveResult.moved,
+    targetBucket: moveResult.moved ? getS3StorageBucketLabel() : undefined,
+    targetPath: moveResult.moved ? targetPath : undefined,
+  };
+}
+
+async function restoreManagedPhotoObject(quarantinedPath: string, storagePath: string): Promise<StorageMoveResult> {
+  const moveResult = await moveWithinS3(quarantinedPath, storagePath);
+
+  return {
+    restoredStorage: moveResult.moved,
+    targetBucket: getS3StorageBucketLabel(),
+    targetPath: storagePath,
+  };
 }
 
 async function removeIfExists(supabase: SupabaseAdminClient, bucket: string, path: string) {
@@ -280,8 +307,16 @@ async function restoreClientStorage(
   const quarantinedBucket = asString(row.profile_photo_quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.profile_photo_quarantined_path);
 
-  if (storageBucket.toLowerCase() === "google-drive" || isManagedPhotoBucket(storageBucket)) {
+  if (storageBucket.toLowerCase() === "google-drive") {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+  }
+
+  if (isManagedPhotoBucket(storageBucket)) {
+    if (!storagePath || !quarantinedPath) {
+      return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+    }
+
+    return restoreManagedPhotoObject(quarantinedPath, storagePath);
   }
 
   if (!storagePath || !quarantinedPath) {
@@ -300,8 +335,16 @@ async function restorePhotoStorage(
   const quarantinedBucket = asString(row.quarantined_bucket) || QUARANTINE_BUCKET;
   const quarantinedPath = asString(row.quarantined_storage_path);
 
-  if (storageBucket.toLowerCase() === "google-drive" || isManagedPhotoBucket(storageBucket)) {
+  if (storageBucket.toLowerCase() === "google-drive") {
     return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+  }
+
+  if (isManagedPhotoBucket(storageBucket)) {
+    if (!storagePath || !quarantinedPath) {
+      return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
+    }
+
+    return restoreManagedPhotoObject(quarantinedPath, storagePath);
   }
 
   if (!storagePath || !quarantinedPath) {
@@ -456,8 +499,45 @@ async function restoreClientRecord(supabase: SupabaseAdminClient, recordId: stri
     throw currentResult.error;
   }
 
-  const currentRow = currentResult.data || (await ensureClientExistsFromAudit(supabase, recordId, actor));
+  let currentRow = currentResult.data || (await ensureClientExistsFromAudit(supabase, recordId, actor));
+
+  if (currentResult.data && !asString(currentRow.profile_photo_storage_path) && asString(currentRow.profile_photo_quarantined_path)) {
+    const { snapshot } = await fetchAuditSnapshot("clientes", recordId);
+    const { data: patchedRow, error: patchError } = await supabase
+      .from("clientes")
+      .update({
+        photo_url: asNullableString(snapshot.photo_url),
+        profile_photo_storage_bucket: asNullableString(snapshot.profile_photo_storage_bucket),
+        profile_photo_storage_path: asNullableString(snapshot.profile_photo_storage_path),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", recordId)
+      .select("*")
+      .single();
+
+    if (patchError) {
+      throw patchError;
+    }
+
+    currentRow = patchedRow;
+  }
+
   const storageResult = await restoreClientStorage(supabase, currentRow);
+
+  const archivedPhotosResult = await supabase
+    .from("client_photos")
+    .select("*")
+    .eq("cliente_id", recordId);
+
+  if (archivedPhotosResult.error) {
+    throw archivedPhotosResult.error;
+  }
+
+  let restoredChildPhotoStorage = false;
+  for (const photoRow of archivedPhotosResult.data || []) {
+    const photoStorageResult = await restorePhotoStorage(supabase, photoRow);
+    restoredChildPhotoStorage = restoredChildPhotoStorage || photoStorageResult.restoredStorage;
+  }
 
   const { error } = await supabase
     .from("clientes")
@@ -484,6 +564,8 @@ async function restoreClientRecord(supabase: SupabaseAdminClient, recordId: stri
       delete_reason: null,
       restored_at: new Date().toISOString(),
       restored_by: actor,
+      quarantined_bucket: null,
+      quarantined_storage_path: null,
     })
     .eq("cliente_id", recordId);
 
@@ -495,7 +577,7 @@ async function restoreClientRecord(supabase: SupabaseAdminClient, recordId: stri
     tableName: "clientes",
     recordId,
     restoredFromAudit: !currentResult.data,
-    restoredStorage: storageResult.restoredStorage,
+    restoredStorage: storageResult.restoredStorage || restoredChildPhotoStorage,
   };
 }
 
@@ -644,7 +726,8 @@ async function archiveClientPhotoRow(
   supabase: SupabaseAdminClient,
   photoRow: Record<string, unknown>,
   actor: string,
-  reason: string
+  reason: string,
+  options?: { preserveClientProfileRefs?: boolean }
 ) {
   const photoId = asString(photoRow.id);
   if (!photoId) {
@@ -682,9 +765,29 @@ async function archiveClientPhotoRow(
   const storagePath = asString(photoRow.storage_path);
   const clientId = asString(photoRow.cliente_id);
   if (isManagedPhotoBucket(storageBucket)) {
-    console.log("archiveClientPhotoRow: soft-deleted managed photo, will purge from S3 after 3 days", photoId, storageBucket, storagePath);
+    console.log("archiveClientPhotoRow: moving managed photo to archived area in S3", photoId, storageBucket, storagePath);
 
-    if (clientId && storagePath) {
+    const archivedManagedPhoto = storagePath
+      ? await archiveManagedPhotoObject("client-photos", photoId, storagePath)
+      : { archivedStorage: false, targetBucket: undefined, targetPath: undefined };
+
+    const { error: quarantineUpdateError } = await supabase
+      .from("client_photos")
+      .update({
+        quarantined_bucket: archivedManagedPhoto.targetBucket || null,
+        quarantined_storage_path: archivedManagedPhoto.targetPath || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", photoId)
+      .select("id")
+      .single();
+
+    if (quarantineUpdateError) {
+      console.error("archiveClientPhotoRow: managed photo archive metadata update error", quarantineUpdateError);
+      throw quarantineUpdateError;
+    }
+
+    if (clientId && storagePath && !options?.preserveClientProfileRefs) {
       const { error: profileResetError } = await supabase
         .from("clientes")
         .update({
@@ -702,6 +805,7 @@ async function archiveClientPhotoRow(
         throw profileResetError;
       }
     }
+
     return;
   }
 
@@ -879,27 +983,23 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
     if (isManagedPhotoBucket(avatarStorageBucket)) {
-      console.log("archiveClient: soft-deleted managed avatar, will purge from S3 after 3 days", recordId, avatarStorageBucket, avatarStoragePath);
+      console.log("archiveClient: moving managed avatar to archived area in S3", recordId, avatarStorageBucket, avatarStoragePath);
+      const archivedAvatar = await archiveManagedPhotoObject("client-avatar", recordId, avatarStoragePath);
 
-      if (recordId && avatarStoragePath) {
-        const { error: avatarCleanupError } = await supabase
-          .from("clientes")
-          .update({
-            photo_url: null,
-            profile_photo_storage_bucket: null,
-            profile_photo_storage_path: null,
-            profile_photo_quarantined_bucket: null,
-            profile_photo_quarantined_path: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", recordId)
-          .select("id")
-          .single();
+      const { error: avatarArchiveError } = await supabase
+        .from("clientes")
+        .update({
+          profile_photo_quarantined_bucket: archivedAvatar.targetBucket || null,
+          profile_photo_quarantined_path: archivedAvatar.targetPath || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", recordId)
+        .select("id")
+        .single();
 
-        if (avatarCleanupError) {
-          console.error("archiveClient: externally-managed avatar cleanup error", avatarCleanupError);
-          throw avatarCleanupError;
-        }
+      if (avatarArchiveError) {
+        console.error("archiveClient: managed avatar archive update error", avatarArchiveError);
+        throw avatarArchiveError;
       }
     } else if (avatarStorageBucket.toLowerCase() === "google-drive") {
       console.log("archiveClient: google-drive avatar, skipping quarantine move", recordId);
@@ -946,7 +1046,7 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   console.log("archiveClient: found", (photosResult.data || []).length, "photos to archive");
 
   for (const photoRow of photosResult.data || []) {
-    await archiveClientPhotoRow(supabase, photoRow, actor, reason);
+    await archiveClientPhotoRow(supabase, photoRow, actor, reason, { preserveClientProfileRefs: true });
   }
 
   console.log("archiveClient: client archived successfully", recordId);

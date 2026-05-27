@@ -13,6 +13,10 @@
       "schedule": "0 4 * * *"
     },
     {
+      "path": "/api/internal/cleanup/archived-photos",
+      "schedule": "15 4 * * *"
+    },
+    {
       "path": "/api/internal/cleanup/audit",
       "schedule": "0 5 * * *"
     }
