@@ -11,8 +11,14 @@ function buildCsp(nonce: string) {
   const isDev = process.env.NODE_ENV !== "production";
   const isPreviewDeployment = process.env.VERCEL_ENV === "preview";
   const { supabaseUrl } = getSupabasePublicConfig();
-  const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : null;
+  const supabaseParsedUrl = supabaseUrl ? new URL(supabaseUrl) : null;
+  const supabaseOrigin = supabaseParsedUrl?.origin || null;
+  const supabaseHostname = supabaseParsedUrl?.hostname || "";
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
+  const supabaseProjectRef = supabaseHostname.split(".")[0] || null;
+  const supabaseStorageOrigin = supabaseHostname.endsWith(".supabase.co") && supabaseProjectRef
+    ? `https://${supabaseProjectRef}.storage.supabase.co`
+    : null;
   const s3Bucket = process.env.WS_BUCKET_NAME || process.env.AWS_S3_BUCKET || "";
   const s3Region = process.env.AWS_S3_REGION || process.env.AWS_REGION || "";
   const s3Endpoint = s3Bucket && s3Region ? `https://${s3Bucket}.s3.${s3Region}.amazonaws.com` : null;
@@ -45,6 +51,10 @@ function buildCsp(nonce: string) {
 
   if (supabaseWsOrigin) {
     connectSrc.push(supabaseWsOrigin);
+  }
+
+  if (supabaseStorageOrigin) {
+    connectSrc.push(supabaseStorageOrigin);
   }
 
   if (s3Endpoint) {
