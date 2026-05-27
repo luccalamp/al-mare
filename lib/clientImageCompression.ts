@@ -1,20 +1,11 @@
 const MAX_UPLOADED_IMAGE_EDGE = 6000;
 const MAX_UPLOADED_IMAGE_PIXELS = 40_000_000;
-const MAX_IMAGE_QUALITY = 0.98;
-const MIN_IMAGE_QUALITY = 0.92;
-const DEFAULT_IMAGE_QUALITY = 0.96;
-const WEBP_MIME_TYPE = "image/webp";
+
 const JPEG_MIME_TYPE = "image/jpeg";
 
 function getNormalizedImageName(file: File) {
   const baseName = file.name.replace(/\.[^.]+$/, "");
   return `${baseName || "image"}.jpg`;
-}
-
-function getNormalizedImageNameByMime(file: File, mimeType: string) {
-  const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
-  const extension = mimeType === WEBP_MIME_TYPE ? "webp" : "jpg";
-  return `${baseName}.${extension}`;
 }
 
 function loadImage(source: string) {
@@ -33,60 +24,10 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) 
   });
 }
 
-function roundQuality(value: number) {
-  return Math.max(MIN_IMAGE_QUALITY, Math.min(MAX_IMAGE_QUALITY, Math.round(value * 100) / 100));
-}
-
-function getTargetUploadBytes(originalBytes: number, width: number, height: number) {
-  const megaPixels = (width * height) / 1_000_000;
-  const targetByMegapixel =
-    megaPixels <= 4 ? 5_000_000 :
-    megaPixels <= 8 ? 8_000_000 :
-    megaPixels <= 12 ? 12_000_000 :
-    megaPixels <= 20 ? 16_000_000 :
-    20_000_000;
-
-  if (originalBytes <= targetByMegapixel) return originalBytes;
-  return Math.round(originalBytes * 0.85);
-}
-
 function getResizeScale(width: number, height: number) {
   const edgeScale = Math.min(1, MAX_UPLOADED_IMAGE_EDGE / Math.max(width, height));
   const pixelScale = Math.min(1, Math.sqrt(MAX_UPLOADED_IMAGE_PIXELS / (width * height)));
   return Math.min(edgeScale, pixelScale);
-}
-
-async function generateAdaptiveCompressedBlob(
-  canvas: HTMLCanvasElement,
-  originalBytes: number,
-  targetBytes: number
-) {
-  const webpDefault = await canvasToBlob(canvas, WEBP_MIME_TYPE, DEFAULT_IMAGE_QUALITY);
-  const webpSupported = Boolean(webpDefault && webpDefault.type === WEBP_MIME_TYPE);
-  const mimeType = webpSupported ? WEBP_MIME_TYPE : JPEG_MIME_TYPE;
-
-  let bestBlob = await canvasToBlob(canvas, mimeType, DEFAULT_IMAGE_QUALITY);
-  if (!bestBlob) return null;
-
-  if (bestBlob.size > targetBytes) {
-    let low = MIN_IMAGE_QUALITY;
-    let high = DEFAULT_IMAGE_QUALITY;
-
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const mid = roundQuality((low + high) / 2);
-      const candidate = await canvasToBlob(canvas, mimeType, mid);
-      if (!candidate) break;
-      bestBlob = candidate;
-
-      if (candidate.size > targetBytes) {
-        high = mid - 0.01;
-      } else {
-        low = mid + 0.01;
-      }
-    }
-  }
-
-  return bestBlob;
 }
 
 export async function normalizeImageFileForUpload(file: File) {
@@ -106,6 +47,11 @@ export async function normalizeImageFileForUpload(file: File) {
     }
 
     const scale = getResizeScale(width, height);
+
+    if (scale >= 1) {
+      return file;
+    }
+
     const targetWidth = Math.max(1, Math.round(width * scale));
     const targetHeight = Math.max(1, Math.round(height * scale));
 
@@ -120,22 +66,12 @@ export async function normalizeImageFileForUpload(file: File) {
     context.imageSmoothingQuality = "high";
     context.drawImage(image, 0, 0, targetWidth, targetHeight);
 
-    const targetBytes = getTargetUploadBytes(file.size, width, height);
-    const adaptiveBlob = await generateAdaptiveCompressedBlob(canvas, file.size, targetBytes);
-    if (adaptiveBlob) {
-      return new File([adaptiveBlob], getNormalizedImageNameByMime(file, adaptiveBlob.type), { type: adaptiveBlob.type });
-    }
+    const blob = await canvasToBlob(canvas, JPEG_MIME_TYPE, 0.98);
+    if (!blob) return file;
 
-    if (targetWidth === width && targetHeight === height) {
-      return file;
-    }
-
-    const fallbackJpegBlob = await canvasToBlob(canvas, JPEG_MIME_TYPE, DEFAULT_IMAGE_QUALITY);
-    if (!fallbackJpegBlob || fallbackJpegBlob.size >= file.size) return file;
-
-    return new File([fallbackJpegBlob], getNormalizedImageName(file), { type: JPEG_MIME_TYPE });
+    return new File([blob], getNormalizedImageName(file), { type: JPEG_MIME_TYPE });
   } catch (error) {
-    console.warn("Nao foi possivel reduzir a imagem antes do envio.", error);
+    console.warn("Nao foi possivel preparar a imagem para envio.", error);
     return file;
   } finally {
     URL.revokeObjectURL(source);
