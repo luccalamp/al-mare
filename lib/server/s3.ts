@@ -55,32 +55,16 @@ export function getS3Config(): S3Config {
   };
 }
 
-export function createS3Client(useSupabaseEndpoint?: boolean) {
+export function createS3Client() {
   const config = getS3Config();
 
-  const s3Params: {
-    region: string;
-    credentials: { accessKeyId: string; secretAccessKey: string };
-    forcePathStyle?: boolean;
-    endpoint?: string;
-  } = {
+  return new S3Client({
     region: config.region,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
     },
-  };
-
-  if (useSupabaseEndpoint) {
-    const supabaseUrl = readServerEnv("NEXT_PUBLIC_SUPABASE_URL");
-    if (supabaseUrl) {
-      const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
-      s3Params.forcePathStyle = true;
-      s3Params.endpoint = `https://${projectRef}.storage.supabase.co/storage/v1/s3`;
-    }
-  }
-
-  return new S3Client(s3Params);
+  });
 }
 
 function sanitizeObjectStem(fileName: string) {
