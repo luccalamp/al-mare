@@ -228,12 +228,23 @@ export async function POST(request: Request) {
     }
 
     case "ficha-anamnese": {
+      const { data: existingFicha } = await authContext.admin
+        .from("ficha_anamnese_capilar")
+        .select("dados")
+        .eq("cliente_id", clientId)
+        .maybeSingle();
+
+      const mergedDados = {
+        ...(existingFicha?.dados || {}),
+        ...(parsedBody.data.dados || {}),
+      };
+
       const { data, error } = await authContext.admin
         .from("ficha_anamnese_capilar")
         .upsert(
           {
             cliente_id: clientId,
-            dados: parsedBody.data.dados,
+            dados: mergedDados,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "cliente_id" }
@@ -316,13 +327,25 @@ export async function PUT(request: Request) {
     return access.response || buildJsonError("Cliente inválido para esta operação.", 404);
   }
 
+  const { data: existingAgendamento } = await authContext.admin
+    .from("agendamentos")
+    .select("metadata")
+    .eq("id", parsedBody.data.appointmentId)
+    .eq("cliente_id", parsedBody.data.clientId)
+    .maybeSingle();
+
+  const mergedMetadata = {
+    ...(existingAgendamento?.metadata || {}),
+    ...(parsedBody.data.metadata || {}),
+  };
+
   const { data, error } = await authContext.admin
     .from("agendamentos")
     .update({
       origem: "google_calendar",
       google_event_id: parsedBody.data.googleEventId,
       google_calendar_id: parsedBody.data.googleCalendarId,
-      metadata: parsedBody.data.metadata,
+      metadata: mergedMetadata,
       updated_at: new Date().toISOString(),
     })
     .eq("id", parsedBody.data.appointmentId)

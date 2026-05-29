@@ -238,7 +238,7 @@ export async function PUT(request: Request) {
 
   const { data: existingClient, error: existingClientError } = await authContext.admin
     .from("clientes")
-    .select("photo_url, profile_photo_storage_bucket, profile_photo_storage_path")
+    .select("photo_url, profile_photo_storage_bucket, profile_photo_storage_path, perfil_complementar")
     .eq("id", parsedBody.data.id)
     .eq("user_id", authContext.userId)
     .single();
@@ -259,7 +259,10 @@ export async function PUT(request: Request) {
     data_aniversario: parsedBody.data.dataAniversario,
     photo_url: resolvedPhotoUrl,
     canal_aquisicao: parsedBody.data.acquisitionChannel,
-    perfil_complementar: parsedBody.data.perfilComplementar,
+    perfil_complementar: {
+      ...(existingClient.perfil_complementar || {}),
+      ...(parsedBody.data.perfilComplementar || {}),
+    },
     updated_at: new Date().toISOString(),
     ...(parsedBody.data.profilePhotoStorageBucket !== undefined
       ? { profile_photo_storage_bucket: parsedBody.data.profilePhotoStorageBucket }
