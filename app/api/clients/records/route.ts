@@ -228,23 +228,12 @@ export async function POST(request: Request) {
     }
 
     case "ficha-anamnese": {
-      const { data: existingFicha } = await authContext.admin
-        .from("ficha_anamnese_capilar")
-        .select("dados")
-        .eq("cliente_id", clientId)
-        .maybeSingle();
-
-      const mergedDados = {
-        ...(existingFicha?.dados || {}),
-        ...(parsedBody.data.dados || {}),
-      };
-
       const { data, error } = await authContext.admin
         .from("ficha_anamnese_capilar")
         .upsert(
           {
             cliente_id: clientId,
-            dados: mergedDados,
+            dados: parsedBody.data.dados,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "cliente_id" }

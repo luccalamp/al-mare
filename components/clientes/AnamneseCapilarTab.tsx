@@ -805,7 +805,6 @@ function migrateLegacyData(prev: FichaAnamneseCapilarDados | LegacyFichaAnamnese
   delete (newFormatKeys as Record<string, unknown>).conclusao;
 
   return {
-    ...(newFormatKeys as FichaAnamneseCapilarDados),
     dadosPessoais: {
       nome: prev.identificacao?.nome,
       dataNascimento: prev.identificacao?.dataNascimento,
@@ -886,6 +885,7 @@ function migrateLegacyData(prev: FichaAnamneseCapilarDados | LegacyFichaAnamnese
     diagnosticoClinico: prev.conclusao?.alteracaoEncontrada,
     condutaPrescrita: prev.conclusao?.protocoloIndicado,
     assinatura: prev.assinatura,
+    ...(newFormatKeys as FichaAnamneseCapilarDados),
   };
 }
 
