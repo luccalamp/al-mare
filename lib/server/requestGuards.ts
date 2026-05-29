@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { getAdminOperationsToken, getCronSecret } from "@/lib/server/supabaseAdmin";
+
+const ADMIN_TOKEN_COOKIE = "admin_operations_token";
 
 function readBearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
@@ -14,6 +17,16 @@ function readBearerToken(request: Request) {
 function readHeaderToken(request: Request, headerName: string) {
   const token = request.headers.get(headerName)?.trim();
   return token ? token : null;
+}
+
+function readAdminTokenFromCookie(): string | null {
+  try {
+    const cookieStore = cookies();
+    const token = cookieStore.get(ADMIN_TOKEN_COOKIE)?.value;
+    return token?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function buildError(message: string, status: number) {
@@ -35,7 +48,8 @@ export function requireAdminRequest(request: Request) {
     return buildError("ADMIN_OPERATIONS_TOKEN nao foi configurado no servidor.", 500);
   }
 
-  const candidate = readHeaderToken(request, "x-admin-token") || readBearerToken(request);
+  // Try header first, then cookie
+  const candidate = readHeaderToken(request, "x-admin-token") || readBearerToken(request) || readAdminTokenFromCookie();
   if (!hasMatchingToken(candidate, expectedToken)) {
     return buildError("Chave administrativa invalida.", 401);
   }

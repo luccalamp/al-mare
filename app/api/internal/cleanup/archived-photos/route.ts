@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { deleteManagedPhoto, isManagedPhotoBucket } from "@/lib/server/photoStorage";
 import { requireCronOrAdminRequest } from "@/lib/server/requestGuards";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 type ArchivedPhotoRow = {
   id: string;
@@ -173,7 +174,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Cleanup failed" },
+      { error: safeErrorMessage(error, "Cleanup failed") },
       { status: 500 }
     );
   }

@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import { runBackupExport } from "@/lib/server/backup";
 import { requireCronOrAdminRequest } from "@/lib/server/requestGuards";
-import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 async function handleRequest(request: Request) {
-  const staffContext = await requireAuthorizedStaff(request).catch(() => null);
-  if (staffContext instanceof NextResponse) {
-    const authResponse = requireCronOrAdminRequest(request);
-    if (authResponse) {
-      return authResponse;
-    }
+  const authResponse = requireCronOrAdminRequest(request);
+  if (authResponse) {
+    return authResponse;
   }
 
   try {
@@ -21,7 +18,7 @@ async function handleRequest(request: Request) {
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao executar o backup clinico." },
+      { error: safeErrorMessage(error, "Falha ao executar o backup clinico.") },
       { status: 500 }
     );
   }

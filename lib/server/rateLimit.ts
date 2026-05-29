@@ -1,6 +1,7 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis/cloudflare";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
 type RateLimitProfile = {
   kind: "public" | "private";
@@ -115,20 +116,82 @@ function runInMemoryRateLimit(key: string, config: { limit: number; windowMs: nu
   };
 }
 
+async function runSupabaseRateLimit(key: string, config: { limit: number; windowMs: number }): Promise<RateLimitCheck> {
+  try {
+    const supabase = createSupabaseAdminClient();
+    const resetAt = Date.now() + config.windowMs;
+
+    // Atomic UPSERT: increment count or create new entry
+    const { data, error } = await supabase
+      .from("rate_limits")
+      .upsert(
+        { key, count: 1, reset_at: resetAt },
+        { onConflict: "key", ignoreDuplicates: false }
+      )
+      .select("count, reset_at")
+      .single();
+
+    if (error || !data) {
+      // Table might not exist yet, fall back to in-memory
+      return runInMemoryRateLimit(key, config);
+    }
+
+    // Check if the window has expired
+    const now = Date.now();
+    if (data.reset_at <= now) {
+      // Window expired, reset counter
+      await supabase
+        .from("rate_limits")
+        .upsert(
+          { key, count: 1, reset_at: resetAt },
+          { onConflict: "key", ignoreDuplicates: false }
+        );
+
+      return {
+        success: true,
+        limit: config.limit,
+        remaining: Math.max(config.limit - 1, 0),
+        reset: resetAt,
+      };
+    }
+
+    // Increment count atomically
+    const { data: incremented } = await supabase
+      .from("rate_limits")
+      .update({ count: data.count + 1 })
+      .eq("key", key)
+      .select("count")
+      .single();
+
+    const count = incremented?.count ?? data.count + 1;
+
+    return {
+      success: count <= config.limit,
+      limit: config.limit,
+      remaining: Math.max(config.limit - count, 0),
+      reset: data.reset_at,
+    };
+  } catch {
+    // Supabase rate limiting failed, fall back to in-memory
+    return runInMemoryRateLimit(key, config);
+  }
+}
+
 async function runRateLimit(key: string, profile: RateLimitProfile): Promise<RateLimitCheck> {
-  if (!limiters) {
-    return runInMemoryRateLimit(key, profile);
+  if (limiters) {
+    const limiter = profile.kind === "public" ? limiters.public : limiters.private;
+    const result = await limiter.limit(key);
+
+    return {
+      success: result.success,
+      limit: result.limit ?? profile.limit,
+      remaining: result.remaining,
+      reset: result.reset,
+    };
   }
 
-  const limiter = profile.kind === "public" ? limiters.public : limiters.private;
-  const result = await limiter.limit(key);
-
-  return {
-    success: result.success,
-    limit: result.limit ?? profile.limit,
-    remaining: result.remaining,
-    reset: result.reset,
-  };
+  // Try Supabase, fall back to in-memory
+  return runSupabaseRateLimit(key, profile);
 }
 
 export async function checkApiRateLimit(

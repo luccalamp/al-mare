@@ -3,6 +3,7 @@ import { z } from "zod";
 import { archivePhoto } from "@/lib/server/recovery";
 import { requireAuthorizedStaff, buildJsonError, requirePhotoAccess } from "@/lib/server/tenantAccess";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 const archivePhotoSchema = z.object({
   photoId: z.string().uuid().optional(),
@@ -67,11 +68,6 @@ export async function POST(request: Request) {
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     console.error("archive photo error:", error);
-    const message = error instanceof Error
-      ? error.message
-      : error && typeof error === "object" && "message" in error
-        ? String((error as { message: unknown }).message)
-        : "Falha ao arquivar a foto.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Falha ao arquivar a foto.") }, { status: 500 });
   }
 }

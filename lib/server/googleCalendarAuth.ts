@@ -47,30 +47,19 @@ function getRequestOrigin(request: Request): string {
 export function resolveGoogleCalendarRedirectUri(request?: Request): string {
   const explicitRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim();
   if (explicitRedirectUri) {
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-auth] Using explicit redirect URI:", explicitRedirectUri);
-    }
     return trimTrailingSlash(explicitRedirectUri);
   }
 
   if (request) {
     const origin = trimTrailingSlash(getRequestOrigin(request));
-    const uri = `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-auth] Resolved redirect URI from request:", uri);
-    }
-    return uri;
+    return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
   }
 
   const configuredBaseUrl =
     process.env.NEXT_PUBLIC_BASE_URL?.trim() || process.env.BASE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
 
   if (configuredBaseUrl) {
-    const uri = `${trimTrailingSlash(configuredBaseUrl)}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-auth] Resolved redirect URI from env:", uri);
-    }
-    return uri;
+    return `${trimTrailingSlash(configuredBaseUrl)}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
   }
 
   throw new Error(
@@ -96,13 +85,7 @@ export function getGoogleCalendarAuthUrl(state: string, redirectUri: string): st
     state,
   });
 
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-auth-url] Generated URL:", authUrl);
-  }
-
-  return authUrl;
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 
@@ -114,11 +97,6 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string): 
 }> {
   const clientId = getGoogleClientId();
   const clientSecret = getGoogleClientSecret();
-
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-exchange] clientId:", clientId.substring(0, 10) + "...");
-    console.log("[gcal-exchange] redirectUri:", redirectUri);
-  }
 
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -134,15 +112,10 @@ export async function exchangeCodeForTokens(code: string, redirectUri: string): 
 
   if (!tokenResponse.ok) {
     const errorData = await tokenResponse.json().catch(() => ({}));
-    console.error("[gcal-exchange] Google token error:", errorData);
     throw new Error(errorData.error_description || "Falha ao trocar o código por tokens.");
   }
 
   const tokenData = await tokenResponse.json();
-
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-exchange] Token exchange successful");
-  }
 
   let email: string | undefined;
   try {
@@ -172,10 +145,6 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   const clientId = getGoogleClientId();
   const clientSecret = getGoogleClientSecret();
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-refresh] Refreshing access token...");
-  }
-
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -188,13 +157,10 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    console.error("[gcal-refresh] Google refresh error:", errorData);
     throw new Error("Falha ao renovar o token de acesso.");
   }
 
   const data = await response.json();
-  console.log("[gcal-refresh] Token refreshed successfully");
   return {
     access_token: data.access_token,
     expires_in: data.expires_in,
@@ -205,39 +171,29 @@ export function readStoredTokens(): StoredTokens | null {
   const cookieStore = cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
-  console.log("[gcal-read] === START ===");
-  console.log("[gcal-read] Cookie name:", GOOGLE_TOKEN_COOKIE);
-  console.log("[gcal-read] Cookie present:", !!raw);
-  console.log("[gcal-read] Cookie length:", raw?.length || 0);
-  console.log("[gcal-read] All cookies:", cookieStore.getAll().map(c => `${c.name}(${c.value?.length || 0})`).join(", "));
-
   if (!raw) {
-    console.log("[gcal-read] === NO COOKIE FOUND ===");
     return null;
   }
 
   try {
     const parsed = decryptTokens(raw);
     if (!parsed) {
-      console.log("[gcal-read] Decryption returned null");
       return null;
     }
 
     if (!parsed.access_token || !parsed.expires_at) {
-      console.log("[gcal-read] Parsed but missing fields");
       return null;
     }
 
-    if (!parsed.refresh_token) {
+    if (!parsed.refresh_token && process.env.NODE_ENV !== "production") {
       console.log("[gcal-read] Token loaded without refresh token; reconnection may be required after expiration");
     }
 
-    console.log("[gcal-read] Successfully read tokens for:", parsed.email);
-    console.log("[gcal-read] === SUCCESS ===");
     return parsed;
   } catch (err) {
-    console.error("[gcal-read] Parse/Decrypt failed:", err);
-    console.log("[gcal-read] Raw cookie preview:", raw.substring(0, 50) + "...");
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[gcal-read] Parse/Decrypt failed:", err);
+    }
     return null;
   }
 }
@@ -245,10 +201,6 @@ export function readStoredTokens(): StoredTokens | null {
 export function storeTokens(tokens: StoredTokens): NextResponse {
   const response = NextResponse.json({ success: true });
   const encrypted = encryptTokens(tokens);
-
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-store] Storing tokens for email:", tokens.email);
-  }
 
   response.cookies.set(GOOGLE_TOKEN_COOKIE, encrypted, {
     httpOnly: true,
@@ -279,11 +231,11 @@ export function clearStoredTokens(): NextResponse {
 }
 
 function getEncryptionKey(): Buffer {
-  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  const secret = process.env.GOOGLE_CLIENT_SECRET?.trim();
   if (!secret) {
-    console.error("[gcal-encrypt-key] GOOGLE_CLIENT_SECRET not set!");
+    throw new Error("GOOGLE_CLIENT_SECRET não configurado. Tokens do Google Calendar não podem ser criptografados.");
   }
-  return crypto.createHash("sha256").update(secret || "fallback-key-do-not-use-in-production").digest().slice(0, 32);
+  return crypto.createHash("sha256").update(secret).digest().slice(0, 32);
 }
 
 function encryptTokens(tokens: StoredTokens): string {
@@ -294,10 +246,6 @@ function encryptTokens(tokens: StoredTokens): string {
   encrypted += cipher.final("hex");
   const authTag = cipher.getAuthTag().toString("hex");
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-encrypt] Token encrypted for:", tokens.email);
-  }
-
   return `${iv.toString("hex")}:${authTag}:${encrypted}`;
 }
 
@@ -305,7 +253,6 @@ export function decryptTokens(encrypted: string): StoredTokens | null {
   try {
     const [ivHex, authTagHex, encryptedHex] = encrypted.split(":");
     if (!ivHex || !authTagHex || !encryptedHex) {
-      console.log("[gcal-decrypt] Invalid token format");
       return null;
     }
 
@@ -318,13 +265,11 @@ export function decryptTokens(encrypted: string): StoredTokens | null {
     decrypted += decipher.final("utf8");
     const parsed = JSON.parse(decrypted) as StoredTokens;
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[gcal-decrypt] Token decrypted for:", parsed.email);
-    }
-
     return parsed;
   } catch (err) {
-    console.error("[gcal-decrypt] Decryption failed:", err);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[gcal-decrypt] Decryption failed:", err);
+    }
     return null;
   }
 }
@@ -333,27 +278,15 @@ export async function getValidAccessToken(): Promise<{ accessToken: string; emai
   const cookieStore = cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-valid-token] Cookie present:", !!raw);
-  }
-
   if (!raw) return null;
 
   const tokens = decryptTokens(raw);
   if (!tokens) {
-    console.log("[gcal-valid-token] Token decryption failed");
     return null;
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[gcal-valid-token] Token expires at:", new Date(tokens.expires_at).toISOString());
-    console.log("[gcal-valid-token] Token expired:", Date.now() >= tokens.expires_at - 60_000);
-  }
-
   if (Date.now() >= tokens.expires_at - 60_000) {
-    console.log("[gcal-valid-token] Refreshing token...");
     if (!tokens.refresh_token) {
-      console.log("[gcal-valid-token] Missing refresh token; user must reconnect");
       return null;
     }
 
@@ -366,15 +299,15 @@ export async function getValidAccessToken(): Promise<{ accessToken: string; emai
       };
       const response = storeTokens(updated);
       response.headers.set("X-GCal-Token-Refreshed", "true");
-      console.log("[gcal-valid-token] Token refreshed");
       return { accessToken: updated.access_token, email: tokens.email };
     } catch (err) {
-      console.error("[gcal-valid-token] Refresh failed:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[gcal-valid-token] Refresh failed:", err);
+      }
       return null;
     }
   }
 
-  console.log("[gcal-valid-token] Token valid");
   return { accessToken: tokens.access_token, email: tokens.email };
 }
 
@@ -394,9 +327,6 @@ export async function createCalendarEventServer(input: {
     throw new Error("Conexão com o Google Calendar não encontrada ou expirada. Reconecte e tente novamente.");
   }
 
-  console.log("[gcal-create-event] Creating event:", input.summary);
-  console.log("[gcal-create-event] Using email:", auth.email);
-
   const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
     method: "POST",
     headers: {
@@ -412,17 +342,13 @@ export async function createCalendarEventServer(input: {
   });
 
   if (response.status === 401) {
-    console.error("[gcal-create-event] 401 Unauthorized - token expired");
     throw new Error("Sua conexão com o Google expirou. Reconecte e tente novamente.");
   }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    console.error("[gcal-create-event] Google API error:", errorData);
     throw new Error("Não foi possível criar o evento no Google Calendar.");
   }
 
   const result = await response.json();
-  console.log("[gcal-create-event] Event created:", result.id);
   return result;
 }

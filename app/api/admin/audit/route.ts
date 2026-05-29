@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listOwnedAuditEntries } from "@/lib/server/recovery";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function GET(request: Request) {
   const authContext = await requireAuthorizedStaff(request);
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ entries }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao carregar o log de auditoria." },
+      { error: safeErrorMessage(error, "Falha ao carregar o log de auditoria.") },
       { status: 500 }
     );
   }

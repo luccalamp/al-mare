@@ -1,28 +1,50 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { exchangeCodeForTokens, readStoredTokens, resolveGoogleCalendarRedirectUri, storeTokens } from "@/lib/server/googleCalendarAuth";
+import crypto from "crypto";
+
+const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const code = body?.code;
+    const state = body?.state;
 
     if (!code) {
       return NextResponse.json({ error: "Código OAuth ausente." }, { status: 400 });
     }
 
-    const redirectUri = resolveGoogleCalendarRedirectUri(request);
+    if (!state) {
+      return NextResponse.json({ error: "State OAuth ausente." }, { status: 400 });
+    }
 
-    console.log("[gcal-callback] === START ===");
-    console.log("[gcal-callback] redirectUri:", redirectUri);
-    console.log("[gcal-callback] GOOGLE_CALENDAR_REDIRECT_URI env:", process.env.GOOGLE_CALENDAR_REDIRECT_URI);
-    console.log("[gcal-callback] code length:", code.length);
+    const cookieStore = cookies();
+    const expectedStateHash = cookieStore.get(OAUTH_STATE_COOKIE)?.value;
+
+    if (!expectedStateHash) {
+      return NextResponse.json({ error: "Sessão OAuth expirada. Inicie a conexão novamente." }, { status: 400 });
+    }
+
+    const stateHash = crypto.createHash("sha256").update(state).digest("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(stateHash), Buffer.from(expectedStateHash))) {
+      return NextResponse.json({ error: "State OAuth inválido. Possível tentativa de CSRF." }, { status: 403 });
+    }
+
+    // Clear the state cookie after validation
+    const response = NextResponse.json({ success: true });
+    response.cookies.set(OAUTH_STATE_COOKIE, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 0,
+      path: "/",
+    });
+
+    const redirectUri = resolveGoogleCalendarRedirectUri(request);
 
     const existingTokens = readStoredTokens();
     const tokens = await exchangeCodeForTokens(code, redirectUri);
-
-    console.log("[gcal-callback] tokens received");
-    console.log("[gcal-callback] email:", tokens.email);
-    console.log("[gcal-callback] has refresh_token:", !!(tokens.refresh_token || existingTokens?.refresh_token));
 
     const storedTokens = {
       access_token: tokens.access_token,
@@ -31,8 +53,8 @@ export async function POST(request: Request) {
       email: tokens.email,
     };
 
-    const response = storeTokens(storedTokens);
-    response.cookies.set("gcal_connected", "true", {
+    const tokenResponse = storeTokens(storedTokens);
+    tokenResponse.cookies.set("gcal_connected", "true", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -40,13 +62,10 @@ export async function POST(request: Request) {
       path: "/",
     });
 
-    console.log("[gcal-callback] === SUCCESS ===");
-    return response;
-  } catch (err) {
-    console.error("[gcal-callback] === ERROR ===");
-    console.error("[gcal-callback]", err);
+    return tokenResponse;
+  } catch {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Falha ao completar a autenticação com o Google." },
+      { error: "Falha ao completar a autenticação com o Google." },
       { status: 500 }
     );
   }

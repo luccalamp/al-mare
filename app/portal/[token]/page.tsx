@@ -229,37 +229,42 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
   const loadPortal = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`/api/portal/session?token=${encodeURIComponent(params.token)}`, {
+      // First, POST the token to set it as an httpOnly cookie
+      const postRes = await fetch("/api/portal/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: params.token }),
         signal,
       });
-      const data = await res.json().catch(() => null);
 
-      if (!data) {
+      const postData = await postRes.json().catch(() => null);
+
+      if (!postData) {
         setStatus("error");
         return;
       }
 
-      if (data.status === "not_found") {
+      if (postData.status === "not_found") {
         setStatus("not_found");
         return;
       }
 
-      if (data.status === "inactive") {
+      if (postData.status === "inactive") {
         setStatus("inactive");
         return;
       }
 
-      if (data.status === "migration_required" || data.status === "error") {
+      if (postData.status === "migration_required" || postData.status === "error") {
         setStatus("error");
         return;
       }
 
-      if (data.status === "ready") {
-        setClientName(data.clientName || "");
-        setHomecare(data.homecare || []);
-        setGallery(data.gallery || []);
-        if (data.preConsulta) {
-          setPreConsulta(data.preConsulta);
+      if (postData.status === "ready") {
+        setClientName(postData.clientName || "");
+        setHomecare(postData.homecare || []);
+        setGallery(postData.gallery || []);
+        if (postData.preConsulta) {
+          setPreConsulta(postData.preConsulta);
         }
         setStatus("ready");
         return;
@@ -311,7 +316,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       setSubmitting(true);
       setSubmitError(null);
 
-      const res = await fetch(`/api/portal/pre-consulta?token=${encodeURIComponent(params.token)}`, {
+      const res = await fetch("/api/portal/pre-consulta", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

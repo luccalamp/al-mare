@@ -6,7 +6,7 @@ import { checkRateLimit } from "@/lib/server/rateLimit";
 import crypto from "crypto";
 
 function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 999999).toString();
 }
 
 function hashOTP(code: string): string {
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       if (process.env.NODE_ENV !== "production") {
         console.error("2fa resend error:", sendError);
       }
-      return NextResponse.json({ error: `Erro ao enviar e-mail: ${sendError.message}` }, { status: 500 });
+      return NextResponse.json({ error: "Erro ao enviar e-mail de verificação." }, { status: 500 });
     }
 
     return response;

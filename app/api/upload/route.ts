@@ -5,6 +5,7 @@ import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/l
 import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
 import { deleteManagedPhoto } from "@/lib/server/photoStorage";
 import { uploadToS3, deleteFromS3, buildS3ProxyUrl, getS3StorageBucketLabel } from "@/lib/server/s3";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 const SUPPORTED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15 MB
@@ -230,7 +231,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Upload failed" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Upload failed") }, { status: 500 });
   }
 }
 
@@ -289,6 +290,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Stored photo delete error:", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Delete failed" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Delete failed") }, { status: 500 });
   }
 }

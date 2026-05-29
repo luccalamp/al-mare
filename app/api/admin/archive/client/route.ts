@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archiveClient } from "@/lib/server/recovery";
 import { requireAuthorizedStaff, buildJsonError, requireClientAccess } from "@/lib/server/tenantAccess";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 const archiveClientSchema = z.object({
   clientId: z.string().uuid(),
@@ -42,11 +43,6 @@ export async function POST(request: Request) {
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     console.error("archive client error:", error);
-    const message = error instanceof Error
-      ? error.message
-      : error && typeof error === "object" && "message" in error
-        ? String((error as { message: unknown }).message)
-        : "Falha ao arquivar a paciente.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Falha ao arquivar a paciente.") }, { status: 500 });
   }
 }

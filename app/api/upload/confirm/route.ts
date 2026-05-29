@@ -3,6 +3,7 @@ import { requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenant
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { getS3StorageBucketLabel } from "@/lib/server/s3";
 import { normalizePhotoCategory } from "@/lib/photos";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function POST(req: NextRequest) {
   const authContext = await requireAuthorizedStaff(req, {
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Confirm upload error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao confirmar upload." },
+      { error: safeErrorMessage(error, "Falha ao confirmar upload.") },
       { status: 500 }
     );
   }

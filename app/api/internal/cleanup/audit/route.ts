@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCronSecret } from "@/lib/server/supabaseAdmin";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function POST(req: NextRequest) {
   const cronSecret = getCronSecret();
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Audit cleanup cron error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Cleanup failed" },
+      { error: safeErrorMessage(error, "Cleanup failed") },
       { status: 500 }
     );
   }

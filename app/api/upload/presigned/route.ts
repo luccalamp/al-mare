@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { buildS3ObjectKey, buildS3ProxyUrl, createS3Client, getS3Config, getS3StorageBucketLabel } from "@/lib/server/s3";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function POST(req: NextRequest) {
   const authContext = await requireAuthorizedStaff(req, {
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Presigned URL error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao gerar URL de upload." },
+      { error: safeErrorMessage(error, "Falha ao gerar URL de upload.") },
       { status: 500 }
     );
   }

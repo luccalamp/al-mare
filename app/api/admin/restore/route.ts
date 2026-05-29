@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { restoreRecord, restoreTransaction } from "@/lib/server/recovery";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 const restoreSchema = z
   .object({
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ results }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao restaurar o registro solicitado." },
+      { error: safeErrorMessage(error, "Falha ao restaurar o registro solicitado.") },
       { status: 500 }
     );
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { BackupRunHistory, DeletedRecordSummary, RecoverySummary, RestoreDrillHistory } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { safeErrorMessage } from "@/lib/server/safeError";
 
 type BackupRunRow = {
   id: string;
@@ -191,7 +192,7 @@ export async function GET(request: Request) {
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao montar o resumo de recuperacao." },
+      { error: safeErrorMessage(error, "Falha ao montar o resumo de recuperacao.") },
       { status: 500 }
     );
   }
