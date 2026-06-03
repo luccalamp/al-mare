@@ -158,7 +158,10 @@ export async function GET(request: Request) {
     return authContext;
   }
 
-  const { data, error } = await authContext.admin
+  const { searchParams } = new URL(request.url);
+  const includeArchived = searchParams.get("includeArchived") === "true";
+
+  let query = authContext.admin
     .from("clientes")
     .select(`
       *,
@@ -169,9 +172,13 @@ export async function GET(request: Request) {
       agendamentos (*),
       ficha_anamnese_capilar (*)
     `)
-    .eq("user_id", authContext.userId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .eq("user_id", authContext.userId);
+
+  if (!includeArchived) {
+    query = query.is("deleted_at", null);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) {
     return buildClientReadError(error);

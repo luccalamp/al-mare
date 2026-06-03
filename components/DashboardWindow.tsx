@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Client } from "@/types";
 import BrandLogo from "@/components/BrandLogo";
 import RecoveryConsole from "@/components/RecoveryConsole";
@@ -179,13 +179,23 @@ const RenderLegend = ({ payload }: { payload?: LegendPayload[] }) => {
 };
 
 export default function DashboardWindow({ clients, onClose }: DashboardWindowProps) {
+  const [allClients, setAllClients] = useState<Client[] | null>(null);
   const [preset, setPreset] = useState<DatePreset>("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
+  useEffect(() => {
+    fetch("/api/clients?includeArchived=true")
+      .then((res) => res.json())
+      .then((data) => setAllClients(data.clients || []))
+      .catch(() => setAllClients([]));
+  }, []);
+
+  const effectiveClients = allClients ?? clients;
+
   const periodComparison = useMemo(
-    () => computePeriodComparison(clients, preset),
-    [clients, preset]
+    () => computePeriodComparison(effectiveClients, preset),
+    [effectiveClients, preset]
   );
 
   const metrics = useMemo(() => {
@@ -197,11 +207,11 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
     const proceduresByMonth: Record<string, number> = {};
     const topProcedures: Record<string, { count: number; revenue: number }> = {};
 
-    const filteredPatients = clients.filter((client) =>
+    const filteredPatients = effectiveClients.filter((client) =>
       isWithinRange(client.createdAt, preset, customStart, customEnd)
     );
 
-    clients.forEach((client) => {
+    effectiveClients.forEach((client) => {
       client.colorimetrias.forEach((procedure) => {
         if (!isWithinRange(procedure.data, preset, customStart, customEnd)) return;
 
@@ -258,7 +268,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
     let totalHomecarePago = 0;
     let totalHomecarePendente = 0;
     let totalHomecareCount = 0;
-    clients.forEach((client) => {
+    effectiveClients.forEach((client) => {
       client.homecare.forEach((h) => {
         totalHomecareCount += 1;
         if (h.pago) {
