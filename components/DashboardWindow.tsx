@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Client } from "@/types";
 import BrandLogo from "@/components/BrandLogo";
+import ChartSurface from "@/components/charts/ChartSurface";
 import RecoveryConsole from "@/components/RecoveryConsole";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -38,9 +39,56 @@ interface DashboardWindowProps {
   onClose: () => void;
 }
 
+type AnalyticsClient = Pick<Client, "id" | "profile" | "colorimetrias" | "homecare" | "createdAt" | "updatedAt">;
+
+type DashboardProcedureRow = {
+  id: string;
+  created_at: string;
+  tecnica_utilizada?: string;
+  altura_clareamento: number;
+  fundo_clareamento_obtido: string;
+  mistura_tonalizante: string;
+  volumagem_ox: string;
+  valor_procedimento?: number;
+  deleted_at?: string | null;
+};
+
+type DashboardHomecareRow = {
+  id: string;
+  created_at: string;
+  produtos_recomendados: string;
+  data_retorno_sugerida?: string;
+  obs_cuidados?: string;
+  valor_total?: number | null;
+  forma_pagamento?: "normal" | "avista" | "parcelado";
+  parcelas?: number | null;
+  pago?: boolean;
+  confirmado_em?: string | null;
+  deleted_at?: string | null;
+};
+
+type DashboardClientRow = {
+  id: string;
+  nome?: string;
+  whatsapp?: string;
+  canal_aquisicao?: string;
+  created_at: string;
+  updated_at: string;
+  historico_procedimentos?: DashboardProcedureRow[] | null;
+  manutencao_homecare?: DashboardHomecareRow[] | null;
+};
+
+type DashboardClientsResponse = {
+  clients?: DashboardClientRow[];
+};
+
 type DatePreset = "7d" | "30d" | "all" | "custom";
 
 const CHART_COLORS = ["#7A4921", "#A56D3A", "#D2A679", "#5D7A63", "#B98555", "#8C5B2F"];
+const EMPTY_PROFILE: Client["profile"] = {
+  nome: "",
+  whatsapp: "",
+};
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(value);
@@ -48,6 +96,15 @@ function formatCurrency(value: number) {
 
 function formatCurrencyFull(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function normalizeAnalyticsClient(client: AnalyticsClient): AnalyticsClient {
+  return {
+    ...client,
+    profile: client.profile ?? EMPTY_PROFILE,
+    colorimetrias: Array.isArray(client.colorimetrias) ? client.colorimetrias : [],
+    homecare: Array.isArray(client.homecare) ? client.homecare : [],
+  };
 }
 
 function isWithinRange(value: string, preset: DatePreset, startDate: string, endDate: string) {
@@ -84,7 +141,7 @@ type PeriodComparison = {
 };
 
 function computePeriodComparison(
-  clients: Client[],
+  clients: AnalyticsClient[],
   preset: DatePreset
 ): PeriodComparison {
   const now = new Date();
@@ -179,19 +236,67 @@ const RenderLegend = ({ payload }: { payload?: LegendPayload[] }) => {
 };
 
 export default function DashboardWindow({ clients, onClose }: DashboardWindowProps) {
-  const [allClients, setAllClients] = useState<Client[] | null>(null);
+  const [allClients, setAllClients] = useState<AnalyticsClient[] | null>(null);
   const [preset, setPreset] = useState<DatePreset>("30d");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
   useEffect(() => {
     fetch("/api/clients?includeArchived=true")
-      .then((res) => res.json())
-      .then((data) => setAllClients(data.clients || []))
+      .then((res) => res.json() as Promise<DashboardClientsResponse>)
+      .then((data) => {
+        const rawClients = Array.isArray(data.clients) ? data.clients : [];
+        // Transform raw DB rows to Client format (similar to mapDbClients)
+        const transformed = rawClients.map<AnalyticsClient>((row) => ({
+          id: row.id,
+          profile: {
+            ...EMPTY_PROFILE,
+            nome: row.nome || "",
+            whatsapp: row.whatsapp || "",
+            acquisitionChannel: row.canal_aquisicao || undefined,
+          },
+          colorimetrias: Array.isArray(row.historico_procedimentos)
+            ? row.historico_procedimentos
+                .filter((item) => !item.deleted_at)
+                .map((c) => ({
+                  id: c.id,
+                  data: c.created_at,
+                  tecnicaUtilizada: c.tecnica_utilizada || "",
+                  alturaClareamento: c.altura_clareamento,
+                  fundoClareamentoObtido: c.fundo_clareamento_obtido,
+                  misturaTonalizante: c.mistura_tonalizante,
+                  volumagemOx: c.volumagem_ox,
+                  valor: c.valor_procedimento,
+                }))
+            : [],
+          homecare: Array.isArray(row.manutencao_homecare)
+            ? row.manutencao_homecare
+                .filter((item) => !item.deleted_at)
+                .map((m) => ({
+                  id: m.id,
+                  data: m.created_at,
+                  produtosRecomendados: m.produtos_recomendados,
+                  dataRetornoSugerida: m.data_retorno_sugerida,
+                  obsCuidados: m.obs_cuidados,
+                  valorTotal: m.valor_total ?? undefined,
+                  formaPagamento: m.forma_pagamento ?? undefined,
+                  parcelas: m.parcelas ?? undefined,
+                  pago: m.pago ?? undefined,
+                  confirmadoEm: m.confirmado_em ?? undefined,
+                }))
+            : [],
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+        setAllClients(transformed);
+      })
       .catch(() => setAllClients([]));
   }, []);
 
-  const effectiveClients = allClients ?? clients ?? [];
+  const effectiveClients = useMemo(
+    () => (allClients ?? clients ?? []).map(normalizeAnalyticsClient),
+    [allClients, clients]
+  );
 
   const periodComparison = useMemo(
     () => computePeriodComparison(effectiveClients, preset),
@@ -436,7 +541,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                   {metrics.revenueData.length} períodos · Total {formatCurrencyFull(metrics.totalRevenue)}
                 </p>
                 {metrics.revenueData.length > 0 ? (
-                  <div className="h-64 w-full" style={{ minHeight: "16rem" }}>
+                  <ChartSurface className="h-64 w-full min-w-0" minHeight="16rem">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                       <AreaChart data={metrics.revenueData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
                         <defs>
@@ -464,7 +569,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                         />
                       </AreaChart>
                     </ResponsiveContainer>
-                  </div>
+                  </ChartSurface>
                 ) : (
                   <div className="h-64 flex items-center justify-center text-gray-400 text-sm font-medium">
                     Nenhum dado no período selecionado
@@ -479,8 +584,8 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                   <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Rentabilidade por Procedimento</h3>
                   <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.profitabilityData.length} técnicas</p>
                   {metrics.profitabilityData.length > 0 ? (
-                    <div className="h-56 w-full" style={{ minHeight: "14rem" }}>
-                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+                    <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
                         <PieChart>
                           <Pie
                             data={metrics.profitabilityData}
@@ -498,7 +603,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                           <Legend content={<RenderLegend />} />
                         </PieChart>
                       </ResponsiveContainer>
-                    </div>
+                    </ChartSurface>
                   ) : (
                     <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
                       Nenhum dado no período
@@ -517,8 +622,8 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                   </div>
                   <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.totalClients} pacientes</p>
                   {metrics.leadSourceData.length > 0 ? (
-                    <div className="h-56 w-full" style={{ minHeight: "14rem" }}>
-                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+                    <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
                         <PieChart>
                           <Pie
                             data={metrics.leadSourceData}
@@ -536,7 +641,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                           <Legend content={<RenderLegend />} />
                         </PieChart>
                       </ResponsiveContainer>
-                    </div>
+                    </ChartSurface>
                   ) : (
                     <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
                       Nenhum dado no período
@@ -594,7 +699,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
               <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
                 <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-4 tracking-widest">Procedimentos por Mês</h3>
                 {metrics.proceduresByMonth.length > 0 && metrics.revenueData.length > 1 ? (
-                  <div className="h-56 w-full" style={{ minHeight: "14rem" }}>
+                  <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
                     <ResponsiveContainer width="100%" height="100%" minHeight={180}>
                       <BarChart data={metrics.proceduresByMonth} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                         <XAxis
@@ -624,7 +729,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                         />
                       </BarChart>
                     </ResponsiveContainer>
-                  </div>
+                  </ChartSurface>
                 ) : (
                   <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
                     Dados insuficientes para gráfico mensal

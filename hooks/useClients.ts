@@ -204,9 +204,19 @@ function deriveClientJourney(
 }
 
 function enrichClient(client: Client): Client {
-  return {
+  const normalizedClient = {
     ...client,
-    journey: deriveClientJourney(client),
+    diagnosticos: Array.isArray(client.diagnosticos) ? client.diagnosticos : [],
+    colorimetrias: Array.isArray(client.colorimetrias) ? client.colorimetrias : [],
+    homecare: Array.isArray(client.homecare) ? client.homecare : [],
+    gallery: Array.isArray(client.gallery) ? client.gallery : [],
+    appointments: Array.isArray(client.appointments) ? client.appointments : [],
+    signatures: Array.isArray(client.signatures) ? client.signatures : [],
+  };
+
+  return {
+    ...normalizedClient,
+    journey: deriveClientJourney(normalizedClient),
   };
 }
 

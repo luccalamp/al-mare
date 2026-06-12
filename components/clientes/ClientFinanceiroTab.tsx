@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Client } from "@/types";
+import ChartSurface from "@/components/charts/ChartSurface";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -44,12 +45,21 @@ function formatDate(value?: string) {
 }
 
 export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps) {
+  const colorimetrias = useMemo(
+    () => (Array.isArray(client.colorimetrias) ? client.colorimetrias : []),
+    [client.colorimetrias]
+  );
+  const homecare = useMemo(
+    () => (Array.isArray(client.homecare) ? client.homecare : []),
+    [client.homecare]
+  );
+
   const financeiro = useMemo(() => {
     let totalProcedimentos = 0;
     const revenueBuckets = new Map<string, number>();
     const procedureRevenue: Record<string, number> = {};
 
-    client.colorimetrias.forEach((proc) => {
+    colorimetrias.forEach((proc) => {
       const val = proc.valor || 0;
       totalProcedimentos += val;
       const date = new Date(proc.data);
@@ -59,19 +69,19 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
       procedureRevenue[tech] = (procedureRevenue[tech] || 0) + val;
     });
 
-    const homecarePagos = client.homecare.filter((h) => h.pago);
-    const homecarePendentes = client.homecare.filter((h => h.valorTotal && !h.pago));
+    const homecarePagos = homecare.filter((h) => h.pago);
+    const homecarePendentes = homecare.filter((h) => h.valorTotal && !h.pago);
     const totalHomecarePago = homecarePagos.reduce((s, h) => s + (h.valorTotal || 0), 0);
     const totalHomecarePendente = homecarePendentes.reduce((s, h) => s + (h.valorTotal || 0), 0);
     const receitaTotal = totalProcedimentos + totalHomecarePago;
 
-    return {
-      receitaTotal,
-      totalProcedimentos,
-      totalProcedimentosCount: client.colorimetrias.length,
-      homecarePagos,
-      homecarePendentes,
-      totalHomecarePago,
+      return {
+        receitaTotal,
+        totalProcedimentos,
+        totalProcedimentosCount: colorimetrias.length,
+        homecarePagos,
+        homecarePendentes,
+        totalHomecarePago,
       totalHomecarePendente,
       receitaData: Array.from(revenueBuckets.entries())
         .map(([name, value]) => ({ name, value }))
@@ -84,10 +94,10 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
         { name: "Pendente", value: totalHomecarePendente || 0 },
       ].filter(d => d.value > 0 || d.name === "Pago"),
     };
-  }, [client]);
+  }, [colorimetrias, homecare]);
 
-  const hasProcedimentos = client.colorimetrias.length > 0;
-  const hasHomecare = client.homecare.length > 0;
+  const hasProcedimentos = colorimetrias.length > 0;
+  const hasHomecare = homecare.length > 0;
 
   return (
     <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
@@ -118,7 +128,7 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
             {financeiro.receitaData.length} períodos · Total {formatCurrencyFull(financeiro.receitaTotal)}
           </p>
           {financeiro.receitaData.length > 0 ? (
-            <div className="min-w-0 w-full overflow-hidden" style={{ minHeight: "16rem" }}>
+            <ChartSurface className="min-w-0 w-full overflow-hidden" minHeight="16rem">
               <ResponsiveContainer width="100%" height={256} minWidth={280} minHeight={220}>
                 <AreaChart data={financeiro.receitaData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
                   <defs>
@@ -137,7 +147,7 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
                   <Area type="monotone" dataKey="value" stroke="#7A4921" strokeWidth={2} fill="url(#cliRevGrad)" animationDuration={800} />
                 </AreaChart>
               </ResponsiveContainer>
-            </div>
+            </ChartSurface>
           ) : (
             <div className="h-64 flex items-center justify-center text-gray-400 text-sm font-medium">Nenhum procedimento registrado</div>
           )}
@@ -147,9 +157,9 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
         <div className="grid min-w-0 gap-8">
           <div className="min-w-0 rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
             <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Status dos Pagamentos</h3>
-            <p className="text-[10px] text-gray-500 mb-2 font-medium">{client.homecare.length} prescrições</p>
+            <p className="text-[10px] text-gray-500 mb-2 font-medium">{homecare.length} prescrições</p>
             {financeiro.pagamentoData.some(d => d.value > 0) ? (
-              <div className="min-w-0 w-full overflow-hidden" style={{ minHeight: "14rem" }}>
+              <ChartSurface className="min-w-0 w-full overflow-hidden" minHeight="14rem">
                 <ResponsiveContainer width="100%" height={224} minWidth={240} minHeight={180}>
                   <PieChart>
                     <Pie data={financeiro.pagamentoData} innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" animationDuration={800}>
@@ -164,7 +174,7 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
                     />
                   </PieChart>
                 </ResponsiveContainer>
-              </div>
+              </ChartSurface>
             ) : (
               <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">Nenhum homecare cadastrado</div>
             )}
@@ -189,12 +199,12 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xs font-bold text-[#1d1d1f] uppercase tracking-widest">Procedimentos Realizados</h3>
           <span className="rounded-full bg-[var(--color-brand-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--color-brand-deep)]">
-            {client.colorimetrias.length}
+            {colorimetrias.length}
           </span>
         </div>
         {hasProcedimentos ? (
           <div className="space-y-3">
-            {client.colorimetrias.map((proc) => (
+            {colorimetrias.map((proc) => (
               <div key={proc.id} className="flex items-center justify-between rounded-2xl border border-[var(--color-brand-line)] bg-white/70 p-3">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-[var(--color-text)] truncate">{proc.tecnicaUtilizada}</p>
@@ -219,12 +229,12 @@ export default function ClientFinanceiroTab({ client }: ClientFinanceiroTabProps
             <h3 className="text-xs font-bold text-[#1d1d1f] uppercase tracking-widest">Prescrições Homecare</h3>
           </div>
           <span className="rounded-full bg-[var(--color-brand-soft)] px-3 py-1 text-[11px] font-semibold text-[var(--color-brand-deep)]">
-            {client.homecare.length}
+            {homecare.length}
           </span>
         </div>
         {hasHomecare ? (
           <div className="space-y-3">
-            {client.homecare.map((h) => (
+            {homecare.map((h) => (
               <div key={h.id} className="flex items-center justify-between rounded-2xl border border-[var(--color-brand-line)] bg-white/70 p-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-[var(--color-text)] truncate">{h.produtosRecomendados}</p>
