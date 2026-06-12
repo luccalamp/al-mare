@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { isSupabasePublicConfigConfigured } from "@/lib/supabase/config";
 import type { User } from "@supabase/supabase-js";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -108,9 +109,46 @@ function clearGoogleLoginIntent() {
   }
 }
 
+function MissingSupabaseConfigScreen() {
+  return (
+    <AlmareLayout
+      kicker="Configuracao"
+      title="Supabase pendente."
+      description="O sistema esta de pe, mas precisa das credenciais publicas do Supabase para autenticar e carregar dados."
+    >
+      <div className="flex items-center justify-between gap-3">
+        <BrandLogo compact subtitle={false} priority />
+        <span className="premium-chip text-xs font-semibold">
+          <AlertCircle size={14} />
+          Acao necessaria
+        </span>
+      </div>
+
+      <div className="mt-10">
+        <p className="premium-kicker">
+          <ShieldCheck size={14} />
+          Ambiente protegido
+        </p>
+        <h2 className="premium-title mt-4 text-4xl font-semibold leading-none sm:text-[3.2rem]">
+          Conexao pausada.
+        </h2>
+        <p className="premium-subtitle mt-4 text-sm sm:text-base">
+          Preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+          ou `NEXT_PUBLIC_SUPABASE_ANON_KEY` no `.env.local` e reinicie o servidor.
+        </p>
+      </div>
+
+      <div className="premium-card mt-8 rounded-[1.4rem] p-4 text-sm text-[var(--color-text-secondary)]">
+        Nenhuma alteracao de dados foi executada. O app bloqueou a autenticacao para evitar uma falha em branco no navegador.
+      </div>
+    </AlmareLayout>
+  );
+}
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const router = useRouter();
+  const supabaseConfigured = isSupabasePublicConfigConfigured();
 
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -130,7 +168,13 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const googleLoginPendingRef = useRef(false);
   const isGoogleOAuthRef = useRef(false);
 
-  async function checkAuth() {
+  const checkAuth = useCallback(async () => {
+    if (!supabaseConfigured) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     if (checkingAuthRef.current) return;
     checkingAuthRef.current = true;
     setLoading(true);
@@ -143,9 +187,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setLoading(false);
       checkingAuthRef.current = false;
     }
-  }
+  }, [supabaseConfigured]);
 
   useEffect(() => {
+    if (!supabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+
     const handleAuthCallback = async () => {
       if (typeof window === "undefined") return;
 
@@ -316,8 +365,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [checkAuth, supabaseConfigured]);
 
   useEffect(() => {
     if (!loading && pathname === "/login" && user && !pending2FAActive) {
@@ -330,11 +378,20 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  if (!supabaseConfigured) {
+    return <MissingSupabaseConfigScreen />;
+  }
+
   async function signInWithPassword(e?: React.FormEvent) {
     if (e) e.preventDefault();
 
     setMessage(null);
     setTwoFAMessage(null);
+
+    if (!supabaseConfigured) {
+      setMessage("Configure o Supabase antes de iniciar sessao.");
+      return;
+    }
 
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -378,6 +435,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   async function verify2FA(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    if (!supabaseConfigured) {
+      setTwoFAMessage("Configure o Supabase antes de validar o codigo.");
+      return;
+    }
+
     if (!twoFACode || twoFACode.length < 6) {
       setTwoFAMessage("Digite o código de 6 dígitos.");
       return;
@@ -431,6 +493,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   async function signInWithGoogle() {
     setMessage(null);
+
+    if (!supabaseConfigured) {
+      setMessage("Configure o Supabase antes de iniciar sessao.");
+      return;
+    }
 
     setAuthBusy(true);
     setGoogleLoginIntent();

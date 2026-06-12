@@ -26,14 +26,14 @@ export default function AlmareLayout({
     <div className="relative flex min-h-[var(--app-dvh)] items-center justify-center overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
-          animate={{ rotate: [0, 360], scale: [1, 1.08, 1] }}
-          transition={{ duration: 44, repeat: Infinity, ease: "linear" }}
-          className="absolute -right-[14%] -top-[16%] h-[38rem] w-[38rem] rounded-full bg-[radial-gradient(circle,rgba(200,157,105,0.28)_0%,rgba(200,157,105,0.02)_62%,transparent_72%)] blur-3xl"
+          animate={{ x: [0, 18, 0], opacity: [0.85, 1, 0.85] }}
+          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute inset-x-[-12%] top-[-10%] h-64 bg-[linear-gradient(110deg,rgba(255,255,255,0.68),rgba(82,123,99,0.16),rgba(220,196,158,0.14),transparent)] blur-2xl"
         />
         <motion.div
-          animate={{ rotate: [360, 0], scale: [1, 1.14, 1] }}
-          transition={{ duration: 52, repeat: Infinity, ease: "linear" }}
-          className="absolute -bottom-[20%] -left-[8%] h-[34rem] w-[34rem] rounded-full bg-[radial-gradient(circle,rgba(92,117,100,0.18)_0%,rgba(92,117,100,0.02)_60%,transparent_74%)] blur-3xl"
+          animate={{ x: [0, -16, 0], opacity: [0.7, 0.95, 0.7] }}
+          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute inset-x-[-10%] bottom-[-12%] h-72 bg-[linear-gradient(70deg,transparent,rgba(49,92,72,0.14),rgba(255,255,255,0.58))] blur-2xl"
         />
       </div>
 

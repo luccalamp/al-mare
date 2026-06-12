@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Sparkles, FolderOpen, Activity, RefreshCw, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Sparkles, FolderOpen, Activity, RefreshCw, CheckCircle2, AlertTriangle, X, Settings, BookOpen } from "lucide-react";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
 import AppIcon from "@/components/AppIcon";
@@ -162,8 +162,8 @@ export default function HomePage() {
     <div className="relative min-h-[var(--app-dvh)] pb-4">
       <header className="app-sticky-header px-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4">
         <div
-          className="mx-auto flex h-16 max-w-7xl items-center rounded-b-2xl px-5"
-          style={{ backgroundColor: "rgba(244, 236, 223, 0.85)" }}
+          className="mx-auto flex h-16 max-w-7xl items-center rounded-b-2xl border border-white/70 px-5 shadow-[0_18px_48px_rgba(32,54,43,0.08)]"
+          style={{ backgroundColor: "rgba(255, 255, 255, 0.78)", backdropFilter: "blur(18px)" }}
         >
           <div className="flex items-center gap-3">
             <BrandLogo compact subtitle={false} priority />
@@ -196,7 +196,7 @@ export default function HomePage() {
                     <Sparkles size={14} />
                     Operação
                   </p>
-                  <h1 className="premium-heading mt-4 max-w-4xl text-[clamp(2.8rem,5vw,4.9rem)]">
+                  <h1 className="premium-heading mt-4 max-w-4xl text-5xl lg:text-6xl xl:text-7xl">
                     {baseTitle}
                   </h1>
                 </div>
@@ -242,15 +242,46 @@ export default function HomePage() {
                       Arquivos internos
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenBrandingSettings}
+                    className="premium-button-secondary inline-flex items-center gap-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <Settings size={16} />
+                      Personalizar
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenGuide}
+                    className="premium-button-secondary inline-flex items-center gap-2 px-5 py-3 text-sm"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      <BookOpen size={16} />
+                      Guia
+                    </span>
+                  </button>
                 </div>
               </div>
 
               <div className="workspace-aside-card p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Situação</p>
-                  <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
-                    {snapshotStatusLabel}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
+                      {snapshotStatusLabel}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleManualSync}
+                      disabled={syncStatus === "syncing"}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--color-brand-line)] bg-white/80 text-[var(--color-brand-deep)] shadow-[0_10px_24px_rgba(32,54,43,0.08)] transition hover:bg-white disabled:opacity-50"
+                      title="Sincronizar agora"
+                    >
+                      <RefreshCw size={15} className={syncStatus === "syncing" ? "animate-spin" : ""} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
@@ -388,6 +419,20 @@ export default function HomePage() {
                   selected={selectedId === "dashboard"}
                   onClick={() => setSelectedId("dashboard")}
                   onDoubleClick={() => setShowDashboard(true)}
+                />
+                <AppIcon
+                  label="Personalizar"
+                  caption="Identidade"
+                  selected={selectedId === "settings"}
+                  onClick={() => setSelectedId("settings")}
+                  onDoubleClick={handleOpenBrandingSettings}
+                />
+                <AppIcon
+                  label="Guia"
+                  caption="Fluxo de uso"
+                  selected={selectedId === "guide"}
+                  onClick={() => setSelectedId("guide")}
+                  onDoubleClick={handleOpenGuide}
                 />
               </div>
             </div>

@@ -28,7 +28,7 @@ function AppIcon({
       className={`folder-item group flex flex-col items-center gap-2 rounded-[1.7rem] p-2.5 cursor-pointer select-none transition-all duration-200
         ${
           selected
-            ? "border-[rgba(122,73,33,0.18)] bg-[linear-gradient(180deg,rgba(255,251,247,0.92),rgba(248,238,227,0.72))] shadow-[0_18px_38px_rgba(122,73,33,0.12)]"
+            ? "border-[rgba(49,92,72,0.2)] bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(234,242,234,0.78))] shadow-[0_18px_38px_rgba(49,92,72,0.12)]"
             : "hover:bg-white/30"
         }`}
       role="button"
@@ -55,8 +55,8 @@ function AppIcon({
             />
             <defs>
               <linearGradient id="appBgGradient" x1="15" y1="15" x2="85" y2="85" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#D2A679" />
-                <stop offset="100%" stopColor="#7A4921" />
+                <stop offset="0%" stopColor="#8FBF9A" />
+                <stop offset="100%" stopColor="#315C48" />
               </linearGradient>
             </defs>
           </svg>

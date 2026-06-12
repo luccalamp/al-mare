@@ -352,7 +352,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   const authContext = await requireAuthorizedStaff(request, {
-    forbiddenMessage: "Seu acesso não permite excluir registros clínicos.",
+    forbiddenMessage: "Seu acesso não permite arquivar registros clínicos.",
   });
   if (authContext instanceof NextResponse) {
     return authContext;
@@ -364,7 +364,7 @@ export async function DELETE(request: Request) {
   const clientId = url.searchParams.get("clientId");
 
   if (!action || !recordId || !clientId) {
-    return buildJsonError("Parâmetros inválidos para exclusão.", 400);
+    return buildJsonError("Parâmetros inválidos para arquivamento.", 400);
   }
 
   const access = await requireClientAccess(
@@ -379,20 +379,30 @@ export async function DELETE(request: Request) {
 
   switch (action) {
     case "procedimento": {
-      const { error } = await authContext.admin
+      const { data, error } = await authContext.admin
         .from("historico_procedimentos")
-        .delete()
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: authContext.userId,
+          delete_reason: "Arquivamento do procedimento via prontuario da paciente.",
+          restored_at: null,
+          restored_by: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", recordId)
-        .eq("cliente_id", clientId);
+        .eq("cliente_id", clientId)
+        .is("deleted_at", null)
+        .select("id")
+        .maybeSingle();
 
-      if (error) {
-        return buildRecordError(error, "Não foi possível excluir o procedimento.");
+      if (error || !data) {
+        return buildRecordError(error, "Não foi possível arquivar o procedimento.");
       }
 
       return NextResponse.json({ success: true });
     }
 
     default:
-      return buildJsonError("Ação de exclusão não suportada.", 400);
+      return buildJsonError("Ação de arquivamento não suportada.", 400);
   }
 }

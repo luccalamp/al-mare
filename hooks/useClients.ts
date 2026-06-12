@@ -947,7 +947,7 @@ export function useClients() {
       throw new Error(
         payload?.error && typeof payload.error === "string"
           ? payload.error
-          : "Falha ao excluir procedimento."
+          : "Falha ao arquivar procedimento."
       );
     }
 

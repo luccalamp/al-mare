@@ -11,6 +11,7 @@ import {
   writeBrandingConfigCache,
 } from "@/lib/brandingConfig";
 import { supabase } from "@/lib/supabaseClient";
+import { isSupabasePublicConfigConfigured } from "@/lib/supabase/config";
 
 type BrandingConfigContextValue = {
   config: BrandingConfig;
@@ -25,8 +26,15 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
   const [config, setConfig] = useState<BrandingConfig>(() => readBrandingConfigCache(null));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const canUseSupabase = isSupabasePublicConfigConfigured();
 
   useEffect(() => {
+    if (!canUseSupabase) {
+      setConfig(readBrandingConfigCache(null));
+      setLoading(false);
+      return;
+    }
+
     let active = true;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -119,7 +127,7 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         void supabase.removeChannel(channel);
       }
     };
-  }, []);
+  }, [canUseSupabase]);
 
   const saveConfig = useCallback(
     async (nextConfig: BrandingConfig) => {

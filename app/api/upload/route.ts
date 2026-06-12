@@ -3,7 +3,7 @@ import { normalizePhotoCategory } from "@/lib/photos";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
-import { deleteManagedPhoto } from "@/lib/server/photoStorage";
+import { archivePhoto } from "@/lib/server/recovery";
 import { uploadToS3, deleteFromS3, buildS3ProxyUrl, getS3StorageBucketLabel } from "@/lib/server/s3";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
@@ -217,8 +217,13 @@ export async function POST(req: NextRequest) {
         .eq("user_id", auth.userId);
 
       if (clientError) {
-        await supabase.from("client_photos").delete().eq("id", savedPhoto.id);
-        await deleteFromS3(uploadResult.objectKey).catch(() => {});
+        await archivePhoto(
+          savedPhoto.id,
+          auth.userId,
+          "Rollback recuperavel do upload apos falha ao atualizar foto do paciente."
+        ).catch((archiveError) => {
+          console.error("Failed to archive uploaded photo after client update error:", archiveError);
+        });
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
     }
@@ -257,35 +262,11 @@ export async function DELETE(req: NextRequest) {
       return access.response || buildJsonError("Imagem invalida para esta operacao.", 404);
     }
 
-    if (access.photoRecord.storagePath) {
-      await deleteManagedPhoto(access.photoRecord.storageBucket, access.photoRecord.storagePath);
-    }
-
-    const supabase = createSupabaseAdminClient();
-    const { error: photoDeleteError } = await supabase
-      .from("client_photos")
-      .delete()
-      .eq("id", access.photoRecord.id);
-
-    if (photoDeleteError) {
-      console.error("Failed to delete stored photo reference:", photoDeleteError);
-    }
-
-    const { error: profileResetError } = await supabase
-      .from("clientes")
-      .update({
-        photo_url: null,
-        profile_photo_storage_bucket: null,
-        profile_photo_storage_path: null,
-      })
-      .eq("id", access.photoRecord.clientId)
-      .eq("user_id", auth.userId)
-      .eq("profile_photo_storage_bucket", access.photoRecord.storageBucket)
-      .eq("profile_photo_storage_path", access.photoRecord.storagePath);
-
-    if (profileResetError) {
-      console.error("Failed to clear deleted profile photo:", profileResetError);
-    }
+    await archivePhoto(
+      access.photoRecord.id,
+      auth.userId,
+      "Rollback recuperavel de upload enviado antes da conclusao da operacao."
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {

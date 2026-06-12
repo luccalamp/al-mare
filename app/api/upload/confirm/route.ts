@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { getS3StorageBucketLabel } from "@/lib/server/s3";
 import { normalizePhotoCategory } from "@/lib/photos";
 import { safeErrorMessage } from "@/lib/server/safeError";
+import { archivePhoto } from "@/lib/server/recovery";
 
 export async function POST(req: NextRequest) {
   const authContext = await requireAuthorizedStaff(req, {
@@ -68,7 +69,13 @@ export async function POST(req: NextRequest) {
         .eq("user_id", authContext.userId);
 
       if (clientError) {
-        await supabase.from("client_photos").delete().eq("id", savedPhoto.id);
+        await archivePhoto(
+          savedPhoto.id,
+          authContext.userId,
+          "Rollback recuperavel do upload apos falha ao atualizar foto do paciente."
+        ).catch((archiveError) => {
+          console.error("Failed to archive confirmed photo after client update error:", archiveError);
+        });
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
     }

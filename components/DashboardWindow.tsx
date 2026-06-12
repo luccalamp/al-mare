@@ -294,7 +294,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
       totalHomecarePendente,
       totalHomecareCount,
     };
-  }, [clients, customEnd, customStart, preset]);
+  }, [customEnd, customStart, effectiveClients, preset]);
 
   const TrendIcon = periodComparison.trend === "up"
     ? ArrowUpRight
