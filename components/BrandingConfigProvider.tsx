@@ -158,10 +158,10 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
 
   const cssVariables = `
     :root {
-      --color-accent: ${config.themeColorPrimary || "#8c5a2d"};
-      --color-brand-accent: ${config.themeColorPrimary || "#8c5a2d"};
-      --color-brand-deep: ${config.themeColorPrimary || "#7a4921"};
-      --color-text: ${config.themeColorText || "#4f2f19"};
+      --color-accent: ${config.themeColorPrimary || "#527b63"};
+      --color-brand-accent: ${config.themeColorPrimary || "#527b63"};
+      --color-brand-deep: ${config.themeColorPrimary || "#315c48"};
+      --color-text: ${config.themeColorText || "#1d1d1f"};
       --color-glass-bg: rgba(255, 255, 255, ${config.themeGlassOpacity ?? 0.62});
       --theme-border-radius: ${
         config.themeBorderRadius === "sharp"

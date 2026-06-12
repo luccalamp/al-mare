@@ -191,7 +191,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
       .catch(() => setAllClients([]));
   }, []);
 
-  const effectiveClients = allClients ?? clients;
+  const effectiveClients = allClients ?? clients ?? [];
 
   const periodComparison = useMemo(
     () => computePeriodComparison(effectiveClients, preset),
@@ -437,7 +437,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                 </p>
                 {metrics.revenueData.length > 0 ? (
                   <div className="h-64 w-full" style={{ minHeight: "16rem" }}>
-                    <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                       <AreaChart data={metrics.revenueData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
                         <defs>
                           <linearGradient id="revGradient" x1="0" y1="0" x2="0" y2="1">
@@ -480,7 +480,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                   <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.profitabilityData.length} técnicas</p>
                   {metrics.profitabilityData.length > 0 ? (
                     <div className="h-56 w-full" style={{ minHeight: "14rem" }}>
-                      <ResponsiveContainer width="100%" height="100%" minHeight={180}>
+                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
                         <PieChart>
                           <Pie
                             data={metrics.profitabilityData}
@@ -518,7 +518,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                   <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.totalClients} pacientes</p>
                   {metrics.leadSourceData.length > 0 ? (
                     <div className="h-56 w-full" style={{ minHeight: "14rem" }}>
-                      <ResponsiveContainer width="100%" height="100%" minHeight={180}>
+                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
                         <PieChart>
                           <Pie
                             data={metrics.leadSourceData}
