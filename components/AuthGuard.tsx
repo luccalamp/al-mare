@@ -749,9 +749,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                   : shouldRenderPasswordUpdateForm
                   ? "Defina sua nova senha. Depois vamos pedir um novo login com 2FA."
                   : loginMode === "forgot-password"
-                  ? "Informe o e-mail cadastrado para receber o link de redefiniÃ§Ã£o."
+                  ? "Informe o e-mail cadastrado para receber o link de redefinição."
                   : shouldRenderPasswordLinkInfo
-                  ? "Use o link enviado por e-mail para continuar com seguranÃ§a."
+                  ? "Use o link enviado por e-mail para continuar com segurança."
                   : "Informe seus dados para acessar."}
               </p>
             </div>
