@@ -7,6 +7,7 @@ import {
   sendAccessRequestAdminNotificationEmail,
   sendAccessRequestReceiptEmail,
 } from "@/lib/server/accessEmails";
+import { buildTrustedAppUrl } from "@/lib/server/trustedOrigin";
 
 const requestSchema = z.object({
   fullName: z.string().trim().min(3, "Informe seu nome completo.").max(120, "Nome muito longo."),
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sua conta autenticada não possui um email válido." }, { status: 400 });
   }
 
-  const adminReviewUrl = new URL("/admin/acessos", request.url).toString();
+  const adminReviewUrl = buildTrustedAppUrl("/admin/acessos", request);
   const requestSnapshot = buildAccessRequestIdentitySnapshot(authContext.user, {
     fullName: parsedBody.data.fullName,
     phone: parsedBody.data.phone,

@@ -86,8 +86,6 @@ export async function POST(request: Request) {
       consentimentoImagem,
     };
 
-    console.log("[portal/pre-consulta] Calling RPC with token:", clientData.token_pre_consulta);
-
     const { data: submitData, error: submitError } = await supabase.rpc("submit_pre_consultation", {
       p_token: clientData.token_pre_consulta,
       p_payload: payload,
@@ -95,7 +93,7 @@ export async function POST(request: Request) {
 
     if (submitError) {
       console.error("[portal/pre-consulta] RPC error:", JSON.stringify(submitError));
-      return NextResponse.json({ error: `Erro ao enviar avaliação: ${submitError.message || "erro desconhecido"}` }, { status: 500 });
+      return NextResponse.json({ error: "Nao foi possivel enviar a avaliacao agora." }, { status: 500 });
     }
 
     const result = Array.isArray(submitData) ? submitData[0] : null;

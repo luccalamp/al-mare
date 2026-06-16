@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAdminRequest, resolveOperationActor } from "@/lib/server/requestGuards";
 import { sendAccessApprovedEmail } from "@/lib/server/accessEmails";
+import { buildTrustedAppUrl } from "@/lib/server/trustedOrigin";
 
 const updateRequestSchema = z.object({
   id: z.string().uuid(),
@@ -77,7 +78,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (status === "approved") {
-      const setupPasswordRedirectUrl = new URL("/login?mode=setup-password", request.url).toString();
+      const setupPasswordRedirectUrl = buildTrustedAppUrl("/login?mode=setup-password", request);
       const { data: magicLinkData, error: magicLinkError } = await admin.auth.admin.generateLink({
         type: "magiclink",
         email: existing.email,

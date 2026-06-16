@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCronSecret } from "@/lib/server/supabaseAdmin";
+import { requireCronOrAdminRequest } from "@/lib/server/requestGuards";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function POST(req: NextRequest) {
-  const cronSecret = getCronSecret();
-  const authHeader = req.headers.get("authorization")?.replace("Bearer ", "");
-
-  if (!cronSecret || authHeader !== cronSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authResponse = requireCronOrAdminRequest(req);
+  if (authResponse) return authResponse;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createSupabaseAdminClient, readServerEnv } from "@/lib/server/supabaseAdmin";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { buildTrustedAppUrl } from "@/lib/server/trustedOrigin";
 
 type SupabaseGenerateLinkError = {
   code?: string;
@@ -59,12 +60,15 @@ export async function POST(request: Request) {
 
   const resendApiKey = readServerEnv("RESEND_API_KEY");
   if (!resendApiKey) {
-    return NextResponse.json({ error: "RESEND_API_KEY nao configurada." }, { status: 500 });
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[auth/password/reset] RESEND_API_KEY missing");
+    }
+    return NextResponse.json({ error: "Nao foi possivel enviar o link de redefinicao agora." }, { status: 500 });
   }
 
   try {
     const admin = createSupabaseAdminClient();
-    const redirectTo = new URL("/login?mode=reset-password", request.url).toString();
+    const redirectTo = buildTrustedAppUrl("/login?mode=reset-password", request);
     const { data, error } = await admin.auth.admin.generateLink({
       type: "recovery",
       email: normalizedEmail,

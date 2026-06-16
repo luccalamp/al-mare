@@ -3,9 +3,17 @@ import { z } from "zod";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
 
 const postSchema = z.object({
-  key: z.string().min(1),
+  key: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9:_-]+$/),
   payload: z.any(),
 });
+
+function isPayloadSizeAllowed(payload: unknown) {
+  try {
+    return JSON.stringify(payload).length <= 50_000;
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(request: Request) {
   const authContext = await requireAuthorizedStaff(request, {
@@ -47,6 +55,9 @@ export async function POST(request: Request) {
   }
 
   const { key, payload } = parsed.data;
+  if (!isPayloadSizeAllowed(payload)) {
+    return NextResponse.json({ error: "Payload de preferencias muito grande." }, { status: 413 });
+  }
 
   const { error } = await authContext.admin.from("clinic_preferences").upsert(
     {

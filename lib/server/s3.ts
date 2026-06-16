@@ -16,6 +16,7 @@ export interface S3MoveResult {
 }
 
 const S3_STORAGE_BUCKET = "s3";
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 
 type S3Config = {
   region: string;
@@ -94,15 +95,34 @@ function getExtensionFromMime(contentType: string) {
   return "jpg";
 }
 
-export function buildS3ObjectKey(clienteId: string, fileName: string, contentType: string, category?: string | null) {
+export function isSupportedImageMimeType(contentType: string) {
+  return SUPPORTED_IMAGE_MIME_TYPES.has(contentType.trim().toLowerCase());
+}
+
+export function buildS3ClientPrefix(clienteId: string) {
   const safeClientRef = crypto.createHash("sha256").update(clienteId).digest("hex").slice(0, 18);
+  return `almare/clientes/${safeClientRef}/`;
+}
+
+export function isS3ObjectKeyForClient(clienteId: string, objectKey: string) {
+  const normalizedObjectKey = objectKey.trim().replace(/\\/g, "/");
+
+  return Boolean(
+    normalizedObjectKey &&
+      !normalizedObjectKey.includes("..") &&
+      normalizedObjectKey.startsWith(buildS3ClientPrefix(clienteId)) &&
+      /\.(jpe?g|png|webp|avif)$/i.test(normalizedObjectKey)
+  );
+}
+
+export function buildS3ObjectKey(clienteId: string, fileName: string, contentType: string, category?: string | null) {
   const objectStem = sanitizeObjectStem(fileName);
   const extension = getExtensionFromMime(contentType);
   const randomSuffix = crypto.randomUUID().replace(/-/g, "");
   const now = Date.now();
   const categoryFolder = sanitizeCategory(category);
 
-  return `almare/clientes/${safeClientRef}/${categoryFolder}/${now}_${randomSuffix}_${objectStem}.${extension}`;
+  return `${buildS3ClientPrefix(clienteId)}${categoryFolder}/${now}_${randomSuffix}_${objectStem}.${extension}`;
 }
 
 export async function uploadToS3(

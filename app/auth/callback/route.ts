@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
+import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const origin = requestUrl.origin;
+  const origin = getTrustedAppOrigin(request);
 
   if (!code) {
     return NextResponse.redirect(new URL("/login", origin));

@@ -27,7 +27,12 @@ export async function POST(request: Request) {
     }
 
     const stateHash = crypto.createHash("sha256").update(state).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(stateHash), Buffer.from(expectedStateHash))) {
+    const stateHashBuffer = Buffer.from(stateHash);
+    const expectedStateHashBuffer = Buffer.from(expectedStateHash);
+    if (
+      stateHashBuffer.length !== expectedStateHashBuffer.length ||
+      !crypto.timingSafeEqual(stateHashBuffer, expectedStateHashBuffer)
+    ) {
       return NextResponse.json({ error: "State OAuth inválido. Possível tentativa de CSRF." }, { status: 403 });
     }
 

@@ -6,6 +6,8 @@ import { updateSupabaseSession } from "@/lib/supabase/middleware";
 const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback", "/auth/v1/callback", "/auth/callback"];
 const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/auth/password", "/api/portal", "/api/google-calendar/callback"];
 const API_ALLOWED_ORIGIN = "https://jakoliveira.com.br";
+const API_ALLOWED_ORIGIN_FALLBACKS = ["https://www.jakoliveira.com.br"];
+const UNSAFE_API_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function buildCsp(nonce: string) {
   const isDev = process.env.NODE_ENV !== "production";
@@ -81,6 +83,89 @@ function matchesPrefix(pathname: string, prefixes: string[]) {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+function normalizeOrigin(value?: string | null) {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return null;
+  }
+}
+
+function readOriginFromUrlEnv(name: string) {
+  return normalizeOrigin(process.env[name]);
+}
+
+function getAllowedApiOrigins(request: NextRequest) {
+  const origins = new Set<string>([
+    API_ALLOWED_ORIGIN,
+    ...API_ALLOWED_ORIGIN_FALLBACKS,
+  ]);
+
+  const envOrigins = [
+    readOriginFromUrlEnv("NEXT_PUBLIC_BASE_URL"),
+    readOriginFromUrlEnv("BASE_URL"),
+    readOriginFromUrlEnv("NEXT_PUBLIC_APP_URL"),
+    readOriginFromUrlEnv("SITE_URL"),
+    process.env.VERCEL_URL ? normalizeOrigin(`https://${process.env.VERCEL_URL}`) : null,
+  ];
+
+  envOrigins.forEach((origin) => {
+    if (origin) origins.add(origin);
+  });
+
+  if (process.env.NODE_ENV !== "production") {
+    origins.add(request.nextUrl.origin);
+    origins.add("http://localhost:3000");
+    origins.add("http://127.0.0.1:3000");
+  }
+
+  return origins;
+}
+
+function getBrowserRequestOrigin(request: NextRequest) {
+  const origin = normalizeOrigin(request.headers.get("origin"));
+  if (origin) return origin;
+
+  const referer = request.headers.get("referer");
+  return normalizeOrigin(referer);
+}
+
+function hasAllowedApiOrigin(request: NextRequest) {
+  const secFetchSite = request.headers.get("sec-fetch-site")?.toLowerCase();
+  if (secFetchSite === "cross-site") {
+    return false;
+  }
+
+  const origin = getBrowserRequestOrigin(request);
+  if (!origin) {
+    return true;
+  }
+
+  return getAllowedApiOrigins(request).has(origin);
+}
+
+function getTrustedRedirectOrigin(request: NextRequest) {
+  const configuredOrigin =
+    readOriginFromUrlEnv("NEXT_PUBLIC_BASE_URL") ||
+    readOriginFromUrlEnv("BASE_URL") ||
+    readOriginFromUrlEnv("NEXT_PUBLIC_APP_URL") ||
+    readOriginFromUrlEnv("SITE_URL") ||
+    (process.env.VERCEL_URL ? normalizeOrigin(`https://${process.env.VERCEL_URL}`) : null);
+
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  return process.env.NODE_ENV === "production" ? API_ALLOWED_ORIGIN : request.nextUrl.origin;
+}
+
+function buildTrustedRedirectUrl(pathname: string, request: NextRequest) {
+  return new URL(pathname, getTrustedRedirectOrigin(request));
+}
+
 function copyCookies(from: NextResponse, to: NextResponse) {
   from.cookies.getAll().forEach((cookie) => {
     to.cookies.set(cookie);
@@ -115,6 +200,9 @@ function applyResponseHeaders(
 
   if (pathname.startsWith("/api/")) {
     response.headers.set("Access-Control-Allow-Origin", API_ALLOWED_ORIGIN);
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+    response.headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Cron-Secret, X-Admin-Actor");
     appendVaryHeader(response, "Origin");
   }
 
@@ -137,6 +225,21 @@ export async function middleware(request: NextRequest) {
 
   const isApiRoute = pathname.startsWith("/api/");
   const isPublicApiRoute = matchesPrefix(pathname, PUBLIC_API_PREFIXES);
+
+  if (isApiRoute && request.method === "OPTIONS") {
+    return applyResponseHeaders(new NextResponse(null, { status: 204 }), pathname, nonce);
+  }
+
+  if (isApiRoute && UNSAFE_API_METHODS.has(request.method) && !hasAllowedApiOrigin(request)) {
+    return applyResponseHeaders(
+      copyCookies(
+        response,
+        NextResponse.json({ error: "Origem da requisicao nao autorizada." }, { status: 403 })
+      ),
+      pathname,
+      nonce
+    );
+  }
 
   let rateLimit: RateLimitCheck | undefined;
   if (isApiRoute && request.method !== "OPTIONS") {
@@ -183,7 +286,7 @@ export async function middleware(request: NextRequest) {
     const allowsLoginSession = loginMode === "setup-password" || loginMode === "reset-password";
 
     if (user && pathname === "/login" && !allowsLoginSession) {
-      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(new URL("/", request.url))), pathname, nonce);
+      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/", request))), pathname, nonce);
     }
 
     return applyResponseHeaders(response, pathname, nonce);
@@ -193,7 +296,7 @@ export async function middleware(request: NextRequest) {
     return applyResponseHeaders(response, pathname, nonce);
   }
 
-  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(new URL("/login", request.url))), pathname, nonce);
+  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/login", request))), pathname, nonce);
 }
 
 export const config = {

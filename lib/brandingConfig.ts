@@ -53,6 +53,69 @@ function readConfigValue(rawValue: unknown, fallback: string) {
   return trimmedValue || fallback;
 }
 
+function readCssColorValue(rawValue: unknown, fallback: string) {
+  if (typeof rawValue !== "string") {
+    return fallback;
+  }
+
+  const value = rawValue.trim();
+  const isSafeColor =
+    /^#[0-9a-f]{3,8}$/i.test(value) ||
+    /^rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(value) ||
+    /^hsla?\(\s*[\d.]+(?:deg)?\s*,\s*[\d.]+%\s*,\s*[\d.]+%(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(value);
+
+  return isSafeColor ? value : fallback;
+}
+
+function readCssBackgroundValue(rawValue: unknown, fallback: string) {
+  if (typeof rawValue !== "string") {
+    return fallback;
+  }
+
+  const value = rawValue.trim();
+  if (!value || value.length > 240 || /[;{}<>]/.test(value) || /url\s*\(/i.test(value)) {
+    return fallback;
+  }
+
+  const isSafeBackground =
+    readCssColorValue(value, "") === value ||
+    /^linear-gradient\([\w\s.,#%()+-]+\)$/i.test(value) ||
+    /^radial-gradient\([\w\s.,#%()+-]+\)$/i.test(value);
+
+  return isSafeBackground ? value : fallback;
+}
+
+function readLogoUrl(rawValue: unknown) {
+  if (typeof rawValue !== "string") {
+    return DEFAULT_BRANDING_CONFIG.logoUrl;
+  }
+
+  const value = rawValue.trim();
+  if (!value) {
+    return DEFAULT_BRANDING_CONFIG.logoUrl;
+  }
+
+  if (value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/[<>"']/.test(value)) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : DEFAULT_BRANDING_CONFIG.logoUrl;
+  } catch {
+    return DEFAULT_BRANDING_CONFIG.logoUrl;
+  }
+}
+
+function readOpacity(rawValue: unknown, fallback: number | undefined) {
+  const value = typeof rawValue === "number" ? rawValue : fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(1, Math.max(0.2, value));
+}
+
 export function mergeBrandingConfig(raw: unknown): BrandingConfig {
   if (!raw || typeof raw !== "object") {
     return { ...DEFAULT_BRANDING_CONFIG };
@@ -70,11 +133,11 @@ export function mergeBrandingConfig(raw: unknown): BrandingConfig {
     preConsultationTitle: readConfigValue(candidate.preConsultationTitle, DEFAULT_BRANDING_CONFIG.preConsultationTitle),
     preConsultationIntro: readConfigValue(candidate.preConsultationIntro, DEFAULT_BRANDING_CONFIG.preConsultationIntro),
     clinicalRecordLabel: readConfigValue(candidate.clinicalRecordLabel, DEFAULT_BRANDING_CONFIG.clinicalRecordLabel),
-    logoUrl: typeof candidate.logoUrl === "string" ? candidate.logoUrl : DEFAULT_BRANDING_CONFIG.logoUrl,
-    themeColorPrimary: typeof candidate.themeColorPrimary === "string" ? candidate.themeColorPrimary : DEFAULT_BRANDING_CONFIG.themeColorPrimary,
-    themeColorBackground: typeof candidate.themeColorBackground === "string" ? candidate.themeColorBackground : DEFAULT_BRANDING_CONFIG.themeColorBackground,
-    themeColorText: typeof candidate.themeColorText === "string" ? candidate.themeColorText : DEFAULT_BRANDING_CONFIG.themeColorText,
-    themeGlassOpacity: typeof candidate.themeGlassOpacity === "number" ? candidate.themeGlassOpacity : DEFAULT_BRANDING_CONFIG.themeGlassOpacity,
+    logoUrl: readLogoUrl(candidate.logoUrl),
+    themeColorPrimary: readCssColorValue(candidate.themeColorPrimary, DEFAULT_BRANDING_CONFIG.themeColorPrimary || "#8c5a2d"),
+    themeColorBackground: readCssBackgroundValue(candidate.themeColorBackground, DEFAULT_BRANDING_CONFIG.themeColorBackground || "#ffffff"),
+    themeColorText: readCssColorValue(candidate.themeColorText, DEFAULT_BRANDING_CONFIG.themeColorText || "#4f2f19"),
+    themeGlassOpacity: readOpacity(candidate.themeGlassOpacity, DEFAULT_BRANDING_CONFIG.themeGlassOpacity),
     themeBorderRadius:
       typeof candidate.themeBorderRadius === "string" && ["sharp", "rounded", "pill"].includes(candidate.themeBorderRadius)
         ? (candidate.themeBorderRadius as BrandingConfig["themeBorderRadius"])

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { normalizeStoragePathFromRoute } from "@/lib/server/mediaProxy";
 import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
 import { downloadManagedPhoto, isManagedPhotoBucket } from "@/lib/server/photoStorage";
@@ -6,15 +7,24 @@ import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PORTAL_TOKEN_COOKIE = "portal_session_token";
 
 function isMissingColumnError(message?: string) {
   return /column .* does not exist/i.test(message || "");
 }
 
+function readTokenFromCookie() {
+  try {
+    return cookies().get(PORTAL_TOKEN_COOKIE)?.value?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request, { params }: { params: { publicId: string[] } }) {
   try {
     const { searchParams } = new URL(request.url);
-    const token = searchParams.get("token")?.trim();
+    const token = searchParams.get("token")?.trim() || readTokenFromCookie();
 
     if (!token || !UUID_PATTERN.test(token)) {
       return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });

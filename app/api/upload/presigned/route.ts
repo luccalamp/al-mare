@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
-import { buildS3ObjectKey, buildS3ProxyUrl, createS3Client, getS3Config, getS3StorageBucketLabel } from "@/lib/server/s3";
+import {
+  buildS3ObjectKey,
+  buildS3ProxyUrl,
+  createS3Client,
+  getS3Config,
+  getS3StorageBucketLabel,
+  isSupportedImageMimeType,
+} from "@/lib/server/s3";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
 export async function POST(req: NextRequest) {
@@ -20,6 +27,13 @@ export async function POST(req: NextRequest) {
 
     if (!clienteId) {
       return NextResponse.json({ error: "Missing required field: clienteId" }, { status: 400 });
+    }
+
+    if (!isSupportedImageMimeType(mimeType)) {
+      return NextResponse.json(
+        { error: "Formato de imagem nao suportado. Use JPEG, PNG, WebP ou AVIF." },
+        { status: 400 }
+      );
     }
 
     const access = await requireClientAccess(

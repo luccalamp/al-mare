@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { getS3StorageBucketLabel } from "@/lib/server/s3";
+import { buildS3ProxyUrl, getS3StorageBucketLabel, isS3ObjectKeyForClient } from "@/lib/server/s3";
 import { normalizePhotoCategory } from "@/lib/photos";
 import { safeErrorMessage } from "@/lib/server/safeError";
 import { archivePhoto } from "@/lib/server/recovery";
@@ -16,15 +16,14 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const clienteId = (body.clienteId as string)?.trim();
     const objectKey = (body.objectKey as string)?.trim();
-    const proxyUrl = (body.proxyUrl as string)?.trim();
     const recordCategory = normalizePhotoCategory((body.photoCategory as string)?.trim() || body.category);
     const caption = (body.caption as string)?.trim() || null;
     const anotacaoTecnica = (body.anotacaoTecnica as string)?.trim() || null;
     const capturedAt = (body.capturedAt as string)?.trim() || new Date().toISOString();
     const persistClientPhoto = body.persistClientPhoto === true;
 
-    if (!clienteId || !objectKey || !proxyUrl) {
-      return NextResponse.json({ error: "Missing required fields: clienteId, objectKey, proxyUrl" }, { status: 400 });
+    if (!clienteId || !objectKey) {
+      return NextResponse.json({ error: "Missing required fields: clienteId, objectKey" }, { status: 400 });
     }
 
     const access = await requireClientAccess(
@@ -34,6 +33,12 @@ export async function POST(req: NextRequest) {
       "Cliente invalido para esta operacao."
     );
     if (access.response) return access.response;
+
+    if (!isS3ObjectKeyForClient(clienteId, objectKey)) {
+      return NextResponse.json({ error: "Objeto de upload invalido para este paciente." }, { status: 400 });
+    }
+
+    const proxyUrl = buildS3ProxyUrl(objectKey);
 
     const supabase = createSupabaseAdminClient();
 

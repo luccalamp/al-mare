@@ -3,7 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { readServerEnv } from "@/lib/server/supabaseAdmin";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { createSignedJsonCookieValue } from "@/lib/server/signedCookie";
 import crypto from "crypto";
+
+const TWO_FA_COOKIE_SCOPE = "auth:2fa:v1";
 
 function generateOTP(): string {
   return crypto.randomInt(100000, 999999).toString();
@@ -33,7 +36,10 @@ export async function POST(request: Request) {
   try {
     const resendApiKey = readServerEnv("RESEND_API_KEY");
     if (!resendApiKey) {
-      return NextResponse.json({ error: "RESEND_API_KEY não configurada." }, { status: 500 });
+      if (process.env.NODE_ENV !== "production") {
+        console.error("2fa send: RESEND_API_KEY missing");
+      }
+      return NextResponse.json({ error: "Nao foi possivel enviar o codigo de verificacao." }, { status: 500 });
     }
 
     const supabaseUrl = readServerEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -41,7 +47,10 @@ export async function POST(request: Request) {
       readServerEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") || readServerEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
     if (!supabaseUrl || !supabasePublishableKey) {
-      return NextResponse.json({ error: "Credenciais públicas do Supabase não configuradas." }, { status: 500 });
+      if (process.env.NODE_ENV !== "production") {
+        console.error("2fa send: Supabase public config missing");
+      }
+      return NextResponse.json({ error: "Nao foi possivel enviar o codigo de verificacao." }, { status: 500 });
     }
 
     if (!isGoogleOAuth) {
@@ -72,7 +81,11 @@ export async function POST(request: Request) {
     const codeHash = hashOTP(code);
     const expiresAt = Date.now() + 60 * 60 * 1000;
 
-    const payload = Buffer.from(JSON.stringify({ email: normalizedEmail, hash: codeHash, exp: expiresAt })).toString("base64");
+    const payload = createSignedJsonCookieValue(TWO_FA_COOKIE_SCOPE, {
+      email: normalizedEmail,
+      hash: codeHash,
+      exp: expiresAt,
+    });
 
     const response = NextResponse.json({ sent: true });
 

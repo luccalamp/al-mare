@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminOperationsToken, getCronSecret } from "@/lib/server/supabaseAdmin";
+import crypto from "crypto";
 
 const ADMIN_TOKEN_COOKIE = "admin_operations_token";
 
@@ -34,7 +35,14 @@ function buildError(message: string, status: number) {
 }
 
 function hasMatchingToken(candidate: string | null, expected: string | null) {
-  return Boolean(candidate && expected && candidate === expected);
+  if (!candidate || !expected) {
+    return false;
+  }
+
+  const candidateBuffer = Buffer.from(candidate);
+  const expectedBuffer = Buffer.from(expected);
+
+  return candidateBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(candidateBuffer, expectedBuffer);
 }
 
 export function resolveOperationActor(request: Request) {

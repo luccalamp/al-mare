@@ -27,19 +27,13 @@ export type GoogleCalendarEventResult = {
 
 export async function getGoogleCalendarSession(): Promise<GoogleCalendarSession> {
   try {
-    console.log("[gcal-session-client] Fetching session...");
-    console.log("[gcal-session-client] Cookies:", typeof document !== "undefined" ? document.cookie : "N/A");
     const res = await fetch("/api/google-calendar/session", { cache: "no-store", credentials: "include" });
     const text = await res.text();
-    console.log("[gcal-session-client] Status:", res.status);
-    console.log("[gcal-session-client] Body:", text);
 
     if (!res.ok) {
-      console.log("[gcal-session-client] API error");
       return { connected: false };
     }
     const data = JSON.parse(text);
-    console.log("[gcal-session-client] Parsed session:", data);
     return data;
   } catch (err) {
     console.error("[gcal-session-client] Fetch failed:", err);
@@ -55,8 +49,6 @@ export async function connectGoogleCalendar(): Promise<{ authUrl: string }> {
     throw new Error(data.error || "Não foi possível iniciar a conexão com o Google Calendar.");
   }
   const data = await res.json();
-  console.log("[gcal-connect] Auth URL received:", data.authUrl);
-  console.log("[gcal-connect] Redirect URI:", data.redirectUri);
   if (typeof window !== "undefined" && data.state) {
     localStorage.setItem(GOOGLE_CALENDAR_OAUTH_STATE_STORAGE_KEY, data.state);
   }
@@ -64,19 +56,16 @@ export async function connectGoogleCalendar(): Promise<{ authUrl: string }> {
 }
 
 export async function disconnectGoogleCalendar(): Promise<void> {
-  console.log("[gcal-disconnect] Starting...");
   const res = await fetch("/api/google-calendar/disconnect", { method: "POST" });
   if (!res.ok) {
     console.error("[gcal-disconnect] Failed");
     throw new Error("Não foi possível desconectar do Google Calendar.");
   }
-  console.log("[gcal-disconnect] Success");
 }
 
 export async function createGoogleCalendarEvent(
   input: GoogleCalendarEventInput
 ): Promise<GoogleCalendarEventResult> {
-  console.log("[gcal-event] Creating event:", input.summary);
   const res = await fetch("/api/google-calendar/event", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

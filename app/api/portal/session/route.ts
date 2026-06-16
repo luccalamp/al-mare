@@ -15,8 +15,8 @@ function isMissingColumnError(message?: string) {
   return /column .* does not exist/i.test(message || "");
 }
 
-function buildPortalMediaProxyUrl(storagePath: string, token: string) {
-  return `/api/portal/media/${encodeStoragePathForRoute(storagePath)}?token=${encodeURIComponent(token)}`;
+function buildPortalMediaProxyUrl(storagePath: string) {
+  return `/api/portal/media/${encodeStoragePathForRoute(storagePath)}`;
 }
 
 function readTokenFromCookie(): string | null {
@@ -83,7 +83,7 @@ async function validateAndLoadPortal(token: string) {
     caption: photo.caption,
     url:
       isManagedPhotoBucket(photo.storage_bucket) && typeof photo.storage_path === "string"
-        ? buildPortalMediaProxyUrl(photo.storage_path, token)
+        ? buildPortalMediaProxyUrl(photo.storage_path)
         : buildStorageObjectPublicUrl(photo.storage_bucket, photo.storage_path) || photo.url,
   }));
 

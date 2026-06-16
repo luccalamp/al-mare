@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import crypto from "crypto";
+import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
 
 const GOOGLE_TOKEN_COOKIE = "gcal_tokens";
 const GOOGLE_TOKEN_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
@@ -33,17 +34,6 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function getRequestOrigin(request: Request): string {
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`;
-  }
-
-  return new URL(request.url).origin;
-}
-
 export function resolveGoogleCalendarRedirectUri(request?: Request): string {
   const explicitRedirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI?.trim();
   if (explicitRedirectUri) {
@@ -51,7 +41,7 @@ export function resolveGoogleCalendarRedirectUri(request?: Request): string {
   }
 
   if (request) {
-    const origin = trimTrailingSlash(getRequestOrigin(request));
+    const origin = trimTrailingSlash(getTrustedAppOrigin(request));
     return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
   }
 

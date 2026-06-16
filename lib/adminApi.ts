@@ -1,16 +1,21 @@
 "use client";
 
-const ADMIN_TOKEN_SESSION_KEY = "salao-admin-operations-token-v1";
+let adminOperationsToken: string | null = null;
 
 function readStoredToken() {
-  if (typeof window === "undefined") return null;
-  const value = window.sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY)?.trim();
-  return value ? value : null;
+  return adminOperationsToken;
 }
 
 function storeToken(token: string) {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, token);
+  adminOperationsToken = token;
+
+  if (typeof window !== "undefined") {
+    void fetch("/api/admin/auth", {
+      method: "POST",
+      headers: { "x-admin-token": token },
+      credentials: "include",
+    }).catch(() => {});
+  }
 }
 
 export function setAdminOperationsToken(token: string) {
@@ -23,8 +28,14 @@ export function setAdminOperationsToken(token: string) {
 }
 
 export function clearAdminOperationsToken() {
-  if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(ADMIN_TOKEN_SESSION_KEY);
+  adminOperationsToken = null;
+
+  if (typeof window !== "undefined") {
+    void fetch("/api/admin/auth", {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => {});
+  }
 }
 
 export async function ensureAdminOperationsToken(
@@ -82,6 +93,7 @@ async function performAdminRequest<T>(
   const response = await fetch(input, {
     ...init,
     headers,
+    credentials: "include",
   });
 
   if (response.status === 401 && allowRetry) {

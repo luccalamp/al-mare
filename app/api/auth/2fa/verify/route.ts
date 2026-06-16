@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { readSignedJsonCookieValue, timingSafeEqualHex } from "@/lib/server/signedCookie";
 import crypto from "crypto";
+
+const TWO_FA_COOKIE_SCOPE = "auth:2fa:v1";
 
 function hashOTP(code: string): string {
   return crypto.createHash("sha256").update(code).digest("hex");
@@ -32,12 +35,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sessão de verificação expirada. Solicite um novo código." }, { status: 400 });
   }
 
-  let payload: { email: string; hash: string; exp: number };
-  try {
-    payload = JSON.parse(Buffer.from(payloadRaw, "base64").toString("utf8"));
-  } catch (e) {
+  const payload = readSignedJsonCookieValue<{ email: string; hash: string; exp: number }>(
+    TWO_FA_COOKIE_SCOPE,
+    payloadRaw
+  );
+  if (!payload) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("2fa verify: failed to parse payload:", e);
+      console.error("2fa verify: invalid signed payload");
     }
     return NextResponse.json({ error: "Sessão de verificação inválida." }, { status: 400 });
   }
@@ -47,7 +51,7 @@ export async function POST(request: Request) {
   }
 
   const inputHash = hashOTP(code);
-  if (inputHash !== payload.hash) {
+  if (!timingSafeEqualHex(inputHash, payload.hash)) {
     return NextResponse.json({ error: "Código incorreto." }, { status: 401 });
   }
 
