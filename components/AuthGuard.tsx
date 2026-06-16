@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabasePublicConfigConfigured } from "@/lib/supabase/config";
 import type { User } from "@supabase/supabase-js";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import BrandLogo from "./BrandLogo";
 import AlmareLayout from "./AlmareLayout";
@@ -25,8 +25,22 @@ type PublicAuthError = {
   status?: number;
 };
 
+type LoginMode = "signin" | "forgot-password" | "setup-password" | "reset-password";
+
 const GOOGLE_LOGIN_INTENT_STORAGE_KEY = "auth:google-login-intent-at";
 const GOOGLE_LOGIN_INTENT_MAX_AGE_MS = 10 * 60 * 1000;
+
+function resolveLoginMode(value: string | null): LoginMode {
+  if (value === "forgot-password" || value === "setup-password" || value === "reset-password") {
+    return value;
+  }
+
+  return "signin";
+}
+
+function isPasswordLinkMode(mode: LoginMode) {
+  return mode === "setup-password" || mode === "reset-password";
+}
 
 function logAuthError(scope: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {
@@ -68,6 +82,24 @@ function getPublicOtpMessage(error: PublicAuthError | null | undefined) {
   }
 
   return "Não foi possível validar o código agora. Tente novamente em instantes.";
+}
+
+function getPasswordUpdateMessage(error: PublicAuthError | null | undefined) {
+  const errorText = `${error?.message ?? ""} ${error?.code ?? ""} ${error?.name ?? ""}`.toLowerCase();
+
+  if (errorText.includes("same password")) {
+    return "Escolha uma senha diferente da anterior.";
+  }
+
+  if (errorText.includes("password") && errorText.includes("weak")) {
+    return "Escolha uma senha mais forte para continuar.";
+  }
+
+  if (errorText.includes("session") || errorText.includes("jwt") || errorText.includes("expired")) {
+    return "Seu link de acesso expirou. Solicite um novo e tente novamente.";
+  }
+
+  return "Nao foi possivel salvar a nova senha agora. Tente novamente em instantes.";
 }
 
 function setGoogleLoginIntent() {
@@ -148,7 +180,11 @@ function MissingSupabaseConfigScreen() {
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabaseConfigured = isSupabasePublicConfigConfigured();
+  const loginMode = resolveLoginMode(searchParams.get("mode"));
+  const statusParam = searchParams.get("status");
+  const loginRouteAllowsActiveSession = pathname === "/login" && isPasswordLinkMode(loginMode);
 
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -156,6 +192,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [passwordSignIn, setPasswordSignIn] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
   const [show2FA, setShow2FA] = useState(false);
   const [pending2FAEmail, setPending2FAEmail] = useState("");
   const [pending2FAActive, setPending2FAActive] = useState(false);
@@ -163,6 +200,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [twoFACode, setTwoFACode] = useState("");
   const [twoFAMessage, setTwoFAMessage] = useState<string | null>(null);
   const [twoFABusy, setTwoFABusy] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordUpdateBusy, setPasswordUpdateBusy] = useState(false);
+  const [passwordUpdateMessage, setPasswordUpdateMessage] = useState<string | null>(null);
   const pendingPasswordRef = useRef("");
   const checkingAuthRef = useRef(false);
   const googleLoginPendingRef = useRef(false);
@@ -188,6 +229,25 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       checkingAuthRef.current = false;
     }
   }, [supabaseConfigured]);
+
+  const replaceLoginMode = useCallback((nextMode: LoginMode, status?: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (nextMode === "signin") {
+      params.delete("mode");
+    } else {
+      params.set("mode", nextMode);
+    }
+
+    if (status) {
+      params.set("status", status);
+    } else {
+      params.delete("status");
+    }
+
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `/login?${nextQuery}` : "/login");
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -299,6 +359,15 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         console.log("[auth] onAuthStateChange:", _event, session ? "user present" : "no user");
       }
 
+      if (_event === "PASSWORD_RECOVERY") {
+        setShow2FA(false);
+        setMessage(null);
+        setPasswordUpdateMessage(null);
+        pending2FAActiveRef.current = false;
+        setPending2FAActive(false);
+        replaceLoginMode("reset-password");
+      }
+
       if (_event === "SIGNED_IN" && session?.user) {
         const isGoogleLogin = session.user.app_metadata?.provider === "google";
         const hasProviderToken = !!session.provider_token;
@@ -365,13 +434,22 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
     };
-  }, [checkAuth, supabaseConfigured]);
+  }, [checkAuth, replaceLoginMode, supabaseConfigured]);
 
   useEffect(() => {
-    if (!loading && pathname === "/login" && user && !pending2FAActive) {
+    if (!loading && pathname === "/login" && user && !pending2FAActive && !loginRouteAllowsActiveSession) {
       router.replace("/");
     }
-  }, [loading, pathname, pending2FAActive, router, user]);
+  }, [loading, loginRouteAllowsActiveSession, pathname, pending2FAActive, router, user]);
+
+  useEffect(() => {
+    setPasswordUpdateMessage(null);
+
+    if (!isPasswordLinkMode(loginMode)) {
+      setNewPassword("");
+      setConfirmPassword("");
+    }
+  }, [loginMode]);
 
   // Keep pre-consultation links public
   if (pathname.startsWith("/pre-consulta")) {
@@ -526,6 +604,103 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function requestPasswordReset(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+
+    const normalizedEmail = email.toLowerCase().trim();
+    setMessage(null);
+    setTwoFAMessage(null);
+
+    if (!normalizedEmail) {
+      setMessage("Informe o e-mail cadastrado para recuperar a senha.");
+      return;
+    }
+
+    setResetBusy(true);
+    try {
+      const res = await fetch("/api/auth/password/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail }),
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setMessage(data?.error || "Nao foi possivel enviar o link de redefinicao agora.");
+        return;
+      }
+
+      setMessage("Se o e-mail estiver autorizado no sistema, enviaremos um link para redefinir a senha.");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function updatePasswordFromLink(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+
+    setPasswordUpdateMessage(null);
+
+    if (!user) {
+      setPasswordUpdateMessage("Abra o link enviado por e-mail para continuar.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordUpdateMessage("Use pelo menos 8 caracteres na nova senha.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordUpdateMessage("A confirmacao da senha nao confere.");
+      return;
+    }
+
+    setPasswordUpdateBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordUpdateMessage(getPasswordUpdateMessage(error));
+        return;
+      }
+
+      const successStatus = loginMode === "setup-password" ? "password-created" : "password-updated";
+
+      pending2FAActiveRef.current = false;
+      setPending2FAActive(false);
+      setShow2FA(false);
+      setTwoFACode("");
+      setTwoFAMessage(null);
+      pendingPasswordRef.current = "";
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage(null);
+      await supabase.auth.signOut();
+      replaceLoginMode("signin", successStatus);
+    } catch (error) {
+      logAuthError("update_password_from_link", error);
+      setPasswordUpdateMessage(
+        error && typeof error === "object"
+          ? getPasswordUpdateMessage(error as PublicAuthError)
+          : "Nao foi possivel salvar a nova senha agora. Tente novamente em instantes."
+      );
+    } finally {
+      setPasswordUpdateBusy(false);
+    }
+  }
+
+  const statusMessage =
+    statusParam === "password-created"
+      ? "Senha criada com sucesso. Entre com sua nova senha para continuar."
+      : statusParam === "password-updated"
+      ? "Senha atualizada com sucesso. Entre novamente para concluir com 2FA."
+      : null;
+  const visibleMessage = message ?? statusMessage;
+  const isSuccessMessage = Boolean(statusParam) || (visibleMessage ? /envi|sucesso/i.test(visibleMessage) : false);
+  const shouldRenderPasswordUpdateForm = pathname === "/login" && isPasswordLinkMode(loginMode) && !!user;
+  const shouldRenderPasswordLinkInfo = pathname === "/login" && isPasswordLinkMode(loginMode) && !user;
+
   if (loading) {
     return (
       <div className="min-h-[var(--app-dvh)] flex items-center justify-center p-6">
@@ -537,7 +712,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user || shouldRenderPasswordUpdateForm) {
     return (
       <AlmareLayout>
             <div className="flex items-center justify-between gap-3">
@@ -556,11 +731,27 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                 Acesso
               </p>
               <h2 className="premium-title mt-4 text-4xl font-semibold leading-none sm:text-[3.2rem]">
-                Entrar.
+                {show2FA
+                  ? "Verificar."
+                  : shouldRenderPasswordUpdateForm
+                  ? loginMode === "setup-password"
+                    ? "Criar senha."
+                    : "Redefinir senha."
+                  : loginMode === "forgot-password"
+                  ? "Esqueci a senha."
+                  : shouldRenderPasswordLinkInfo
+                  ? "Abra o link."
+                  : "Entrar."}
               </h2>
               <p className="premium-subtitle mt-4 text-sm sm:text-base">
                 {show2FA
                   ? "Código enviado para seu e-mail."
+                  : shouldRenderPasswordUpdateForm
+                  ? "Defina sua nova senha. Depois vamos pedir um novo login com 2FA."
+                  : loginMode === "forgot-password"
+                  ? "Informe o e-mail cadastrado para receber o link de redefiniÃ§Ã£o."
+                  : shouldRenderPasswordLinkInfo
+                  ? "Use o link enviado por e-mail para continuar com seguranÃ§a."
                   : "Informe seus dados para acessar."}
               </p>
             </div>
@@ -636,8 +827,232 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     whileTap={{ scale: 0.985 }}
                     type="button"
                     className="premium-button-secondary flex w-full items-center justify-center gap-2 px-5 py-3 text-xs disabled:cursor-not-allowed"
-                    onClick={() => { setShow2FA(false); pending2FAActiveRef.current = false; setPending2FAActive(false); setTwoFAMessage(null); pendingPasswordRef.current = ""; }}
+                    onClick={() => {
+                      setShow2FA(false);
+                      setMessage(null);
+                      pending2FAActiveRef.current = false;
+                      setPending2FAActive(false);
+                      setTwoFAMessage(null);
+                      pendingPasswordRef.current = "";
+                      isGoogleOAuthRef.current = false;
+                      googleLoginPendingRef.current = false;
+                      clearGoogleLoginIntent();
+                    }}
                     disabled={twoFABusy}
+                  >
+                    Voltar ao login
+                  </motion.button>
+                </div>
+              </form>
+            ) : shouldRenderPasswordUpdateForm ? (
+              <form onSubmit={updatePasswordFromLink} className="relative z-10 mt-8 space-y-5">
+                <div className="space-y-1.5">
+                  <label htmlFor="new-password" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                    Nova senha
+                  </label>
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
+                      <LockKeyhole size={18} />
+                    </div>
+                    <input
+                      id="new-password"
+                      type="password"
+                      className="input-light !py-3.5 !pl-11 !pr-4"
+                      placeholder="Use pelo menos 8 caracteres"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      disabled={passwordUpdateBusy}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="confirm-password" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                    Confirmar senha
+                  </label>
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
+                      <LockKeyhole size={18} />
+                    </div>
+                    <input
+                      id="confirm-password"
+                      type="password"
+                      className="input-light !py-3.5 !pl-11 !pr-4"
+                      placeholder="Repita a nova senha"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      disabled={passwordUpdateBusy}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <p className="ml-1 text-xs text-[var(--color-text-secondary)]">
+                  Depois de salvar, o sistema encerra esta sessao e pede novo login com a senha nova e o 2FA atual.
+                </p>
+
+                <AnimatePresence mode="wait">
+                  {passwordUpdateMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -8 }}
+                      className="premium-card flex items-start gap-3 overflow-hidden rounded-[1.4rem] border-[var(--color-destructive)]/20 bg-[rgba(255,59,48,0.08)] p-4 text-sm text-[var(--color-destructive)]"
+                    >
+                      <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                      <p className="leading-relaxed">{passwordUpdateMessage}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="grid gap-3 pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    type="submit"
+                    className="premium-button-primary flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm disabled:cursor-not-allowed"
+                    disabled={passwordUpdateBusy || !newPassword || !confirmPassword}
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {passwordUpdateBusy ? (
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white"
+                        />
+                      ) : (
+                        <>
+                          <LockKeyhole size={18} className="text-white/85" />
+                          {loginMode === "setup-password" ? "Criar senha" : "Salvar nova senha"}
+                        </>
+                      )}
+                    </span>
+                  </motion.button>
+                </div>
+              </form>
+            ) : shouldRenderPasswordLinkInfo ? (
+              <div className="relative z-10 mt-8 space-y-5">
+                <div className="premium-card rounded-[1.4rem] p-5 text-sm text-[var(--color-text-secondary)]">
+                  {loginMode === "setup-password"
+                    ? "Abra o e-mail de liberacao e clique no link para criar sua senha inicial."
+                    : "Seu link de redefinicao precisa ser aberto a partir do e-mail enviado para voce."}
+                </div>
+
+                <div className="grid gap-3 pt-2">
+                  {loginMode === "reset-password" && (
+                    <motion.button
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.985 }}
+                      type="button"
+                      className="premium-button-primary flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm"
+                      onClick={() => {
+                        setMessage(null);
+                        replaceLoginMode("forgot-password");
+                      }}
+                    >
+                      <span className="relative z-10 flex items-center gap-2">
+                        <Mail size={18} className="text-white/85" />
+                        Solicitar novo link
+                      </span>
+                    </motion.button>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    type="button"
+                    className="premium-button-secondary flex w-full items-center justify-center gap-2 px-5 py-3 text-xs"
+                    onClick={() => {
+                      setMessage(null);
+                      replaceLoginMode("signin");
+                    }}
+                  >
+                    Voltar ao login
+                  </motion.button>
+                </div>
+              </div>
+            ) : loginMode === "forgot-password" ? (
+              <form onSubmit={requestPasswordReset} className="relative z-10 mt-8 space-y-5">
+                <div className="space-y-1.5">
+                  <label htmlFor="reset-email" className="ml-1 block text-sm font-semibold text-[var(--color-text)]">
+                    E-mail de acesso
+                  </label>
+                  <div className="group relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[var(--color-text-tertiary)] transition-colors group-focus-within:text-[var(--color-brand-accent)]">
+                      <Mail size={18} />
+                    </div>
+                    <input
+                      id="reset-email"
+                      type="email"
+                      className="input-light !py-3.5 !pl-11 !pr-4"
+                      placeholder="seu@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      disabled={resetBusy}
+                    />
+                  </div>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  {visibleMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0, y: -8 }}
+                      animate={{ opacity: 1, height: "auto", y: 0 }}
+                      exit={{ opacity: 0, height: 0, y: -8 }}
+                      className={`premium-card flex items-start gap-3 overflow-hidden rounded-[1.4rem] p-4 text-sm ${
+                        isSuccessMessage
+                          ? "border-[var(--color-success)]/20 bg-[rgba(92,139,101,0.08)] text-[var(--color-success)]"
+                          : "border-[var(--color-destructive)]/20 bg-[rgba(255,59,48,0.08)] text-[var(--color-destructive)]"
+                      }`}
+                    >
+                      {isSuccessMessage ? (
+                        <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+                      ) : (
+                        <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                      )}
+                      <p className="leading-relaxed">{visibleMessage}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="grid gap-3 pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    className="premium-button-primary flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm disabled:cursor-not-allowed"
+                    type="submit"
+                    disabled={resetBusy || !email}
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {resetBusy ? (
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="h-5 w-5 rounded-full border-2 border-white/30 border-t-white"
+                        />
+                      ) : (
+                        <>
+                          <Mail size={18} className="text-white/85" />
+                          Enviar link
+                        </>
+                      )}
+                    </span>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.985 }}
+                    type="button"
+                    className="premium-button-secondary flex w-full items-center justify-center gap-2 px-5 py-3 text-xs"
+                    onClick={() => {
+                      setMessage(null);
+                      replaceLoginMode("signin");
+                    }}
+                    disabled={resetBusy}
                   >
                     Voltar ao login
                   </motion.button>
@@ -682,28 +1097,43 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     value={passwordSignIn}
                     onChange={(e) => setPasswordSignIn(e.target.value)}
                     disabled={authBusy}
+                    required
                   />
                 </div>
               </div>
 
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-[var(--color-brand-accent)] transition hover:text-[var(--color-brand-deep)]"
+                  onClick={() => {
+                    setMessage(null);
+                    replaceLoginMode("forgot-password");
+                  }}
+                  disabled={authBusy}
+                >
+                  Esqueci minha senha
+                </button>
+              </div>
+
               <AnimatePresence mode="wait">
-                {message && (
+                {visibleMessage && (
                   <motion.div
                     initial={{ opacity: 0, height: 0, y: -8 }}
                     animate={{ opacity: 1, height: "auto", y: 0 }}
                     exit={{ opacity: 0, height: 0, y: -8 }}
                     className={`premium-card flex items-start gap-3 overflow-hidden rounded-[1.4rem] p-4 text-sm ${
-                      message.includes("enviado")
+                      isSuccessMessage
                         ? "border-[var(--color-success)]/20 bg-[rgba(92,139,101,0.08)] text-[var(--color-success)]"
                         : "border-[var(--color-destructive)]/20 bg-[rgba(255,59,48,0.08)] text-[var(--color-destructive)]"
                     }`}
                   >
-                    {message.includes("enviado") ? (
+                    {isSuccessMessage ? (
                       <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
                     ) : (
                       <AlertCircle size={18} className="mt-0.5 shrink-0" />
                     )}
-                    <p className="leading-relaxed">{message}</p>
+                    <p className="leading-relaxed">{visibleMessage}</p>
                   </motion.div>
                 )}
               </AnimatePresence>

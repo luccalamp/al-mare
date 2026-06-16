@@ -4,7 +4,7 @@ import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback", "/auth/v1/callback", "/auth/callback"];
-const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/portal", "/api/google-calendar/callback"];
+const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/auth/password", "/api/portal", "/api/google-calendar/callback"];
 const API_ALLOWED_ORIGIN = "https://jakoliveira.com.br";
 
 function buildCsp(nonce: string) {
@@ -179,7 +179,10 @@ export async function middleware(request: NextRequest) {
   }
 
   if (matchesPrefix(pathname, PUBLIC_PATH_PREFIXES)) {
-    if (user && pathname === "/login") {
+    const loginMode = request.nextUrl.searchParams.get("mode");
+    const allowsLoginSession = loginMode === "setup-password" || loginMode === "reset-password";
+
+    if (user && pathname === "/login" && !allowsLoginSession) {
       return applyResponseHeaders(copyCookies(response, NextResponse.redirect(new URL("/", request.url))), pathname, nonce);
     }
 
