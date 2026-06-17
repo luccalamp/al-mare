@@ -11,6 +11,12 @@ type RateLimitProfile = {
   prefix: string;
 };
 
+type ConsumeRateLimitRow = {
+  count?: number | null;
+  reset_at?: number | null;
+  allowed?: boolean | null;
+};
+
 export type RateLimitCheck = {
   success: boolean;
   limit: number;
@@ -119,9 +125,23 @@ function runInMemoryRateLimit(key: string, config: { limit: number; windowMs: nu
 async function runSupabaseRateLimit(key: string, config: { limit: number; windowMs: number }): Promise<RateLimitCheck> {
   try {
     const supabase = createSupabaseAdminClient();
-    const resetAt = Date.now() + config.windowMs;
+    const rpcResult = await supabase.rpc("consume_rate_limit", {
+      p_key: key,
+      p_limit: config.limit,
+      p_window_ms: config.windowMs,
+    });
 
-    // Atomic UPSERT: increment count or create new entry
+    const rpcRow = (Array.isArray(rpcResult.data) ? rpcResult.data[0] : rpcResult.data) as ConsumeRateLimitRow | null;
+    if (!rpcResult.error && rpcRow?.count != null && rpcRow.reset_at != null) {
+      return {
+        success: Boolean(rpcRow.allowed),
+        limit: config.limit,
+        remaining: Math.max(config.limit - Number(rpcRow.count), 0),
+        reset: Number(rpcRow.reset_at),
+      };
+    }
+
+    const resetAt = Date.now() + config.windowMs;
     const { data, error } = await supabase
       .from("rate_limits")
       .upsert(

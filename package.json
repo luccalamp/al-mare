@@ -12,6 +12,7 @@
     "db:migrate:assinatura": "node ./scripts/apply_assinatura_migration.js",
     "db:migrate:iluminare": "node ./scripts/apply_iluminare.js",
     "db:migrate:iluminare:final": "node ./scripts/apply_iluminare_final.js",
+    "db:migrate:operational-restructure": "node ./scripts/apply_operational_restructure.js",
     "migrate:root": "powershell -ExecutionPolicy Bypass -File ./scripts/migrate-projeto-salao-to-root.ps1"
   },
   "dependencies": {

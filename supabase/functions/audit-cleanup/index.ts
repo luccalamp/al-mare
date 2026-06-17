@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +22,13 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Parse body for optional retention days
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
     let auditRetentionDays = 30;
     let archiveRetentionDays = 90;
 
@@ -35,47 +42,24 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Purge old audit entries
-    const purgeResult = await fetch(`${supabaseUrl}/rest/v1/rpc/purge_old_audit_entries`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": supabaseServiceKey,
-        "Authorization": `Bearer ${supabaseServiceKey}`,
-        "Prefer": "return=representation",
-      },
-      body: JSON.stringify({ p_retention_days: auditRetentionDays }),
+    const { data: purgeData, error: purgeError } = await supabase.rpc("purge_old_audit_entries", {
+      p_retention_days: auditRetentionDays,
     });
+    if (purgeError) {
+      throw new Error(`purge_old_audit_entries: ${purgeError.message}`);
+    }
 
-    const purgeData = await purgeResult.json();
-
-    // Purge old archive entries
-    const archiveResult = await fetch(`${supabaseUrl}/rest/v1/rpc/purge_old_audit_archive`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": supabaseServiceKey,
-        "Authorization": `Bearer ${supabaseServiceKey}`,
-        "Prefer": "return=representation",
-      },
-      body: JSON.stringify({ p_retention_days: archiveRetentionDays }),
+    const { data: archiveData, error: archiveError } = await supabase.rpc("purge_old_audit_archive", {
+      p_retention_days: archiveRetentionDays,
     });
+    if (archiveError) {
+      throw new Error(`purge_old_audit_archive: ${archiveError.message}`);
+    }
 
-    const archiveData = await archiveResult.json();
-
-    // Get current audit stats
-    const statsResult = await fetch(`${supabaseUrl}/rest/v1/rpc/get_audit_stats`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": supabaseServiceKey,
-        "Authorization": `Bearer ${supabaseServiceKey}`,
-        "Prefer": "return=representation",
-      },
-      body: JSON.stringify({}),
-    });
-
-    const statsData = await statsResult.json();
+    const { data: statsData, error: statsError } = await supabase.rpc("get_audit_stats");
+    if (statsError) {
+      throw new Error(`get_audit_stats: ${statsError.message}`);
+    }
 
     return new Response(
       JSON.stringify({

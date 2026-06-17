@@ -1,11 +1,4 @@
 -- Migration: Audit cleanup job
--- Since pg_cron is not available on this Supabase instance,
--- we create a SQL function that can be called via Edge Function cron schedule.
-
--- ============================================================
--- 1. Function: purge_old_audit_entries
--- Deletes audit entries older than N days (default: 30 days)
--- ============================================================
 
 CREATE OR REPLACE FUNCTION private.purge_old_audit_entries(
   p_retention_days INTEGER DEFAULT 30
@@ -25,7 +18,6 @@ DECLARE
 BEGIN
   v_cutoff := NOW() - (p_retention_days || ' days')::INTERVAL;
 
-  -- Archive first (safety net)
   INSERT INTO private.row_change_audit_archive (
     table_schema, table_name, operation, record_identity,
     changed_at, jwt_subject, jwt_role, db_role, transaction_id,
@@ -40,7 +32,6 @@ BEGIN
 
   GET DIAGNOSTICS v_archived = ROW_COUNT;
 
-  -- Delete from main table
   DELETE FROM private.row_change_audit
   WHERE changed_at < v_cutoff;
 
@@ -49,11 +40,6 @@ BEGIN
   RETURN QUERY SELECT v_deleted, v_archived;
 END;
 $$;
-
--- ============================================================
--- 2. Function: purge_old_audit_archive
--- Cleans the archive table itself (entries older than 90 days)
--- ============================================================
 
 CREATE OR REPLACE FUNCTION private.purge_old_audit_archive(
   p_retention_days INTEGER DEFAULT 90
@@ -73,11 +59,6 @@ BEGIN
   RETURN v_deleted;
 END;
 $$;
-
--- ============================================================
--- 3. Function: get_audit_stats
--- Returns current audit table statistics
--- ============================================================
 
 CREATE OR REPLACE FUNCTION private.get_audit_stats()
 RETURNS TABLE (
