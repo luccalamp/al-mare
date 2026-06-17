@@ -98,6 +98,23 @@ function readOriginFromUrlEnv(name: string) {
   return normalizeOrigin(process.env[name]);
 }
 
+function getCurrentRequestOrigin(request: NextRequest) {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.trim();
+  const host = request.headers.get("host")?.trim();
+
+  if ((forwardedHost || host) && forwardedProto) {
+    return normalizeOrigin(`${forwardedProto}://${forwardedHost || host}`);
+  }
+
+  if (host) {
+    const protocol = request.nextUrl.protocol || (process.env.NODE_ENV === "production" ? "https:" : "http:");
+    return normalizeOrigin(`${protocol}//${host}`);
+  }
+
+  return normalizeOrigin(request.nextUrl.origin);
+}
+
 function getAllowedApiOrigins(request: NextRequest) {
   const origins = new Set<string>([
     API_ALLOWED_ORIGIN,
@@ -115,6 +132,11 @@ function getAllowedApiOrigins(request: NextRequest) {
   envOrigins.forEach((origin) => {
     if (origin) origins.add(origin);
   });
+
+  const currentRequestOrigin = getCurrentRequestOrigin(request);
+  if (currentRequestOrigin) {
+    origins.add(currentRequestOrigin);
+  }
 
   if (process.env.NODE_ENV !== "production") {
     origins.add(request.nextUrl.origin);
@@ -141,6 +163,11 @@ function hasAllowedApiOrigin(request: NextRequest) {
 
   const origin = getBrowserRequestOrigin(request);
   if (!origin) {
+    return true;
+  }
+
+  const currentRequestOrigin = getCurrentRequestOrigin(request);
+  if (currentRequestOrigin && origin === currentRequestOrigin) {
     return true;
   }
 
