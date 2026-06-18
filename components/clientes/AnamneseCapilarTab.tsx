@@ -950,6 +950,14 @@ export default function AnamneseCapilarTab({
     window.setTimeout(() => setMsg(null), 2500);
   };
 
+  const getSaveErrorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message;
+    }
+
+    return fallback;
+  };
+
   const buildNextData = () => mergeFromClient(client, dados);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -961,8 +969,8 @@ export default function AnamneseCapilarTab({
       setDados(nextData);
       await onSave(nextData);
       flashMessage("success", "Ficha salva.");
-    } catch {
-      flashMessage("error", "Erro ao salvar.");
+    } catch (error) {
+      flashMessage("error", getSaveErrorMessage(error, "Não foi possível salvar a ficha."));
     } finally {
       setSaving(false);
     }
@@ -985,9 +993,9 @@ export default function AnamneseCapilarTab({
       await onSave(nextData);
       openPrintPreview(client, nextData, branding, printWindow);
       flashMessage("success", "Ficha salva. Abrindo impressão...");
-    } catch {
+    } catch (error) {
       printWindow.close();
-      flashMessage("error", "Não foi possível gerar a impressão.");
+      flashMessage("error", getSaveErrorMessage(error, "Não foi possível gerar a impressão."));
     } finally {
       setSaving(false);
     }

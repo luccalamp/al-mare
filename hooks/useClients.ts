@@ -102,6 +102,30 @@ const mapDbAppointment = (row: any): ClientAppointment => ({
 const sortAppointments = (appointments: readonly ClientAppointment[]) =>
   [...appointments].sort((left, right) => new Date(right.inicioEm).getTime() - new Date(left.inicioEm).getTime());
 
+function getRowTimestamp(value: { updated_at?: string | null; created_at?: string | null } | null | undefined) {
+  const timestamp = value?.updated_at || value?.created_at;
+  if (!timestamp) return 0;
+
+  const parsed = new Date(timestamp).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pickLatestActiveRow<T extends { deleted_at?: string | null; updated_at?: string | null; created_at?: string | null }>(
+  value: T[] | T | null | undefined
+) {
+  if (Array.isArray(value)) {
+    return [...value]
+      .filter((item) => !item?.deleted_at)
+      .sort((left, right) => getRowTimestamp(right) - getRowTimestamp(left))[0] ?? null;
+  }
+
+  if (!value || value.deleted_at) {
+    return null;
+  }
+
+  return value;
+}
+
 function buildClientDbError(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "message" in error) {
     const message = String((error as { message?: unknown }).message ?? "");
@@ -276,10 +300,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
     const appointmentsRows = Array.isArray(row.agendamentos)
       ? row.agendamentos.filter((item: any) => !item?.deleted_at)
       : [];
-    const ficha = Array.isArray(row.ficha_anamnese_capilar)
-      ? row.ficha_anamnese_capilar.filter((item: any) => !item?.deleted_at)
-      : row.ficha_anamnese_capilar;
-    const record = Array.isArray(ficha) ? ficha[0] : ficha;
+    const record = pickLatestActiveRow(row.ficha_anamnese_capilar);
     const fichaDados = (record?.dados as FichaAnamneseCapilarDados | undefined) ?? null;
     const extraProfile = row.perfil_complementar || {};
     const savedSignatures = Array.isArray(extraProfile.signatures) ? extraProfile.signatures : [];

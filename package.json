@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "security:scan-secrets": "node ./scripts/scan-secrets.js",
     "s3:cors": "node ./scripts/s3-cors-config.mjs",
     "backup:local": "node ./scripts/backup.js",
     "db:migrate:assinatura": "node ./scripts/apply_assinatura_migration.js",

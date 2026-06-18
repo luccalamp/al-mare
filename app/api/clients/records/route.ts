@@ -228,16 +228,40 @@ export async function POST(request: Request) {
     }
 
     case "ficha-anamnese": {
+      if (
+        !parsedBody.data.dados ||
+        typeof parsedBody.data.dados !== "object" ||
+        Array.isArray(parsedBody.data.dados)
+      ) {
+        return buildJsonError("Os dados da ficha clínica estão inválidos.", 400);
+      }
+
+      const timestamp = new Date().toISOString();
+      const { data: updatedRows, error: updateError } = await authContext.admin
+        .from("ficha_anamnese_capilar")
+        .update({
+          dados: parsedBody.data.dados,
+          updated_at: timestamp,
+        })
+        .eq("cliente_id", clientId)
+        .is("deleted_at", null)
+        .select("dados");
+
+      if (updateError) {
+        return buildRecordError(updateError, "Não foi possível salvar a ficha clínica agora.");
+      }
+
+      if (Array.isArray(updatedRows) && updatedRows.length > 0) {
+        return NextResponse.json({ record: updatedRows[0] });
+      }
+
       const { data, error } = await authContext.admin
         .from("ficha_anamnese_capilar")
-        .upsert(
-          {
-            cliente_id: clientId,
-            dados: parsedBody.data.dados,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "cliente_id" }
-        )
+        .insert({
+          cliente_id: clientId,
+          dados: parsedBody.data.dados,
+          updated_at: timestamp,
+        })
         .select("dados")
         .single();
 
