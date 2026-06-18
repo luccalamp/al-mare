@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Client } from "@/types";
 import type { FichaAnamneseAssinatura, FichaAnamneseCapilarDados } from "@/types/anamneseCapilar";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
@@ -910,6 +910,10 @@ function mergeFromClient(client: Client, prev: FichaAnamneseCapilarDados | null)
   };
 }
 
+function serializeFichaData(value: FichaAnamneseCapilarDados) {
+  return JSON.stringify(value);
+}
+
 export default function AnamneseCapilarTab({
   client,
   onSave,
@@ -918,32 +922,50 @@ export default function AnamneseCapilarTab({
   onSave: (dados: FichaAnamneseCapilarDados) => Promise<void>;
 }) {
   const { config: branding } = useBrandingConfig();
-  const [dados, setDados] = useState<FichaAnamneseCapilarDados>(() => mergeFromClient(client, client.fichaAnamnese));
+  const serverData = mergeFromClient(client, client.fichaAnamnese);
+  const serverSnapshot = serializeFichaData(serverData);
+  const lastHydratedSnapshotRef = useRef(serverSnapshot);
+  const [dados, setDados] = useState<FichaAnamneseCapilarDados>(() => serverData);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<FeedbackState | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    setDados(mergeFromClient(client, client.fichaAnamnese));
-  }, [client]);
+    if (serverSnapshot === lastHydratedSnapshotRef.current) {
+      return;
+    }
+
+    if (isDirty) {
+      return;
+    }
+
+    setDados(serverData);
+    lastHydratedSnapshotRef.current = serverSnapshot;
+  }, [isDirty, serverData, serverSnapshot]);
+
+  const updateDados = (updater: FichaAnamneseCapilarDados | ((current: FichaAnamneseCapilarDados) => FichaAnamneseCapilarDados)) => {
+    setIsDirty(true);
+    setDados((current) => (typeof updater === "function" ? updater(current) : updater));
+  };
 
   const setDadosPessoais = (patch: NonNullable<FichaAnamneseCapilarDados["dadosPessoais"]>) =>
-    setDados((current) => ({ ...current, dadosPessoais: { ...current.dadosPessoais, ...patch } }));
+    updateDados((current) => ({ ...current, dadosPessoais: { ...current.dadosPessoais, ...patch } }));
   const setDadosClinicos = (patch: NonNullable<FichaAnamneseCapilarDados["dadosClinicos"]>) =>
-    setDados((current) => ({ ...current, dadosClinicos: { ...current.dadosClinicos, ...patch } }));
+    updateDados((current) => ({ ...current, dadosClinicos: { ...current.dadosClinicos, ...patch } }));
   const setTratamentosAnteriores = (patch: NonNullable<FichaAnamneseCapilarDados["tratamentosAnteriores"]>) =>
-    setDados((current) => ({ ...current, tratamentosAnteriores: { ...current.tratamentosAnteriores, ...patch } }));
+    updateDados((current) => ({ ...current, tratamentosAnteriores: { ...current.tratamentosAnteriores, ...patch } }));
   const setHistoricoSaudeGeral = (patch: NonNullable<FichaAnamneseCapilarDados["historicoSaudeGeral"]>) =>
-    setDados((current) => ({ ...current, historicoSaudeGeral: { ...current.historicoSaudeGeral, ...patch } }));
+    updateDados((current) => ({ ...current, historicoSaudeGeral: { ...current.historicoSaudeGeral, ...patch } }));
   const setHabitos = (patch: NonNullable<FichaAnamneseCapilarDados["habitos"]>) =>
-    setDados((current) => ({ ...current, habitos: { ...current.habitos, ...patch } }));
+    updateDados((current) => ({ ...current, habitos: { ...current.habitos, ...patch } }));
   const setHistoricoFamiliar = (patch: NonNullable<FichaAnamneseCapilarDados["historicoFamiliar"]>) =>
-    setDados((current) => ({ ...current, historicoFamiliar: { ...current.historicoFamiliar, ...patch } }));
+    updateDados((current) => ({ ...current, historicoFamiliar: { ...current.historicoFamiliar, ...patch } }));
   const setExameFisico = (patch: NonNullable<FichaAnamneseCapilarDados["exameFisico"]>) =>
-    setDados((current) => ({ ...current, exameFisico: { ...current.exameFisico, ...patch } }));
+    updateDados((current) => ({ ...current, exameFisico: { ...current.exameFisico, ...patch } }));
   const setTricoscopia = (patch: NonNullable<FichaAnamneseCapilarDados["tricoscopia"]>) =>
-    setDados((current) => ({ ...current, tricoscopia: { ...current.tricoscopia, ...patch } }));
+    updateDados((current) => ({ ...current, tricoscopia: { ...current.tricoscopia, ...patch } }));
   const setClassificacaoAag = (patch: NonNullable<FichaAnamneseCapilarDados["classificacaoAag"]>) =>
-    setDados((current) => ({ ...current, classificacaoAag: { ...current.classificacaoAag, ...patch } }));
+    updateDados((current) => ({ ...current, classificacaoAag: { ...current.classificacaoAag, ...patch } }));
 
   const flashMessage = (tone: FeedbackState["tone"], text: string) => {
     setMsg({ tone, text });
@@ -968,6 +990,8 @@ export default function AnamneseCapilarTab({
       const nextData = buildNextData();
       setDados(nextData);
       await onSave(nextData);
+      setIsDirty(false);
+      lastHydratedSnapshotRef.current = serializeFichaData(nextData);
       flashMessage("success", "Ficha salva.");
     } catch (error) {
       flashMessage("error", getSaveErrorMessage(error, "Não foi possível salvar a ficha."));
@@ -991,6 +1015,8 @@ export default function AnamneseCapilarTab({
       const nextData = buildNextData();
       setDados(nextData);
       await onSave(nextData);
+      setIsDirty(false);
+      lastHydratedSnapshotRef.current = serializeFichaData(nextData);
       openPrintPreview(client, nextData, branding, printWindow);
       flashMessage("success", "Ficha salva. Abrindo impressão...");
     } catch (error) {
@@ -1065,7 +1091,7 @@ export default function AnamneseCapilarTab({
           </Section>
 
           <Section title="QUEIXA PRINCIPAL">
-            <TextAreaField label="Queixa principal" value={dados.queixaPrincipal ?? ""} onChange={(value) => setDados((current) => ({ ...current, queixaPrincipal: value }))} minHeight={130} />
+            <TextAreaField label="Queixa principal" value={dados.queixaPrincipal ?? ""} onChange={(value) => updateDados((current) => ({ ...current, queixaPrincipal: value }))} minHeight={130} />
           </Section>
 
           <Section title="DADOS CLÍNICOS">
@@ -1252,11 +1278,11 @@ export default function AnamneseCapilarTab({
           </Section>
 
           <Section title="DIAGNÓSTICO CLÍNICO">
-            <TextAreaField label="Diagnóstico clínico" value={dados.diagnosticoClinico ?? ""} onChange={(value) => setDados((current) => ({ ...current, diagnosticoClinico: value }))} minHeight={150} />
+            <TextAreaField label="Diagnóstico clínico" value={dados.diagnosticoClinico ?? ""} onChange={(value) => updateDados((current) => ({ ...current, diagnosticoClinico: value }))} minHeight={150} />
           </Section>
 
           <Section title="CONDUTA PRESCRITA">
-            <TextAreaField label="Conduta prescrita" value={dados.condutaPrescrita ?? ""} onChange={(value) => setDados((current) => ({ ...current, condutaPrescrita: value }))} minHeight={170} />
+            <TextAreaField label="Conduta prescrita" value={dados.condutaPrescrita ?? ""} onChange={(value) => updateDados((current) => ({ ...current, condutaPrescrita: value }))} minHeight={170} />
           </Section>
         </div>
       </div>

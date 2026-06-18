@@ -247,6 +247,8 @@
   - `app/api/clients/records/route.ts`: troca de `upsert` por fluxo seguro `update -> insert`, atualizando fichas ativas do cliente antes de inserir uma nova quando necessario
   - `hooks/useClients.ts`: selecao da ficha ativa mais recente por `updated_at` e `created_at`
   - `components/clientes/AnamneseCapilarTab.tsx`: exibicao da mensagem real retornada pela API quando houver falha
+  - `components/clientes/AnamneseCapilarTab.tsx`: protecao contra sobrescrita do formulario local quando o estado global do cliente e reidratado durante a digitacao
+  - `supabase/migrations/20260618220930_dedupe_ficha_anamnese_capilar_active_rows.sql`: migration defensiva para consolidar duplicatas ativas sem apagar linhas historicas
 - Validacao executada na raiz do repositorio:
   - `npm run lint` -> sem erros
   - `npm run build` -> concluido com sucesso
