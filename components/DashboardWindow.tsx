@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Client } from "@/types";
 import BrandLogo from "@/components/BrandLogo";
 import ChartSurface from "@/components/charts/ChartSurface";
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart,
   Bar,
+  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
@@ -16,13 +17,12 @@ import {
   PieChart,
   Pie,
   Cell,
-  AreaChart,
-  Area,
   Legend,
+  ComposedChart,
+  Line,
 } from "recharts";
 import {
   DollarSign,
-  Activity,
   Users,
   Scissors,
   CalendarRange,
@@ -83,8 +83,120 @@ type DashboardClientsResponse = {
 };
 
 type DatePreset = "7d" | "30d" | "all" | "custom";
+type TrendDirection = "up" | "down" | "stable";
 
-const CHART_COLORS = ["#7A4921", "#A56D3A", "#D2A679", "#5D7A63", "#B98555", "#8C5B2F"];
+type DateWindow = {
+  start: Date;
+  end: Date;
+  usesDailyBuckets: boolean;
+  label: string;
+  comparisonEnabled: boolean;
+};
+
+type NumericComparison = {
+  current: number;
+  previous: number;
+  deltaPercent: number;
+  trend: TrendDirection;
+  available: boolean;
+  baselineZero: boolean;
+};
+
+type RevenuePoint = {
+  key: string;
+  label: string;
+  sortKey: number;
+  procedureRevenue: number;
+  homecareConfirmedRevenue: number;
+  homecarePendingRevenue: number;
+  realizedRevenue: number;
+  potentialRevenue: number;
+  procedureCount: number;
+};
+
+type TechniqueMetric = {
+  name: string;
+  revenue: number;
+  count: number;
+  avgTicket: number;
+  share: number;
+};
+
+type LeadSourceMetric = {
+  name: string;
+  value: number;
+  share: number;
+};
+
+type MixMetric = {
+  name: string;
+  value: number;
+  pct: number;
+  color: string;
+  description: string;
+};
+
+type InsightItem = {
+  label: string;
+  value: string;
+  description: string;
+};
+
+type WindowSnapshot = {
+  realizedRevenue: number;
+  pendingRevenue: number;
+  procedureRevenue: number;
+  procedureCount: number;
+  activeClientsWithRevenue: number;
+  avgTicket: number;
+  totalHomecareCount: number;
+  homecareConfirmedCount: number;
+  homecarePendingCount: number;
+  homecareCountConfirmationRate: number;
+};
+
+type FinancialMetrics = WindowSnapshot & {
+  potentialRevenue: number;
+  homecareConfirmedRevenue: number;
+  revenuePerClient: number;
+  dailyAverageRevenue: number;
+  homecareValueConfirmationRate: number;
+  trendData: RevenuePoint[];
+  techniqueData: TechniqueMetric[];
+  leadSourceData: LeadSourceMetric[];
+  mixData: MixMetric[];
+  insightItems: InsightItem[];
+  capturedClientsCount: number;
+  bestBucket: RevenuePoint | null;
+  topTechnique: TechniqueMetric | null;
+};
+
+type KpiCardProps = {
+  label: string;
+  value: string;
+  description: string;
+  supporting: string;
+  icon: ReactNode;
+  iconClassName: string;
+  surfaceClassName: string;
+  comparison?: NumericComparison;
+};
+
+type InsightTileProps = {
+  label: string;
+  value: string;
+  description: string;
+};
+
+const FINANCE_COLORS = {
+  procedure: "#7A4921",
+  homecareConfirmed: "#5D7A63",
+  homecarePending: "#D2A679",
+  realizedLine: "#315C48",
+  accent: "#A56D3A",
+  neutral: "#B98555",
+} as const;
+
 const EMPTY_PROFILE: Client["profile"] = {
   nome: "",
   whatsapp: "",
@@ -98,6 +210,33 @@ function formatCurrencyFull(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
+function formatCurrencyCompact(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatPercent(value: number, digits = 0) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "percent",
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  }).format(value / 100);
+}
+
+function formatSignedPercent(value: number, digits = 0) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const prefix = safeValue > 0 ? "+" : "";
+  return `${prefix}${formatPercent(safeValue, digits)}`;
+}
+
 function normalizeAnalyticsClient(client: AnalyticsClient): AnalyticsClient {
   return {
     ...client,
@@ -107,133 +246,279 @@ function normalizeAnalyticsClient(client: AnalyticsClient): AnalyticsClient {
   };
 }
 
-function isWithinRange(value: string, preset: DatePreset, startDate: string, endDate: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  if (preset === "all") return true;
-  if (preset === "custom") {
-    const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
-    const end = endDate ? new Date(`${endDate}T23:59:59`) : null;
-    if (start && date < start) return false;
-    if (end && date > end) return false;
-    return true;
-  }
-  const now = new Date();
-  const days = preset === "7d" ? 7 : 30;
-  const start = new Date(now);
-  start.setDate(now.getDate() - (days - 1));
-  start.setHours(0, 0, 0, 0);
-  return date >= start && date <= now;
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
 }
 
-function buildRevenueLabel(date: Date, preset: DatePreset, customStart: string, customEnd: string) {
-  const usesDailyBuckets = preset === "7d" || preset === "30d" || (preset === "custom" && customStart && customEnd);
-  return usesDailyBuckets
-    ? date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
-    : date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+function diffDaysInclusive(start: Date, end: Date) {
+  const startTime = startOfDay(start).getTime();
+  const endTime = startOfDay(end).getTime();
+  return Math.max(1, Math.floor((endTime - startTime) / 86_400_000) + 1);
 }
 
-type PeriodComparison = {
-  currentTotal: number;
-  previousTotal: number;
-  percentChange: number;
-  trend: "up" | "down" | "stable";
-};
+function getTrendDirection(deltaPercent: number, threshold = 3): TrendDirection {
+  if (deltaPercent > threshold) return "up";
+  if (deltaPercent < -threshold) return "down";
+  return "stable";
+}
 
-function computePeriodComparison(
-  clients: AnalyticsClient[],
-  preset: DatePreset
-): PeriodComparison {
-  const now = new Date();
-  const days = preset === "7d" ? 7 : 30;
+function getEarliestRecordDate(clients: AnalyticsClient[]) {
+  let earliest: Date | null = null;
 
-  const currentStart = new Date(now);
-  currentStart.setDate(now.getDate() - (days - 1));
-
-  const prevEnd = new Date(currentStart);
-  prevEnd.setDate(prevEnd.getDate() - 1);
-  const prevStart = new Date(prevEnd);
-  prevStart.setDate(prevEnd.getDate() - (days - 1));
-
-  const currentRevenues: number[] = [];
-  const previousRevenues: number[] = [];
+  const applyCandidate = (value?: string | null) => {
+    if (!value) return;
+    const candidate = new Date(value);
+    if (Number.isNaN(candidate.getTime())) return;
+    if (!earliest || candidate < earliest) earliest = candidate;
+  };
 
   clients.forEach((client) => {
-    client.colorimetrias.forEach((proc) => {
-      const procDate = new Date(proc.data);
-      const val = proc.valor || 0;
+    applyCandidate(client.createdAt);
+    client.colorimetrias.forEach((procedure) => applyCandidate(procedure.data));
+    client.homecare.forEach((homecare) => applyCandidate(homecare.data));
+  });
 
-      if (procDate >= currentStart && procDate <= now) {
-        currentRevenues.push(val);
-      } else if (procDate >= prevStart && procDate <= prevEnd) {
-        previousRevenues.push(val);
+  return earliest;
+}
+
+function getSelectedWindow(
+  clients: AnalyticsClient[],
+  preset: DatePreset,
+  customStart: string,
+  customEnd: string
+): DateWindow {
+  const now = new Date();
+
+  if (preset === "7d" || preset === "30d") {
+    const days = preset === "7d" ? 7 : 30;
+    const start = startOfDay(now);
+    start.setDate(start.getDate() - (days - 1));
+
+    return {
+      start,
+      end: now,
+      usesDailyBuckets: true,
+      label: preset === "7d" ? "Ultimos 7 dias" : "Ultimos 30 dias",
+      comparisonEnabled: true,
+    };
+  }
+
+  const earliest = getEarliestRecordDate(clients) ?? startOfDay(now);
+
+  if (preset === "all") {
+    const start = startOfDay(earliest);
+    const days = diffDaysInclusive(start, now);
+
+    return {
+      start,
+      end: now,
+      usesDailyBuckets: days <= 45,
+      label: "Todo o historico",
+      comparisonEnabled: false,
+    };
+  }
+
+  const rawStart = customStart ? new Date(`${customStart}T00:00:00`) : startOfDay(earliest);
+  const rawEnd = customEnd ? new Date(`${customEnd}T23:59:59`) : now;
+
+  const start = rawStart <= rawEnd ? rawStart : rawEnd;
+  const end = rawEnd >= rawStart ? rawEnd : rawStart;
+  const days = diffDaysInclusive(start, end);
+
+  return {
+    start,
+    end,
+    usesDailyBuckets: days <= 45,
+    label: `${start.toLocaleDateString("pt-BR")} ate ${end.toLocaleDateString("pt-BR")}`,
+    comparisonEnabled: Boolean(customStart && customEnd),
+  };
+}
+
+function isWithinWindow(value: string, window: DateWindow) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date >= window.start && date <= window.end;
+}
+
+function getBucketMeta(date: Date, usesDailyBuckets: boolean) {
+  if (usesDailyBuckets) {
+    return {
+      key: date.toISOString().slice(0, 10),
+      label: date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      sortKey: startOfDay(date).getTime(),
+    };
+  }
+
+  const bucketDate = new Date(date.getFullYear(), date.getMonth(), 1);
+  return {
+    key: `${bucketDate.getFullYear()}-${String(bucketDate.getMonth() + 1).padStart(2, "0")}`,
+    label: bucketDate.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+    sortKey: bucketDate.getTime(),
+  };
+}
+
+function computeNumericComparison(current: number, previous: number): NumericComparison {
+  if (previous === 0 && current === 0) {
+    return {
+      current,
+      previous,
+      deltaPercent: 0,
+      trend: "stable",
+      available: true,
+      baselineZero: false,
+    };
+  }
+
+  if (previous === 0) {
+    return {
+      current,
+      previous,
+      deltaPercent: 100,
+      trend: "up",
+      available: true,
+      baselineZero: true,
+    };
+  }
+
+  const deltaPercent = ((current - previous) / previous) * 100;
+
+  return {
+    current,
+    previous,
+    deltaPercent,
+    trend: getTrendDirection(deltaPercent),
+    available: true,
+    baselineZero: false,
+  };
+}
+
+function unavailableComparison(current: number): NumericComparison {
+  return {
+    current,
+    previous: 0,
+    deltaPercent: 0,
+    trend: "stable",
+    available: false,
+    baselineZero: false,
+  };
+}
+
+function summarizeWindow(clients: AnalyticsClient[], window: DateWindow): WindowSnapshot {
+  let procedureRevenue = 0;
+  let procedureCount = 0;
+  let confirmedHomecareRevenue = 0;
+  let pendingHomecareRevenue = 0;
+  let totalHomecareCount = 0;
+  let homecareConfirmedCount = 0;
+  let homecarePendingCount = 0;
+  const activeClients = new Set<string>();
+
+  clients.forEach((client) => {
+    client.colorimetrias.forEach((procedure) => {
+      if (!isWithinWindow(procedure.data, window)) return;
+      procedureRevenue += procedure.valor || 0;
+      procedureCount += 1;
+      activeClients.add(client.id);
+    });
+
+    client.homecare.forEach((homecare) => {
+      if (!isWithinWindow(homecare.data, window)) return;
+      totalHomecareCount += 1;
+      activeClients.add(client.id);
+
+      if (homecare.pago) {
+        confirmedHomecareRevenue += homecare.valorTotal || 0;
+        homecareConfirmedCount += 1;
+        return;
       }
+
+      pendingHomecareRevenue += homecare.valorTotal || 0;
+      homecarePendingCount += 1;
     });
   });
 
-  const currentTotal = currentRevenues.reduce((a, b) => a + b, 0);
-  const previousTotal = previousRevenues.reduce((a, b) => a + b, 0);
-
-  if (previousTotal === 0) {
-    return { currentTotal, previousTotal, percentChange: currentTotal > 0 ? 100 : 0, trend: "up" as const };
-  }
-
-  const percentChange = ((currentTotal - previousTotal) / previousTotal) * 100;
-  const trend: "up" | "down" | "stable" = percentChange > 5 ? "up" : percentChange < -5 ? "down" : "stable";
-
-  return { currentTotal, previousTotal, percentChange, trend };
+  return {
+    realizedRevenue: procedureRevenue + confirmedHomecareRevenue,
+    pendingRevenue: pendingHomecareRevenue,
+    procedureRevenue,
+    procedureCount,
+    activeClientsWithRevenue: activeClients.size,
+    avgTicket: procedureCount > 0 ? procedureRevenue / procedureCount : 0,
+    totalHomecareCount,
+    homecareConfirmedCount,
+    homecarePendingCount,
+    homecareCountConfirmationRate:
+      totalHomecareCount > 0 ? (homecareConfirmedCount / totalHomecareCount) * 100 : 0,
+  };
 }
 
-type TooltipPayload = { name?: string; value?: number; color?: string };
+function truncateLabel(value: string, maxLength = 16) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}...`;
+}
 
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string }) => {
-  if (!active || !payload?.length) return null;
+function getComparisonAccent(trend: TrendDirection) {
+  if (trend === "up") return "text-emerald-600";
+  if (trend === "down") return "text-rose-500";
+  return "text-gray-400";
+}
+
+function KpiCard({
+  label,
+  value,
+  description,
+  supporting,
+  icon,
+  iconClassName,
+  surfaceClassName,
+  comparison,
+}: KpiCardProps) {
+  const ComparisonIcon =
+    comparison?.trend === "up"
+      ? ArrowUpRight
+      : comparison?.trend === "down"
+      ? ArrowDownRight
+      : Minus;
+
   return (
     <div
-      className="bg-white/90 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-lg"
-      style={{ border: "1px solid rgba(122,73,33,0.1)" }}
+      className={`rounded-3xl border p-5 shadow-[0_12px_34px_rgba(94,58,28,0.06)] transition-all hover:bg-white/75 hover:shadow-[0_16px_40px_rgba(94,58,28,0.1)] ${surfaceClassName}`}
     >
-      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">{label}</p>
-      {payload.map((entry, i) => (
-        <p key={i} className="text-sm font-bold text-[#1d1d1f]">
-          {formatCurrencyFull(entry.value ?? 0)}
-        </p>
-      ))}
-    </div>
-  );
-};
+      <div className={`flex items-center gap-2 ${iconClassName}`}>
+        {icon}
+        <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
+      </div>
 
-type LegendPayload = { value?: string; color?: string };
+      <span className="mt-3 block text-2xl font-black text-[#1d1d1f]">{value}</span>
+      <p className="mt-2 text-sm font-medium text-[var(--color-text)]">{description}</p>
 
-const DonutTooltip = ({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) => {
-  if (!active || !payload?.length) return null;
-  const d = payload[0];
-  return (
-    <div
-      className="bg-white/90 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-lg"
-      style={{ border: "1px solid rgba(122,73,33,0.1)" }}
-    >
-      <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">{d.name}</p>
-      <p className="text-sm font-bold text-[#1d1d1f]">{formatCurrencyFull(d.value ?? 0)}</p>
-    </div>
-  );
-};
-
-const RenderLegend = ({ payload }: { payload?: LegendPayload[] }) => {
-  return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-3 px-1">
-      {payload?.map((entry, index) => (
-        <div key={`legend-${index}`} className="flex items-center gap-2">
-          <span
-            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: entry.color }}
-          />
-          <span className="text-[10px] font-semibold text-gray-600 truncate leading-tight">{entry.value}</span>
+      {comparison ? (
+        <div className={`mt-2 flex items-center gap-1 text-[10px] font-semibold ${getComparisonAccent(comparison.trend)}`}>
+          <ComparisonIcon size={12} />
+          {!comparison.available
+            ? "Comparacao indisponivel para este recorte"
+            : comparison.baselineZero
+            ? "Sem base no periodo anterior"
+            : `${formatSignedPercent(comparison.deltaPercent, 0)} vs periodo anterior`}
         </div>
-      ))}
+      ) : null}
+
+      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{supporting}</p>
     </div>
   );
-};
+}
+
+function InsightTile({ label, value, description }: InsightTileProps) {
+  return (
+    <div className="rounded-[22px] border border-white/70 bg-white/70 px-4 py-4 shadow-[0_10px_28px_rgba(94,58,28,0.05)]">
+      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">{label}</p>
+      <strong className="mt-2 block text-lg font-semibold text-[var(--color-ink)]">{value}</strong>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-secondary)]">{description}</p>
+    </div>
+  );
+}
 
 export default function DashboardWindow({ clients, onClose }: DashboardWindowProps) {
   const [allClients, setAllClients] = useState<AnalyticsClient[] | null>(null);
@@ -246,7 +531,6 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
       .then((res) => res.json() as Promise<DashboardClientsResponse>)
       .then((data) => {
         const rawClients = Array.isArray(data.clients) ? data.clients : [];
-        // Transform raw DB rows to Client format (similar to mapDbClients)
         const transformed = rawClients.map<AnalyticsClient>((row) => ({
           id: row.id,
           profile: {
@@ -258,36 +542,37 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
           colorimetrias: Array.isArray(row.historico_procedimentos)
             ? row.historico_procedimentos
                 .filter((item) => !item.deleted_at)
-                .map((c) => ({
-                  id: c.id,
-                  data: c.created_at,
-                  tecnicaUtilizada: c.tecnica_utilizada || "",
-                  alturaClareamento: c.altura_clareamento,
-                  fundoClareamentoObtido: c.fundo_clareamento_obtido,
-                  misturaTonalizante: c.mistura_tonalizante,
-                  volumagemOx: c.volumagem_ox,
-                  valor: c.valor_procedimento,
+                .map((procedure) => ({
+                  id: procedure.id,
+                  data: procedure.created_at,
+                  tecnicaUtilizada: procedure.tecnica_utilizada || "",
+                  alturaClareamento: procedure.altura_clareamento,
+                  fundoClareamentoObtido: procedure.fundo_clareamento_obtido,
+                  misturaTonalizante: procedure.mistura_tonalizante,
+                  volumagemOx: procedure.volumagem_ox,
+                  valor: procedure.valor_procedimento,
                 }))
             : [],
           homecare: Array.isArray(row.manutencao_homecare)
             ? row.manutencao_homecare
                 .filter((item) => !item.deleted_at)
-                .map((m) => ({
-                  id: m.id,
-                  data: m.created_at,
-                  produtosRecomendados: m.produtos_recomendados,
-                  dataRetornoSugerida: m.data_retorno_sugerida,
-                  obsCuidados: m.obs_cuidados,
-                  valorTotal: m.valor_total ?? undefined,
-                  formaPagamento: m.forma_pagamento ?? undefined,
-                  parcelas: m.parcelas ?? undefined,
-                  pago: m.pago ?? undefined,
-                  confirmadoEm: m.confirmado_em ?? undefined,
+                .map((homecare) => ({
+                  id: homecare.id,
+                  data: homecare.created_at,
+                  produtosRecomendados: homecare.produtos_recomendados,
+                  dataRetornoSugerida: homecare.data_retorno_sugerida,
+                  obsCuidados: homecare.obs_cuidados,
+                  valorTotal: homecare.valor_total ?? undefined,
+                  formaPagamento: homecare.forma_pagamento ?? undefined,
+                  parcelas: homecare.parcelas ?? undefined,
+                  pago: homecare.pago ?? undefined,
+                  confirmadoEm: homecare.confirmado_em ?? undefined,
                 }))
             : [],
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         }));
+
         setAllClients(transformed);
       })
       .catch(() => setAllClients([]));
@@ -298,120 +583,308 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
     [allClients, clients]
   );
 
-  const periodComparison = useMemo(
-    () => computePeriodComparison(effectiveClients, preset),
-    [effectiveClients, preset]
+  const selectedWindow = useMemo(
+    () => getSelectedWindow(effectiveClients, preset, customStart, customEnd),
+    [customEnd, customStart, effectiveClients, preset]
   );
 
-  const metrics = useMemo(() => {
-    let totalRevenue = 0;
-    let procCount = 0;
-    const revenueBuckets = new Map<string, number>();
-    const procedureRevenue: Record<string, number> = {};
-    const leadSourceCount: Record<string, number> = {};
-    const proceduresByMonth: Record<string, number> = {};
-    const topProcedures: Record<string, { count: number; revenue: number }> = {};
+  const previousWindow = useMemo(() => {
+    if (!selectedWindow.comparisonEnabled) return null;
 
-    const filteredPatients = effectiveClients.filter((client) =>
-      isWithinRange(client.createdAt, preset, customStart, customEnd)
-    );
+    const days = diffDaysInclusive(selectedWindow.start, selectedWindow.end);
+    const previousEnd = new Date(selectedWindow.start.getTime() - 1);
+    const previousStart = startOfDay(previousEnd);
+    previousStart.setDate(previousStart.getDate() - (days - 1));
+
+    return {
+      ...selectedWindow,
+      start: previousStart,
+      end: previousEnd,
+      comparisonEnabled: false,
+    };
+  }, [selectedWindow]);
+
+  const currentSnapshot = useMemo(
+    () => summarizeWindow(effectiveClients, selectedWindow),
+    [effectiveClients, selectedWindow]
+  );
+
+  const previousSnapshot = useMemo(
+    () => (previousWindow ? summarizeWindow(effectiveClients, previousWindow) : null),
+    [effectiveClients, previousWindow]
+  );
+
+  const comparisons = useMemo(
+    () => ({
+      realizedRevenue: previousSnapshot
+        ? computeNumericComparison(currentSnapshot.realizedRevenue, previousSnapshot.realizedRevenue)
+        : unavailableComparison(currentSnapshot.realizedRevenue),
+      avgTicket: previousSnapshot
+        ? computeNumericComparison(currentSnapshot.avgTicket, previousSnapshot.avgTicket)
+        : unavailableComparison(currentSnapshot.avgTicket),
+      activeClients: previousSnapshot
+        ? computeNumericComparison(currentSnapshot.activeClientsWithRevenue, previousSnapshot.activeClientsWithRevenue)
+        : unavailableComparison(currentSnapshot.activeClientsWithRevenue),
+      homecareRate: previousSnapshot
+        ? computeNumericComparison(
+            currentSnapshot.homecareCountConfirmationRate,
+            previousSnapshot.homecareCountConfirmationRate
+          )
+        : unavailableComparison(currentSnapshot.homecareCountConfirmationRate),
+    }),
+    [currentSnapshot, previousSnapshot]
+  );
+
+  const metrics = useMemo<FinancialMetrics>(() => {
+    const trendBuckets = new Map<string, RevenuePoint>();
+    const techniqueMap = new Map<string, { revenue: number; count: number }>();
+    const leadSourceCount: Record<string, number> = {};
+    let capturedClientsCount = 0;
+    let homecareConfirmedRevenue = 0;
+    let homecarePendingRevenue = 0;
+
+    const ensureBucket = (date: Date) => {
+      const meta = getBucketMeta(date, selectedWindow.usesDailyBuckets);
+      const existing = trendBuckets.get(meta.key);
+      if (existing) return existing;
+
+      const next: RevenuePoint = {
+        key: meta.key,
+        label: meta.label,
+        sortKey: meta.sortKey,
+        procedureRevenue: 0,
+        homecareConfirmedRevenue: 0,
+        homecarePendingRevenue: 0,
+        realizedRevenue: 0,
+        potentialRevenue: 0,
+        procedureCount: 0,
+      };
+
+      trendBuckets.set(meta.key, next);
+      return next;
+    };
 
     effectiveClients.forEach((client) => {
+      if (isWithinWindow(client.createdAt, selectedWindow)) {
+        const source = client.profile.acquisitionChannel || "Nao informado";
+        leadSourceCount[source] = (leadSourceCount[source] || 0) + 1;
+        capturedClientsCount += 1;
+      }
+
       client.colorimetrias.forEach((procedure) => {
-        if (!isWithinRange(procedure.data, preset, customStart, customEnd)) return;
+        if (!isWithinWindow(procedure.data, selectedWindow)) return;
 
         const value = procedure.valor || 0;
-        const date = new Date(procedure.data);
-        const label = buildRevenueLabel(date, preset, customStart, customEnd);
-        totalRevenue += value;
-        procCount += 1;
-        revenueBuckets.set(label, (revenueBuckets.get(label) || 0) + value);
+        const bucket = ensureBucket(new Date(procedure.data));
+        bucket.procedureRevenue += value;
+        bucket.realizedRevenue += value;
+        bucket.potentialRevenue += value;
+        bucket.procedureCount += 1;
 
         const technique = procedure.tecnicaUtilizada || "Nao informado";
-        procedureRevenue[technique] = (procedureRevenue[technique] || 0) + value;
+        const current = techniqueMap.get(technique) ?? { revenue: 0, count: 0 };
+        current.revenue += value;
+        current.count += 1;
+        techniqueMap.set(technique, current);
+      });
 
-        const monthKey = date.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
-        proceduresByMonth[monthKey] = (proceduresByMonth[monthKey] || 0) + 1;
+      client.homecare.forEach((homecare) => {
+        if (!isWithinWindow(homecare.data, selectedWindow)) return;
 
-        topProcedures[technique] = topProcedures[technique] || { count: 0, revenue: 0 };
-        topProcedures[technique].count += 1;
-        topProcedures[technique].revenue += value;
+        const value = homecare.valorTotal || 0;
+        const bucket = ensureBucket(new Date(homecare.data));
+
+        if (homecare.pago) {
+          bucket.homecareConfirmedRevenue += value;
+          bucket.realizedRevenue += value;
+          bucket.potentialRevenue += value;
+          homecareConfirmedRevenue += value;
+          return;
+        }
+
+        bucket.homecarePendingRevenue += value;
+        bucket.potentialRevenue += value;
+        homecarePendingRevenue += value;
       });
     });
 
-    filteredPatients.forEach((client) => {
-      const source = client.profile.acquisitionChannel || "Nao informado";
-      leadSourceCount[source] = (leadSourceCount[source] || 0) + 1;
-    });
+    const procedureRevenue = currentSnapshot.procedureRevenue;
+    const realizedRevenue = currentSnapshot.realizedRevenue;
+    const pendingRevenue = currentSnapshot.pendingRevenue;
+    const potentialRevenue = realizedRevenue + pendingRevenue;
 
-    const revenueData = Array.from(revenueBuckets.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+    const trendData = Array.from(trendBuckets.values()).sort((left, right) => left.sortKey - right.sortKey);
 
-    const profitabilityData = Object.entries(procedureRevenue)
+    const techniqueData = Array.from(techniqueMap.entries())
+      .map(([name, data]) => ({
+        name,
+        revenue: data.revenue,
+        count: data.count,
+        avgTicket: data.count > 0 ? data.revenue / data.count : 0,
+        share: procedureRevenue > 0 ? (data.revenue / procedureRevenue) * 100 : 0,
+      }))
+      .sort((left, right) => right.revenue - left.revenue);
+
+    const leadSourceData = Object.entries(leadSourceCount)
       .map(([name, value]) => ({
         name,
         value,
-        pct: totalRevenue > 0 ? Math.round((value / totalRevenue) * 100) : 0,
+        share: capturedClientsCount > 0 ? (value / capturedClientsCount) * 100 : 0,
       }))
-      .sort((a, b) => b.value - a.value);
+      .sort((left, right) => right.value - left.value);
 
-    const leadSourceData = Object.entries(leadSourceCount)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+    const mixData = [
+      {
+        name: "Procedimentos",
+        value: procedureRevenue,
+        pct: potentialRevenue > 0 ? (procedureRevenue / potentialRevenue) * 100 : 0,
+        color: FINANCE_COLORS.procedure,
+        description: "Receita de servicos executados.",
+      },
+      {
+        name: "Homecare confirmado",
+        value: homecareConfirmedRevenue,
+        pct: potentialRevenue > 0 ? (homecareConfirmedRevenue / potentialRevenue) * 100 : 0,
+        color: FINANCE_COLORS.homecareConfirmed,
+        description: "Produtos ja convertidos em receita.",
+      },
+      {
+        name: "Homecare em aberto",
+        value: pendingRevenue,
+        pct: potentialRevenue > 0 ? (pendingRevenue / potentialRevenue) * 100 : 0,
+        color: FINANCE_COLORS.homecarePending,
+        description: "Receita potencial ainda nao confirmada.",
+      },
+    ].filter((item) => item.value > 0);
 
-    const topProceduresList = Object.entries(topProcedures)
-      .map(([name, data]) => ({
-        name,
-        count: data.count,
-        revenue: data.revenue,
-        avgTicket: data.count > 0 ? data.revenue / data.count : 0,
-      }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5);
+    const bestBucket =
+      trendData.length > 0
+        ? trendData.reduce((best, current) => (current.realizedRevenue > best.realizedRevenue ? current : best))
+        : null;
 
-    let totalHomecarePago = 0;
-    let totalHomecarePendente = 0;
-    let totalHomecareCount = 0;
-    effectiveClients.forEach((client) => {
-      client.homecare.forEach((h) => {
-        totalHomecareCount += 1;
-        if (h.pago) {
-          totalHomecarePago += h.valorTotal || 0;
-        } else {
-          totalHomecarePendente += h.valorTotal || 0;
-        }
-      });
-    });
+    const topTechnique = techniqueData[0] ?? null;
+    const totalWindowDays = diffDaysInclusive(selectedWindow.start, selectedWindow.end);
+    const revenuePerClient =
+      currentSnapshot.activeClientsWithRevenue > 0
+        ? realizedRevenue / currentSnapshot.activeClientsWithRevenue
+        : 0;
+
+    const homecareValueConfirmationRate =
+      homecareConfirmedRevenue + homecarePendingRevenue > 0
+        ? (homecareConfirmedRevenue / (homecareConfirmedRevenue + homecarePendingRevenue)) * 100
+        : 0;
+
+    const insightItems: InsightItem[] = [
+      {
+        label: "Maior motor",
+        value: topTechnique ? topTechnique.name : "Sem tecnica lider",
+        description: topTechnique
+          ? `${formatPercent(topTechnique.share, 1)} da receita de procedimentos e ticket medio de ${formatCurrency(topTechnique.avgTicket)}.`
+          : "Sem procedimentos registrados no recorte atual.",
+      },
+      {
+        label: selectedWindow.usesDailyBuckets ? "Melhor dia" : "Melhor mes",
+        value: bestBucket ? bestBucket.label : "Sem pico de receita",
+        description: bestBucket
+          ? `${formatCurrency(bestBucket.realizedRevenue)} realizados nessa janela.`
+          : "Assim que houver receita no periodo, o pico aparece aqui.",
+      },
+      {
+        label: "Media realizada",
+        value: formatCurrency(realizedRevenue / totalWindowDays),
+        description: `${formatCount(currentSnapshot.activeClientsWithRevenue)} cliente(s) geraram caixa no periodo selecionado.`,
+      },
+    ];
 
     return {
-      totalClients: filteredPatients.length,
-      totalRevenue,
-      procCount,
-      revenueData,
-      profitabilityData,
+      ...currentSnapshot,
+      potentialRevenue,
+      homecareConfirmedRevenue,
+      revenuePerClient,
+      dailyAverageRevenue: realizedRevenue / totalWindowDays,
+      homecareValueConfirmationRate,
+      trendData,
+      techniqueData,
       leadSourceData,
-      topProcedures: topProceduresList,
-      proceduresByMonth: Object.entries(proceduresByMonth)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
-      totalHomecarePago,
-      totalHomecarePendente,
-      totalHomecareCount,
+      mixData,
+      insightItems,
+      capturedClientsCount,
+      bestBucket,
+      topTechnique,
     };
-  }, [customEnd, customStart, effectiveClients, preset]);
+  }, [currentSnapshot, effectiveClients, selectedWindow]);
 
-  const TrendIcon = periodComparison.trend === "up"
-    ? ArrowUpRight
-    : periodComparison.trend === "down"
-    ? ArrowDownRight
-    : Minus;
+  const pendingShareOfPotential =
+    metrics.potentialRevenue > 0 ? (metrics.pendingRevenue / metrics.potentialRevenue) * 100 : 0;
+  const proceduresShareOfRealized =
+    metrics.realizedRevenue > 0 ? (metrics.procedureRevenue / metrics.realizedRevenue) * 100 : 0;
+  const homecareShareOfRealized =
+    metrics.realizedRevenue > 0 ? (metrics.homecareConfirmedRevenue / metrics.realizedRevenue) * 100 : 0;
 
-  const trendColor = periodComparison.trend === "up"
-    ? "text-emerald-600"
-    : periodComparison.trend === "down"
-    ? "text-red-500"
-    : "text-gray-400";
+  const financeCards = useMemo<KpiCardProps[]>(
+    () => [
+      {
+        label: "Receita realizada",
+        value: formatCurrency(metrics.realizedRevenue),
+        description: "Procedimentos executados somados ao homecare confirmado.",
+        supporting: metrics.bestBucket
+          ? `Melhor janela: ${metrics.bestBucket.label} com ${formatCurrency(metrics.bestBucket.realizedRevenue)}.`
+          : "Sem receita realizada no periodo selecionado.",
+        icon: <DollarSign size={16} />,
+        iconClassName: "text-[#7A4921]",
+        surfaceClassName: "bg-white/55 border-white/70",
+        comparison: comparisons.realizedRevenue,
+      },
+      {
+        label: "Receita em aberto",
+        value: formatCurrency(metrics.pendingRevenue),
+        description:
+          metrics.pendingRevenue > 0
+            ? "Valor que ainda pode virar caixa apos confirmacao."
+            : "Nao ha receita pendente de homecare neste recorte.",
+        supporting: `${formatPercent(pendingShareOfPotential, 1)} do potencial financeiro ainda esta em aberto.`,
+        icon: <Clock size={16} />,
+        iconClassName: "text-amber-600",
+        surfaceClassName: "bg-amber-50/70 border-amber-200/80",
+      },
+      {
+        label: "Ticket medio",
+        value: formatCurrency(metrics.avgTicket),
+        description: `${formatCount(metrics.procedureCount)} procedimento(s) executados no periodo.`,
+        supporting: "Mede quanto cada servico rendeu em media antes do homecare.",
+        icon: <Scissors size={16} />,
+        iconClassName: "text-emerald-600",
+        surfaceClassName: "bg-emerald-50/60 border-emerald-200/70",
+        comparison: comparisons.avgTicket,
+      },
+      {
+        label: "Clientes com receita",
+        value: formatCount(metrics.activeClientsWithRevenue),
+        description: "Base que efetivamente gerou faturamento no recorte.",
+        supporting: `Receita media de ${formatCurrency(metrics.revenuePerClient)} por cliente com compra.`,
+        icon: <Users size={16} />,
+        iconClassName: "text-[var(--color-brand-deep)]",
+        surfaceClassName: "bg-[rgba(122,73,33,0.08)] border-[rgba(122,73,33,0.18)]",
+        comparison: comparisons.activeClients,
+      },
+      {
+        label: "Confirmacao homecare",
+        value: formatPercent(metrics.homecareValueConfirmationRate, 0),
+        description: `${formatCount(metrics.homecareConfirmedCount)} de ${formatCount(metrics.totalHomecareCount)} prescricoes viraram receita.`,
+        supporting: `Por quantidade, a taxa ficou em ${formatPercent(metrics.homecareCountConfirmationRate, 1)}.`,
+        icon: <CheckCircle size={16} />,
+        iconClassName: "text-[#5D7A63]",
+        surfaceClassName: "bg-[#f4fbf6] border-[#cfe5d5]",
+        comparison: comparisons.homecareRate,
+      },
+    ],
+    [comparisons, metrics, pendingShareOfPotential]
+  );
+
+  const ticketChartData = useMemo(
+    () => [...metrics.techniqueData].sort((left, right) => right.avgTicket - left.avgTicket).slice(0, 5),
+    [metrics.techniqueData]
+  );
 
   return (
     <AnimatePresence>
@@ -423,28 +896,37 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
         onClick={onClose}
       >
         <motion.div
-          className="premium-window relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px]"
+          className="premium-window relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[32px]"
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
         >
           <div className="premium-window-header flex shrink-0 items-center gap-3 px-4 py-4 sm:px-6">
-            <button onClick={onClose} className="w-5 h-5 rounded-full bg-[#ff5f57] sm:w-3 sm:h-3" />
-            <div className="flex-1 flex items-center justify-center gap-3">
+            <button onClick={onClose} className="h-5 w-5 rounded-full bg-[#ff5f57] sm:h-3 sm:w-3" />
+            <div className="flex flex-1 items-center justify-center gap-3">
               <TrendingUp size={16} className="text-[var(--color-brand-accent)]" />
               <BrandLogo compact />
             </div>
             <div className="w-8" />
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8">
-            <div className="premium-card rounded-[28px] p-4 sm:p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex-1 space-y-8 overflow-y-auto p-4 sm:p-8">
+            <div className="premium-card rounded-[28px] p-4 sm:p-6">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Analytics operacional</p>
-                  <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Visão financeira e aquisição de pacientes</h3>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">
+                    Painel financeiro
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">
+                    Receita, ticket, mix de servicos e conversao de homecare
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                    {selectedWindow.label} · {formatCount(metrics.activeClientsWithRevenue)} cliente(s) com receita ·{" "}
+                    {formatCurrency(metrics.realizedRevenue)} realizados
+                  </p>
                 </div>
+
                 <div className="flex flex-wrap gap-2">
                   {([
                     ["7d", "Semanal"],
@@ -457,9 +939,7 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
                       type="button"
                       onClick={() => setPreset(value)}
                       className={`premium-chip px-4 py-2 text-xs font-semibold transition-colors ${
-                        preset === value
-                          ? "is-active"
-                          : "text-[var(--color-brand-deep)]"
+                        preset === value ? "is-active" : "text-[var(--color-brand-deep)]"
                       }`}
                       data-active={preset === value}
                     >
@@ -472,346 +952,463 @@ export default function DashboardWindow({ clients, onClose }: DashboardWindowPro
               {preset === "custom" && (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-xl">
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-accent)]">
-                    Início
-                    <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="input-light mt-2" />
+                    Inicio
+                    <input
+                      type="date"
+                      value={customStart}
+                      onChange={(event) => setCustomStart(event.target.value)}
+                      className="input-light mt-2"
+                    />
                   </label>
+
                   <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-brand-accent)]">
                     Fim
-                    <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="input-light mt-2" />
+                    <input
+                      type="date"
+                      value={customEnd}
+                      onChange={(event) => setCustomEnd(event.target.value)}
+                      className="input-light mt-2"
+                    />
                   </label>
                 </div>
               )}
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                {metrics.insightItems.map((item) => (
+                  <InsightTile
+                    key={item.label}
+                    label={item.label}
+                    value={item.value}
+                    description={item.description}
+                  />
+                ))}
+              </div>
             </div>
 
-            {/* KPI Cards com comparação */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {([
-                {
-                  label: "Faturamento",
-                  val: formatCurrency(metrics.totalRevenue),
-                  icon: <DollarSign size={16} />,
-                  color: "text-[#7A4921]",
-                  comparison: `${periodComparison.percentChange >= 0 ? "+" : ""}${periodComparison.percentChange.toFixed(0)}% vs período anterior`,
-                },
-                {
-                  label: "Procedimentos",
-                  val: metrics.procCount,
-                  icon: <Scissors size={16} />,
-                  color: "text-emerald-600",
-                  comparison: `${periodComparison.currentTotal > periodComparison.previousTotal ? "+" : ""}${metrics.procCount > 0 ? Math.round(((periodComparison.currentTotal || 1) / (periodComparison.previousTotal || 1) - 1) * 100) : 0}% vs período anterior`,
-                },
-                {
-                  label: "Pacientes",
-                  val: metrics.totalClients,
-                  icon: <Users size={16} />,
-                  color: "text-amber-600",
-                },
-                {
-                  label: "Ticket Médio",
-                  val: formatCurrency(metrics.procCount ? metrics.totalRevenue / metrics.procCount : 0),
-                  icon: <Activity size={16} />,
-                  color: "text-blue-600",
-                },
-              ] as Array<{ label: string; val: string | number; icon: React.ReactNode; color: string; comparison?: string }>).map((k) => (
-                <div
-                  key={k.label}
-                  className="bg-white/55 p-5 rounded-3xl border border-white/70 flex flex-col gap-2 shadow-[0_12px_34px_rgba(94,58,28,0.06)] transition-all hover:shadow-[0_16px_40px_rgba(94,58,28,0.1)] hover:bg-white/70"
-                >
-                  <div className={`flex items-center gap-2 ${k.color}`}>
-                    {k.icon}
-                    <span className="text-[10px] font-bold uppercase tracking-widest">{k.label}</span>
-                  </div>
-                  <span className="text-2xl font-black text-[#1d1d1f]">{k.val}</span>
-                  {k.comparison && (
-                    <div className={`flex items-center gap-1 text-[10px] font-semibold ${trendColor}`}>
-                      <TrendIcon size={12} />
-                      {k.comparison}
-                    </div>
-                  )}
-                </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+              {financeCards.map((card) => (
+                <KpiCard key={card.label} {...card} />
               ))}
             </div>
 
-            {/* Gráficos principais */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-8">
-              {/* Área - Evolução do Faturamento */}
-              <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Evolução do Faturamento</h3>
-                <p className="text-[10px] text-gray-500 mb-5 font-medium">
-                  {metrics.revenueData.length} períodos · Total {formatCurrencyFull(metrics.totalRevenue)}
-                </p>
-                {metrics.revenueData.length > 0 ? (
-                  <ChartSurface className="h-64 w-full min-w-0" minHeight="16rem">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
-                      <AreaChart data={metrics.revenueData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="revGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#7A4921" stopOpacity={0.3} />
-                            <stop offset="100%" stopColor="#7A4921" stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.6fr_1fr]">
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">
+                      Fluxo financeiro do periodo
+                    </h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                      Linha = receita realizada. Barras = composicao do que entrou por servicos,
+                      homecare confirmado e homecare em aberto.
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-brand-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-brand-deep)]">
+                    <CalendarRange size={12} />
+                    {selectedWindow.label}
+                  </div>
+                </div>
+
+                {metrics.trendData.length > 0 ? (
+                  <ChartSurface className="mt-5 h-[22rem] w-full min-w-0" minHeight="22rem">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                      <ComposedChart data={metrics.trendData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+                        <CartesianGrid vertical={false} stroke="rgba(122,73,33,0.08)" />
                         <XAxis
-                          dataKey="name"
+                          dataKey="label"
                           tick={{ fontSize: 10, fontWeight: 700 }}
                           axisLine={false}
                           tickLine={false}
                           interval="preserveStartEnd"
                         />
-                        <YAxis hide />
-                        <Tooltip content={<CustomTooltip />} cursor={{ stroke: "rgba(122,73,33,0.15)", strokeWidth: 1, strokeDasharray: "4 4" }} />
-                        <Area
-                          type="monotone"
-                          dataKey="value"
-                          stroke="#7A4921"
-                          strokeWidth={2}
-                          fill="url(#revGradient)"
-                          animationDuration={800}
+                        <YAxis
+                          tick={{ fontSize: 10, fontWeight: 600, fill: "#6b7280" }}
+                          tickFormatter={(value) => formatCurrencyCompact(Number(value))}
+                          axisLine={false}
+                          tickLine={false}
+                          width={72}
                         />
-                      </AreaChart>
+                        <Tooltip
+                          cursor={{ fill: "rgba(122,73,33,0.05)" }}
+                          contentStyle={{
+                            borderRadius: "20px",
+                            border: "1px solid rgba(122,73,33,0.12)",
+                            boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+                            background: "rgba(255,255,255,0.96)",
+                          }}
+                          formatter={(value) => formatCurrencyFull(Number(value ?? 0))}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                        <Bar
+                          dataKey="procedureRevenue"
+                          name="Procedimentos"
+                          stackId="flow"
+                          fill={FINANCE_COLORS.procedure}
+                          radius={[6, 6, 0, 0]}
+                        />
+                        <Bar
+                          dataKey="homecareConfirmedRevenue"
+                          name="Homecare confirmado"
+                          stackId="flow"
+                          fill={FINANCE_COLORS.homecareConfirmed}
+                        />
+                        <Bar
+                          dataKey="homecarePendingRevenue"
+                          name="Homecare em aberto"
+                          stackId="flow"
+                          fill={FINANCE_COLORS.homecarePending}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="realizedRevenue"
+                          name="Receita realizada"
+                          stroke={FINANCE_COLORS.realizedLine}
+                          strokeWidth={2.5}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </ComposedChart>
                     </ResponsiveContainer>
                   </ChartSurface>
                 ) : (
-                  <div className="h-64 flex items-center justify-center text-gray-400 text-sm font-medium">
-                    Nenhum dado no período selecionado
+                  <div className="flex h-[22rem] items-center justify-center text-sm font-medium text-gray-400">
+                    Nenhuma movimentacao financeira no periodo selecionado.
                   </div>
                 )}
               </div>
 
-              {/* Coluna direita */}
-              <div className="grid gap-8">
-                {/* Rentabilidade por Procedimento */}
-                <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                  <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Rentabilidade por Procedimento</h3>
-                  <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.profitabilityData.length} técnicas</p>
-                  {metrics.profitabilityData.length > 0 ? (
-                    <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
-                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">Mix da receita</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Percentual = categoria / potencial financeiro do periodo. Aqui voce enxerga
+                  quanto ja entrou e quanto ainda esta pendente.
+                </p>
+
+                {metrics.mixData.length > 0 ? (
+                  <div className="mt-4 grid gap-5 lg:grid-cols-[0.95fr_1.05fr] xl:grid-cols-1 2xl:grid-cols-[0.95fr_1.05fr]">
+                    <ChartSurface className="h-64 w-full min-w-0" minHeight="16rem">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                         <PieChart>
                           <Pie
-                            data={metrics.profitabilityData}
-                            innerRadius={50}
-                            outerRadius={80}
-                            paddingAngle={3}
+                            data={metrics.mixData}
                             dataKey="value"
+                            nameKey="name"
+                            innerRadius={58}
+                            outerRadius={86}
+                            paddingAngle={3}
                             animationDuration={800}
                           >
-                            {metrics.profitabilityData.map((_, i) => (
-                              <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                            {metrics.mixData.map((item) => (
+                              <Cell key={item.name} fill={item.color} />
                             ))}
                           </Pie>
-                          <Tooltip content={<DonutTooltip />} />
-                          <Legend content={<RenderLegend />} />
+                          <Tooltip
+                            contentStyle={{
+                              borderRadius: "18px",
+                              border: "1px solid rgba(122,73,33,0.12)",
+                              boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+                              background: "rgba(255,255,255,0.96)",
+                            }}
+                            formatter={(value) => formatCurrencyFull(Number(value ?? 0))}
+                          />
                         </PieChart>
                       </ResponsiveContainer>
                     </ChartSurface>
-                  ) : (
-                    <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
-                      Nenhum dado no período
-                    </div>
-                  )}
-                </div>
 
-                {/* Origem dos Leads */}
-                <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                  <div className="flex items-center justify-between gap-3 mb-1">
-                    <h3 className="text-xs font-bold text-[#1d1d1f] uppercase tracking-widest">Origem dos Leads</h3>
-                    <div className="inline-flex items-center gap-2 rounded-full bg-[var(--color-brand-soft)] px-3 py-1 text-xs font-semibold text-[var(--color-brand-deep)]">
-                      <CalendarRange size={12} />
-                      {preset === "7d" ? "7 dias" : preset === "30d" ? "30 dias" : "todo período"}
+                    <div className="space-y-3">
+                      {metrics.mixData.map((item) => (
+                        <div key={item.name} className="rounded-[20px] border border-white/70 bg-white/75 px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="h-2.5 w-2.5 rounded-full"
+                                style={{ backgroundColor: item.color }}
+                              />
+                              <span className="text-sm font-semibold text-[#1d1d1f]">{item.name}</span>
+                            </div>
+                            <span className="text-xs font-bold text-[var(--color-brand-accent)]">
+                              {formatPercent(item.pct, 1)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-[var(--color-text)]">
+                            {formatCurrency(item.value)}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{item.description}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <p className="text-[10px] text-gray-500 mb-2 font-medium">{metrics.totalClients} pacientes</p>
-                  {metrics.leadSourceData.length > 0 ? (
-                    <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
-                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
-                        <PieChart>
-                          <Pie
-                            data={metrics.leadSourceData}
-                            innerRadius={44}
-                            outerRadius={76}
-                            paddingAngle={3}
-                            dataKey="value"
-                            animationDuration={800}
-                          >
-                            {metrics.leadSourceData.map((_, i) => (
-                              <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip content={<DonutTooltip />} />
-                          <Legend content={<RenderLegend />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </ChartSurface>
-                  ) : (
-                    <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
-                      Nenhum dado no período
-                    </div>
-                  )}
-                </div>
+                ) : (
+                  <div className="flex h-64 items-center justify-center text-sm font-medium text-gray-400">
+                    Sem receita suficiente para mostrar composicao.
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Top 5 Procedimentos + Procedimentos por Mês */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-8">
-              {/* Top 5 Procedimentos */}
-              <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-4 tracking-widest">Top Procedimentos</h3>
-                {metrics.topProcedures.length > 0 ? (
-                  <div className="w-full space-y-3">
-                    {metrics.topProcedures.map((proc, i) => {
-                      const pct = metrics.totalRevenue > 0 ? (proc.revenue / metrics.totalRevenue) * 100 : 0;
-                      return (
-                        <div key={proc.name} className="flex items-center gap-3">
-                          <span className="w-5 text-center text-[11px] font-black text-gray-400">#{i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-semibold text-[#1d1d1f] truncate">{proc.name}</span>
-                              <span className="text-[11px] font-bold text-[var(--color-brand-accent)] ml-2 flex-shrink-0">
-                                {formatCurrency(proc.revenue)}
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_1fr]">
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">
+                  Tecnicas que mais faturam
+                </h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Participacao calculada sobre a receita de procedimentos. Ajuda a ver o que
+                  realmente sustenta o caixa de servicos.
+                </p>
+
+                {metrics.techniqueData.length > 0 ? (
+                  <div className="mt-5 space-y-4">
+                    {metrics.techniqueData.slice(0, 5).map((technique, index) => (
+                      <div key={technique.name} className="rounded-[22px] border border-white/70 bg-white/72 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-black text-gray-400">#{index + 1}</span>
+                              <h4 className="truncate text-sm font-semibold text-[#1d1d1f]">
+                                {technique.name}
+                              </h4>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold text-gray-500">
+                              <span className="rounded-full bg-white/80 px-2.5 py-1">
+                                {formatCount(technique.count)} procedimento(s)
+                              </span>
+                              <span className="rounded-full bg-white/80 px-2.5 py-1">
+                                ticket medio {formatCurrency(technique.avgTicket)}
                               </span>
                             </div>
-                            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all"
-                                style={{
-                                  width: `${Math.max(pct, 2)}%`,
-                                  background: `linear-gradient(90deg, ${CHART_COLORS[i % CHART_COLORS.length]}, ${CHART_COLORS[(i + 1) % CHART_COLORS.length]})`,
-                                }}
-                              />
-                            </div>
-                            <div className="flex justify-between mt-0.5">
-                              <span className="text-[9px] text-gray-400">{proc.count}x</span>
-                              <span className="text-[9px] text-gray-400">{pct.toFixed(1)}%</span>
-                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-[var(--color-brand-accent)]">
+                              {formatCurrency(technique.revenue)}
+                            </p>
+                            <p className="mt-1 text-[10px] font-semibold text-gray-500">
+                              {formatPercent(technique.share, 1)} dos servicos
+                            </p>
                           </div>
                         </div>
-                      );
-                    })}
+
+                        <div className="mt-3 h-2 rounded-full bg-gray-100">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${Math.max(technique.share, 2)}%`,
+                              background: `linear-gradient(90deg, ${FINANCE_COLORS.procedure}, ${FINANCE_COLORS.neutral})`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
-                  <div className="h-32 flex items-center justify-center text-gray-400 text-sm font-medium">
-                    Nenhum procedimento no período
+                  <div className="flex h-40 items-center justify-center text-sm font-medium text-gray-400">
+                    Nenhuma tecnica registrada no periodo.
                   </div>
                 )}
               </div>
 
-              {/* Procedimentos por Mês */}
-              <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-4 tracking-widest">Procedimentos por Mês</h3>
-                {metrics.proceduresByMonth.length > 0 && metrics.revenueData.length > 1 ? (
-                  <ChartSurface className="h-56 w-full min-w-0" minHeight="14rem">
-                    <ResponsiveContainer width="100%" height="100%" minHeight={180}>
-                      <BarChart data={metrics.proceduresByMonth} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">
+                  Ticket medio por tecnica
+                </h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Compara o valor medio por procedimento entre as tecnicas mais relevantes.
+                </p>
+
+                {ticketChartData.length > 0 ? (
+                  <ChartSurface className="mt-5 h-64 w-full min-w-0" minHeight="16rem">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                      <BarChart data={ticketChartData} margin={{ top: 10, right: 8, left: 0, bottom: 12 }}>
+                        <CartesianGrid vertical={false} stroke="rgba(122,73,33,0.08)" />
                         <XAxis
                           dataKey="name"
                           tick={{ fontSize: 10, fontWeight: 700 }}
+                          tickFormatter={(value) => truncateLabel(String(value), 12)}
                           axisLine={false}
                           tickLine={false}
-                          interval="preserveStartEnd"
+                          interval={0}
+                          height={48}
                         />
-                        <YAxis hide />
+                        <YAxis
+                          tick={{ fontSize: 10, fontWeight: 600, fill: "#6b7280" }}
+                          tickFormatter={(value) => formatCurrencyCompact(Number(value))}
+                          axisLine={false}
+                          tickLine={false}
+                          width={72}
+                        />
                         <Tooltip
-                          cursor={{ fill: "rgba(122,73,33,0.06)" }}
+                          cursor={{ fill: "rgba(122,73,33,0.05)" }}
                           contentStyle={{
-                            borderRadius: "20px",
-                            border: "none",
-                            boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
-                            background: "rgba(255,255,255,0.95)",
+                            borderRadius: "18px",
+                            border: "1px solid rgba(122,73,33,0.12)",
+                            boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+                            background: "rgba(255,255,255,0.96)",
                           }}
-                          formatter={(value) => [`${value ?? 0} procedimentos`, ""]}
+                          formatter={(value) => formatCurrencyFull(Number(value ?? 0))}
                         />
                         <Bar
-                          dataKey="count"
-                          fill="#A56D3A"
-                          radius={[8, 8, 8, 8]}
-                          barSize={28}
-                          animationDuration={800}
+                          dataKey="avgTicket"
+                          fill={FINANCE_COLORS.accent}
+                          radius={[10, 10, 0, 0]}
+                          barSize={34}
                         />
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartSurface>
                 ) : (
-                  <div className="h-56 flex items-center justify-center text-gray-400 text-sm font-medium">
-                    Dados insuficientes para gráfico mensal
+                  <div className="flex h-64 items-center justify-center text-sm font-medium text-gray-400">
+                    Sem dados suficientes para comparar ticket medio.
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Pagamentos Homecare */}
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-8">
-              <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Pagamentos Homecare</h3>
-                <p className="text-[10px] text-gray-500 mb-4 font-medium">{metrics.totalHomecareCount} prescrições</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-2xl bg-emerald-50/70 border border-emerald-200 p-4">
-                    <div className="flex items-center gap-2 text-emerald-600 mb-1">
-                      <CheckCircle size={14} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Confirmados</span>
-                    </div>
-                    <span className="text-xl font-black text-[#1d1d1f]">{formatCurrency(metrics.totalHomecarePago)}</span>
-                  </div>
-                  <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-4">
-                    <div className="flex items-center gap-2 text-amber-600 mb-1">
-                      <Clock size={14} />
-                      <span className="text-[10px] font-bold uppercase tracking-wider">Pendentes</span>
-                    </div>
-                    <span className="text-xl font-black text-[#1d1d1f]">{formatCurrency(metrics.totalHomecarePendente)}</span>
-                  </div>
-                </div>
-                {metrics.totalHomecareCount > 0 && (
-                  <div className="mt-4">
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${metrics.totalHomecarePago + metrics.totalHomecarePendente > 0
-                            ? Math.round((metrics.totalHomecarePago / (metrics.totalHomecarePago + metrics.totalHomecarePendente)) * 100)
-                            : 0}%`,
-                          background: "linear-gradient(90deg, #5D7A63, #7A4921)",
-                        }}
-                      />
-                    </div>
-                    <p className="mt-1 text-[10px] text-gray-500 text-right">
-                      {metrics.totalHomecarePago + metrics.totalHomecarePendente > 0
-                        ? `${Math.round((metrics.totalHomecarePago / (metrics.totalHomecarePago + metrics.totalHomecarePendente)) * 100)}% taxa de confirmação`
-                        : "Sem dados"}
-                    </p>
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_1fr]">
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">
+                  Captacao do periodo
+                </h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Percentual = pacientes do canal / pacientes cadastrados no recorte. Este bloco
+                  apoia a leitura comercial, nao entra no faturamento.
+                </p>
+
+                {metrics.leadSourceData.length > 0 ? (
+                  <ChartSurface className="mt-5 h-64 w-full min-w-0" minHeight="16rem">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                      <BarChart
+                        data={metrics.leadSourceData.slice(0, 6)}
+                        layout="vertical"
+                        margin={{ top: 4, right: 12, left: 16, bottom: 0 }}
+                      >
+                        <CartesianGrid horizontal={false} stroke="rgba(122,73,33,0.08)" />
+                        <XAxis type="number" hide />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={112}
+                          tick={{ fontSize: 10, fontWeight: 700 }}
+                          tickFormatter={(value) => truncateLabel(String(value), 16)}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(122,73,33,0.05)" }}
+                          contentStyle={{
+                            borderRadius: "18px",
+                            border: "1px solid rgba(122,73,33,0.12)",
+                            boxShadow: "0 12px 32px rgba(0,0,0,0.08)",
+                            background: "rgba(255,255,255,0.96)",
+                          }}
+                          formatter={(value, _name, item) => {
+                            const source = item?.payload as LeadSourceMetric | undefined;
+                            const share = source ? ` (${formatPercent(source.share, 1)})` : "";
+                            return `${formatCount(Number(value ?? 0))} paciente(s)${share}`;
+                          }}
+                        />
+                        <Bar dataKey="value" fill={FINANCE_COLORS.neutral} radius={[0, 10, 10, 0]} barSize={24} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartSurface>
+                ) : (
+                  <div className="flex h-64 items-center justify-center text-sm font-medium text-gray-400">
+                    Nenhum cadastro novo no periodo selecionado.
                   </div>
                 )}
               </div>
 
-              <div className="bg-white/55 p-6 rounded-[32px] border border-white/70 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
-                <h3 className="text-xs font-bold text-[#1d1d1f] uppercase mb-1 tracking-widest">Resumo Financeiro</h3>
-                <p className="text-[10px] text-gray-500 mb-4 font-medium">Procedimentos + Homecare</p>
-                <div className="space-y-4">
+              <div className="rounded-[32px] border border-white/70 bg-white/55 p-6 shadow-[0_16px_40px_rgba(94,58,28,0.06)]">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#1d1d1f]">
+                  Leitura financeira do periodo
+                </h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                  Aqui os percentuais sempre deixam claro qual e o denominador: realizado,
+                  potencial ou base de homecare.
+                </p>
+
+                <div className="mt-5 grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                    <div className="mb-1 flex items-center gap-2 text-emerald-600">
+                      <CheckCircle size={14} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Confirmado</span>
+                    </div>
+                    <span className="text-xl font-black text-[#1d1d1f]">
+                      {formatCurrency(metrics.homecareConfirmedRevenue)}
+                    </span>
+                    <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">
+                      Homecare que ja virou receita.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                    <div className="mb-1 flex items-center gap-2 text-amber-600">
+                      <Clock size={14} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Em aberto</span>
+                    </div>
+                    <span className="text-xl font-black text-[#1d1d1f]">
+                      {formatCurrency(metrics.pendingRevenue)}
+                    </span>
+                    <p className="mt-2 text-[11px] leading-relaxed text-amber-800">
+                      Receita potencial ainda pendente.
+                    </p>
+                  </div>
+                </div>
+
+                {metrics.homecareConfirmedRevenue + metrics.pendingRevenue > 0 ? (
+                  <div className="mt-5">
+                    <div className="mb-2 flex items-center justify-between text-xs">
+                      <span className="font-semibold text-[var(--color-text)]">Conversao de valor do homecare</span>
+                      <span className="font-bold text-[var(--color-brand-accent)]">
+                        {formatPercent(metrics.homecareValueConfirmationRate, 1)}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.max(metrics.homecareValueConfirmationRate, 2)}%`,
+                          background: `linear-gradient(90deg, ${FINANCE_COLORS.homecareConfirmed}, ${FINANCE_COLORS.procedure})`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-5 space-y-4">
                   {[
-                    { label: "Faturamento Procedimentos", value: metrics.totalRevenue, color: "#7A4921" },
-                    { label: "Homecare Confirmado", value: metrics.totalHomecarePago, color: "#5D7A63" },
-                    { label: "Homecare Pendente", value: metrics.totalHomecarePendente, color: "#D2A679" },
+                    {
+                      label: "Procedimentos dentro do realizado",
+                      value: formatPercent(proceduresShareOfRealized, 1),
+                      note: "Percentual = receita de servicos / receita realizada.",
+                    },
+                    {
+                      label: "Homecare dentro do realizado",
+                      value: formatPercent(homecareShareOfRealized, 1),
+                      note: "Percentual = homecare confirmado / receita realizada.",
+                    },
+                    {
+                      label: "Em aberto dentro do potencial",
+                      value: formatPercent(pendingShareOfPotential, 1),
+                      note: "Percentual = receita pendente / potencial do periodo.",
+                    },
+                    {
+                      label: "Receita media por dia",
+                      value: formatCurrency(metrics.dailyAverageRevenue),
+                      note: "Media de receita realizada por dia no recorte ativo.",
+                    },
+                    {
+                      label: "Receita media por cliente com compra",
+                      value: formatCurrency(metrics.revenuePerClient),
+                      note: "Considera apenas pacientes que geraram caixa.",
+                    },
                   ].map((item) => (
-                    <div key={item.label}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="font-semibold text-[var(--color-text)]">{item.label}</span>
-                        <span className="font-bold">{formatCurrency(item.value)}</span>
+                    <div key={item.label} className="rounded-[20px] border border-white/70 bg-white/72 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold text-[#1d1d1f]">{item.label}</span>
+                        <span className="text-sm font-bold text-[var(--color-brand-accent)]">{item.value}</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${Math.min(100, (item.value / (metrics.totalRevenue + metrics.totalHomecarePago + metrics.totalHomecarePendente || 1)) * 100)}%`,
-                            backgroundColor: item.color,
-                          }}
-                        />
-                      </div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{item.note}</p>
                     </div>
                   ))}
-                  <div className="pt-3 border-t border-gray-100 flex justify-between text-sm">
-                    <span className="font-bold text-[#1d1d1f]">Receita Total</span>
-                    <span className="font-black text-[var(--color-brand-deep)]">
-                      {formatCurrency(metrics.totalRevenue + metrics.totalHomecarePago)}
-                    </span>
-                  </div>
                 </div>
               </div>
             </div>

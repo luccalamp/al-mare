@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { Sparkles, FolderOpen, Activity, RefreshCw, CheckCircle2, AlertTriangle, X, Settings, BookOpen } from "lucide-react";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
 import { useClients, SyncStatus } from "@/hooks/useClients";
+import type { Client } from "@/types";
 import AppIcon from "@/components/AppIcon";
 import GenericFolderIcon from "@/components/GenericFolderIcon";
 import BrandLogo from "@/components/BrandLogo";
@@ -21,6 +22,80 @@ type PageFeedback = {
   tone: "error" | "success";
   message: string;
 };
+
+type WorkspaceStat = {
+  label: string;
+  value: number | string;
+  description: string;
+  supporting: string;
+  badge: string;
+  accent: "default" | "warning" | "success";
+};
+
+type WorkflowCard = {
+  label: string;
+  value: number | string;
+  description: string;
+  accent: "default" | "warning" | "success";
+};
+
+type AttentionPatient = {
+  id: string;
+  name: string;
+  stageLabel: string;
+  nextActionLabel: string;
+  tone: "neutral" | "warning" | "accent" | "success";
+};
+
+function hasFichaRegistrada(client: Client) {
+  return Boolean(client.fichaAnamnese && Object.keys(client.fichaAnamnese).length > 0);
+}
+
+function hasFutureAppointment(client: Client) {
+  const now = Date.now();
+  return client.appointments.some((appointment) => {
+    if (!["agendado", "confirmado"].includes(appointment.status)) return false;
+    const startsAt = new Date(appointment.inicioEm).getTime();
+    return !Number.isNaN(startsAt) && startsAt >= now;
+  });
+}
+
+function getAccentClasses(accent: WorkspaceStat["accent"] | WorkflowCard["accent"]) {
+  if (accent === "warning") {
+    return {
+      badge: "bg-amber-100 text-amber-800",
+      card: "border-amber-200/70 bg-[linear-gradient(180deg,rgba(255,252,245,0.94),rgba(255,245,224,0.74))]",
+    };
+  }
+
+  if (accent === "success") {
+    return {
+      badge: "bg-emerald-100 text-emerald-800",
+      card: "border-emerald-200/70 bg-[linear-gradient(180deg,rgba(247,255,250,0.94),rgba(232,247,239,0.76))]",
+    };
+  }
+
+  return {
+    badge: "bg-white/80 text-[var(--color-brand-deep)]",
+    card: "border-white/70 bg-white/70",
+  };
+}
+
+function getAttentionToneClasses(tone: AttentionPatient["tone"]) {
+  if (tone === "warning") {
+    return "border-amber-200/70 bg-amber-50/80 text-amber-900";
+  }
+
+  if (tone === "accent") {
+    return "border-[var(--color-brand-line)] bg-[rgba(122,73,33,0.08)] text-[var(--color-brand-deep)]";
+  }
+
+  if (tone === "success") {
+    return "border-emerald-200/70 bg-emerald-50/80 text-emerald-900";
+  }
+
+  return "border-white/70 bg-white/70 text-[var(--color-ink)]";
+}
 
 export default function HomePage() {
   const router = useRouter();
@@ -134,22 +209,184 @@ export default function HomePage() {
   };
   const snapshotStatusLabel = syncLabelMap[syncStatus];
 
-  const rootWorkspaceStats = useMemo(
+  const workflowOverview = useMemo(() => {
+    const now = new Date();
+    const nowTime = now.getTime();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setHours(23, 59, 59, 999);
+    const weekEnd = new Date(todayStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    let pendingPreConsultationCount = 0;
+    let pendingFichaCount = 0;
+    let pendingDiagnosisCount = 0;
+    let returnPendingCount = 0;
+    let todayAppointmentsCount = 0;
+    let weekAppointmentsCount = 0;
+
+    const stagePriority: Record<string, number> = {
+      "pre-consulta-pendente": 0,
+      "avaliacao-pendente": 1,
+      "retorno-pendente": 2,
+      "cadastro-inicial": 3,
+      "em-acompanhamento": 4,
+    };
+
+    clients.forEach((client) => {
+      const hasToken = Boolean(client.preConsultation?.token);
+      const respondedAt = Boolean(client.preConsultation?.respondedAt);
+      const hasFicha = hasFichaRegistrada(client);
+      const hasDiagnostico = client.diagnosticos.length > 0;
+      const hasNextAppointment = hasFutureAppointment(client);
+
+      if (hasToken && !respondedAt) pendingPreConsultationCount += 1;
+      if (respondedAt && !hasFicha) pendingFichaCount += 1;
+      if (respondedAt && hasFicha && !hasDiagnostico) pendingDiagnosisCount += 1;
+      if (respondedAt && hasFicha && hasDiagnostico && !hasNextAppointment) returnPendingCount += 1;
+
+      client.appointments.forEach((appointment) => {
+        if (!["agendado", "confirmado"].includes(appointment.status)) return;
+        const startsAt = new Date(appointment.inicioEm).getTime();
+        if (Number.isNaN(startsAt)) return;
+        if (startsAt >= todayStart.getTime() && startsAt <= todayEnd.getTime()) {
+          todayAppointmentsCount += 1;
+        }
+        if (startsAt >= nowTime && startsAt <= weekEnd.getTime()) {
+          weekAppointmentsCount += 1;
+        }
+      });
+    });
+
+    const pendingAssessmentCount = pendingFichaCount + pendingDiagnosisCount;
+    const attentionPatients: AttentionPatient[] = clients
+      .filter((client) => {
+        const stage = client.journey?.stage;
+        return stage === "pre-consulta-pendente" || stage === "avaliacao-pendente" || stage === "retorno-pendente";
+      })
+      .sort((left, right) => {
+        const leftStage = left.journey?.stage ?? "em-acompanhamento";
+        const rightStage = right.journey?.stage ?? "em-acompanhamento";
+        const priorityDelta = (stagePriority[leftStage] ?? 99) - (stagePriority[rightStage] ?? 99);
+        if (priorityDelta !== 0) return priorityDelta;
+        return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      })
+      .slice(0, 4)
+      .map((client) => ({
+        id: client.id,
+        name: client.profile.nome?.trim() || "Paciente sem nome",
+        stageLabel: client.journey?.stageLabel || "Fluxo clínico",
+        nextActionLabel: client.journey?.nextActionLabel || "Revisar cadastro",
+        tone: client.journey?.tone || "neutral",
+      }));
+
+    const priorityBreakdown = [
+      pendingPreConsultationCount > 0 ? `${pendingPreConsultationCount} aguardando pré-consulta` : null,
+      pendingAssessmentCount > 0 ? `${pendingAssessmentCount} em avaliação` : null,
+      returnPendingCount > 0 ? `${returnPendingCount} sem próxima sessão` : null,
+    ]
+      .filter(Boolean)
+      .join(" • ");
+
+    let headline = "Fluxo principal em dia";
+    let description = "O painel agora mostra o que merece ação e o que já está andando sozinho.";
+
+    if (priorityPatientsCount > 0) {
+      headline = `${priorityPatientsCount} paciente${priorityPatientsCount === 1 ? "" : "s"} pedem ação agora`;
+      description = priorityBreakdown || "Priorize as pendências do fluxo clínico antes de abrir novas frentes.";
+    } else if (todayAppointmentsCount > 0 || weekAppointmentsCount > 0) {
+      headline = `${weekAppointmentsCount} compromisso${weekAppointmentsCount === 1 ? "" : "s"} previstos nos próximos 7 dias`;
+      description = todayAppointmentsCount > 0
+        ? `${todayAppointmentsCount} atendimento${todayAppointmentsCount === 1 ? "" : "s"} acontecem hoje e pedem preparo antecipado.`
+        : "A agenda futura já está abastecida e pronta para acompanhamento.";
+    } else if (onboardingPatientsCount > 0) {
+      headline = `${onboardingPatientsCount} novo${onboardingPatientsCount === 1 ? " cadastro pede início" : "s cadastros pedem início"}`;
+      description = "Vale gerar a pré-consulta e iniciar a triagem para não perder ritmo comercial.";
+    }
+
+    return {
+      pendingPreConsultationCount,
+      pendingFichaCount,
+      pendingDiagnosisCount,
+      pendingAssessmentCount,
+      returnPendingCount,
+      todayAppointmentsCount,
+      weekAppointmentsCount,
+      attentionPatients,
+      priorityBreakdown,
+      headline,
+      description,
+    };
+  }, [clients, onboardingPatientsCount, priorityPatientsCount]);
+
+  const rootWorkspaceStats = useMemo<WorkspaceStat[]>(
     () => [
-      { label: "Prontuários ativos", value: clients.length, description: "ativos" },
-      { label: "Demandam atenção", value: priorityPatientsCount, description: "prioridade" },
-      { label: "Agenda viva", value: upcomingAppointmentsCount, description: "agendados" },
+      {
+        label: "Pacientes ativos",
+        value: clients.length,
+        description: trackingPatientsCount > 0
+          ? `${trackingPatientsCount} em acompanhamento ativo`
+          : "Base pronta para acompanhamento",
+        supporting: "Todos os prontuários disponíveis para consulta e evolução clínica.",
+        badge: "Base",
+        accent: "default",
+      },
+      {
+        label: "Pedem ação agora",
+        value: priorityPatientsCount,
+        description: workflowOverview.priorityBreakdown || "Sem pendências urgentes no fluxo clínico.",
+        supporting: priorityPatientsCount > 0
+          ? "Priorize cobrança de resposta, fechamento de ficha ou novo retorno."
+          : "Você está com o fluxo principal organizado neste momento.",
+        badge: priorityPatientsCount > 0 ? "Foco" : "Em dia",
+        accent: priorityPatientsCount > 0 ? "warning" : "success",
+      },
+      {
+        label: "Agenda da semana",
+        value: workflowOverview.weekAppointmentsCount,
+        description: workflowOverview.todayAppointmentsCount > 0
+          ? `${workflowOverview.todayAppointmentsCount} atendimento${workflowOverview.todayAppointmentsCount === 1 ? "" : "s"} acontecem hoje`
+          : "Nenhum atendimento previsto para hoje",
+        supporting: upcomingAppointmentsCount > 0
+          ? `${upcomingAppointmentsCount} paciente${upcomingAppointmentsCount === 1 ? "" : "s"} já têm próxima sessão marcada.`
+          : "Ainda sem retornos confirmados na agenda futura.",
+        badge: workflowOverview.weekAppointmentsCount > 0 ? "Agenda" : "Livre",
+        accent: workflowOverview.weekAppointmentsCount > 0 ? "default" : "warning",
+      },
     ],
-    [clients.length, priorityPatientsCount, upcomingAppointmentsCount]
+    [clients.length, priorityPatientsCount, trackingPatientsCount, upcomingAppointmentsCount, workflowOverview]
   );
 
-  const rootFlowHighlights = useMemo(
+  const productivityCards = useMemo<WorkflowCard[]>(
     () => [
-      { label: "Triagem", value: onboardingPatientsCount, description: "entrada" },
-      { label: "Acompanhamento", value: trackingPatientsCount, description: "andamento" },
-      { label: "Sincronia", value: syncStatus === "error" ? "offline" : "ok", description: snapshotStatusLabel },
+      {
+        label: "Triagem",
+        value: onboardingPatientsCount,
+        description: onboardingPatientsCount > 0
+          ? "Novos cadastros aguardando o primeiro movimento."
+          : "Entrada organizada, sem fila de início.",
+        accent: onboardingPatientsCount > 0 ? "warning" : "success",
+      },
+      {
+        label: "Avaliação",
+        value: workflowOverview.pendingAssessmentCount,
+        description: workflowOverview.pendingAssessmentCount > 0
+          ? `${workflowOverview.pendingFichaCount} ficha(s) e ${workflowOverview.pendingDiagnosisCount} diagnóstico(s) pendentes.`
+          : "Fichas e diagnósticos em dia.",
+        accent: workflowOverview.pendingAssessmentCount > 0 ? "warning" : "success",
+      },
+      {
+        label: "Retorno",
+        value: workflowOverview.returnPendingCount,
+        description: workflowOverview.returnPendingCount > 0
+          ? "Pacientes sem próxima sessão marcada."
+          : "Retornos já encaminhados.",
+        accent: workflowOverview.returnPendingCount > 0 ? "warning" : "success",
+      },
     ],
-    [onboardingPatientsCount, snapshotStatusLabel, syncStatus, trackingPatientsCount]
+    [onboardingPatientsCount, workflowOverview]
   );
 
   const handleManualSync = async () => {
@@ -203,10 +440,19 @@ export default function HomePage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   {rootWorkspaceStats.map((item) => (
-                    <div key={item.label} className="workspace-metric-card p-4">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
+                    <div
+                      key={item.label}
+                      className={`workspace-metric-card rounded-[2rem] border p-4 ${getAccentClasses(item.accent).card}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">{item.label}</p>
+                        <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${getAccentClasses(item.accent).badge}`}>
+                          {item.badge}
+                        </span>
+                      </div>
                       <strong className="mt-3 block text-[2rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
-                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
+                      <p className="mt-3 text-sm font-medium text-[var(--color-ink)]">{item.description}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-secondary)]">{item.supporting}</p>
                     </div>
                   ))}
                 </div>
@@ -267,7 +513,7 @@ export default function HomePage() {
 
               <div className="workspace-aside-card p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Situação</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Painel de produtividade</p>
                   <div className="flex items-center gap-2">
                     <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
                       {snapshotStatusLabel}
@@ -284,14 +530,61 @@ export default function HomePage() {
                   </div>
                 </div>
 
+                <div className="mt-4 rounded-[1.8rem] border border-white/70 bg-white/70 p-4 shadow-[0_16px_32px_rgba(32,54,43,0.08)]">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Leitura do momento</p>
+                  <h2 className="mt-2 text-[1.35rem] font-semibold leading-tight text-[var(--color-ink)]">
+                    {workflowOverview.headline}
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                    {workflowOverview.description}
+                  </p>
+                </div>
+
                 <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                  {rootFlowHighlights.map((item) => (
-                    <div key={item.label} className="workspace-metric-card p-4">
+                  {productivityCards.map((item) => (
+                    <div
+                      key={item.label}
+                      className={`workspace-metric-card rounded-[1.6rem] border p-4 ${getAccentClasses(item.accent).card}`}
+                    >
                       <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">{item.label}</p>
                       <strong className="mt-3 block text-[1.7rem] font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
-                      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{item.description}</p>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">{item.description}</p>
                     </div>
                   ))}
+                </div>
+
+                <div className="mt-4 rounded-[1.8rem] border border-white/70 bg-white/72 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Próximos passos</p>
+                    {workflowOverview.attentionPatients.length > 0 && (
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-text-secondary)]">
+                        {workflowOverview.attentionPatients.length} em foco
+                      </span>
+                    )}
+                  </div>
+
+                  {workflowOverview.attentionPatients.length > 0 ? (
+                    <div className="mt-3 space-y-3">
+                      {workflowOverview.attentionPatients.map((patient) => (
+                        <div
+                          key={patient.id}
+                          className={`rounded-[1.3rem] border px-3 py-3 ${getAttentionToneClasses(patient.tone)}`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <strong className="text-sm font-semibold">{patient.name}</strong>
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-75">
+                              {patient.stageLabel}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm opacity-85">{patient.nextActionLabel}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                      Sem pendências críticas no momento. Você pode usar esse espaço para revisar resultados, atualizar documentos ou abrir novas triagens.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -361,6 +654,28 @@ export default function HomePage() {
               <span className="relative z-10">Guia</span>
             </button>
           </div>
+
+          <div className="mt-4 rounded-[1.6rem] border border-white/70 bg-white/72 p-4 shadow-[0_16px_30px_rgba(32,54,43,0.08)]">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Fluxo do dia</p>
+            <h2 className="mt-2 text-lg font-semibold leading-tight text-[var(--color-ink)]">
+              {workflowOverview.headline}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              {workflowOverview.description}
+            </p>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {productivityCards.map((item) => (
+                <div
+                  key={item.label}
+                  className={`rounded-[1.2rem] border px-3 py-3 ${getAccentClasses(item.accent).card}`}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-brand-accent)]">{item.label}</p>
+                  <strong className="mt-2 block text-lg font-semibold leading-none text-[var(--color-ink)]">{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
 
@@ -401,35 +716,35 @@ export default function HomePage() {
               <div className="relative z-10 grid grid-cols-2 gap-2 min-[430px]:grid-cols-3 sm:grid-cols-4 sm:gap-4 lg:grid-cols-6">
                 <GenericFolderIcon
                   label="Pacientes"
-                  caption={`${clients.length} ativos`}
+                  caption="cadastro e evolução"
                   selected={selectedId === "patients"}
                   onClick={() => setSelectedId("patients")}
                   onDoubleClick={handleOpenPatientsFolder}
                 />
                 <GenericFolderIcon
                   label={branding.documentsLabel}
-                  caption="Acervo interno"
+                  caption="termos e acervo"
                   selected={selectedId === "documents"}
                   onClick={() => setSelectedId("documents")}
                   onDoubleClick={handleOpenDocuments}
                 />
                 <AppIcon
                   label={branding.dashboardLabel}
-                  caption="Indicadores"
+                  caption="caixa e desempenho"
                   selected={selectedId === "dashboard"}
                   onClick={() => setSelectedId("dashboard")}
                   onDoubleClick={() => setShowDashboard(true)}
                 />
                 <AppIcon
                   label="Personalizar"
-                  caption="Identidade"
+                  caption="marca e interface"
                   selected={selectedId === "settings"}
                   onClick={() => setSelectedId("settings")}
                   onDoubleClick={handleOpenBrandingSettings}
                 />
                 <AppIcon
                   label="Guia"
-                  caption="Fluxo de uso"
+                  caption="treinar a equipe"
                   selected={selectedId === "guide"}
                   onClick={() => setSelectedId("guide")}
                   onDoubleClick={handleOpenGuide}
