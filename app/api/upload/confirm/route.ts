@@ -78,8 +78,8 @@ export async function POST(req: NextRequest) {
           savedPhoto.id,
           authContext.userId,
           "Rollback recuperavel do upload apos falha ao atualizar foto do paciente."
-        ).catch((archiveError) => {
-          console.error("Failed to archive confirmed photo after client update error:", archiveError);
+        ).catch(() => {
+          console.error("Failed to archive confirmed photo after client update error.");
         });
         throw new Error(`Failed to update client photo: ${clientError.message}`);
       }
@@ -89,9 +89,17 @@ export async function POST(req: NextRequest) {
       success: true,
       url: proxyUrl,
       publicId: objectKey,
+      record: {
+        id: savedPhoto.id,
+        date: savedPhoto.captured_at || savedPhoto.created_at,
+        type: normalizePhotoCategory(savedPhoto.categoria || savedPhoto.type),
+        url: proxyUrl,
+        caption: savedPhoto.caption || undefined,
+        technicalNote: savedPhoto.anotacao_tecnica || undefined,
+      },
     });
   } catch (error) {
-    console.error("Confirm upload error:", error);
+    console.error("Confirm upload error.");
     return NextResponse.json(
       { error: safeErrorMessage(error, "Falha ao confirmar upload.") },
       { status: 500 }

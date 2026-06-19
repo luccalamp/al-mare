@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     if (!isSupportedImageMimeType(mimeType)) {
       return NextResponse.json(
-        { error: "Formato de imagem nao suportado. Use JPEG, PNG, WebP ou AVIF." },
+        { error: "Formato de imagem nao suportado. Use JPG, PNG ou WebP." },
         { status: 400 }
       );
     }
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       bucket: getS3StorageBucketLabel(),
     });
   } catch (error) {
-    console.error("Presigned URL error:", error);
+    console.error("Presigned URL error.");
     return NextResponse.json(
       { error: safeErrorMessage(error, "Falha ao gerar URL de upload.") },
       { status: 500 }

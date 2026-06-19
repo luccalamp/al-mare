@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveManagedPhotoUrl } from "@/lib/server/photoStorage";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { createSignedStorageUrl } from "@/lib/server/storageUrls";
+import { buildStorageUnavailablePlaceholder, createSignedStorageUrl } from "@/lib/server/storageUrls";
 import {
   buildJsonError,
   isMissingColumnError,
@@ -114,14 +114,25 @@ async function signClientMediaUrls(rows: ClientMediaRow[]) {
 
   return Promise.all(
     rows.map(async (row) => {
-      const profilePhotoUrl = resolveMediaUrl(
-        row.profile_photo_storage_bucket,
-        row.profile_photo_storage_path
-      ) ?? await createSignedStorageUrl(storageAdmin, {
-        storageBucket: row.profile_photo_storage_bucket,
-        storagePath: row.profile_photo_storage_path,
-        fallbackUrl: row.photo_url,
-      });
+      const resolvedProfilePhotoUrl =
+        resolveMediaUrl(
+          row.profile_photo_storage_bucket,
+          row.profile_photo_storage_path
+        ) ?? await createSignedStorageUrl(storageAdmin, {
+          storageBucket: row.profile_photo_storage_bucket,
+          storagePath: row.profile_photo_storage_path,
+          fallbackUrl: row.photo_url,
+        });
+
+      const profilePhotoUrl =
+        resolvedProfilePhotoUrl
+        || (
+          row.profile_photo_storage_bucket
+          || row.profile_photo_storage_path
+          || row.photo_url
+            ? buildStorageUnavailablePlaceholder()
+            : null
+        );
 
       const signedGallery = Array.isArray(row.client_photos)
         ? await Promise.all(
@@ -129,14 +140,17 @@ async function signClientMediaUrls(rows: ClientMediaRow[]) {
               .filter((photo) => !photo.deleted_at)
               .map(async (photo) => ({
               ...photo,
-              url: resolveMediaUrl(
-                photo.storage_bucket,
-                photo.storage_path
-              ) ?? await createSignedStorageUrl(storageAdmin, {
-                storageBucket: photo.storage_bucket,
-                storagePath: photo.storage_path,
-                fallbackUrl: photo.url,
-              }),
+              url:
+                resolveMediaUrl(
+                  photo.storage_bucket,
+                  photo.storage_path
+                ) ?? (
+                  await createSignedStorageUrl(storageAdmin, {
+                    storageBucket: photo.storage_bucket,
+                    storagePath: photo.storage_path,
+                    fallbackUrl: photo.url,
+                  })
+                ) ?? buildStorageUnavailablePlaceholder(),
               }))
           )
         : row.client_photos;

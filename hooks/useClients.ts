@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colorimetria, FichaAnamneseCapilarDados, ManutencaoHomecare } from "@/types";
+import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colorimetria, FichaAnamneseCapilarDados, GalleryPhoto, ManutencaoHomecare } from "@/types";
 import { normalizePhotoCategory, resolvePhotoCategory, sanitizePhotoCaption } from "@/lib/photos";
 import { normalizeImageFileForUpload } from "@/lib/clientImageCompression";
 import { supabase } from "@/lib/supabaseClient";
@@ -20,6 +20,8 @@ const CLIENTS_REALTIME_TABLES = [
 ] as const;
 const CLIENTS_REALTIME_DEBOUNCE_MS = 300;
 const CLIENTS_HEARTBEAT_INTERVAL_MS = 60_000;
+const ALLOWED_GALLERY_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const HEIC_HEIF_FILE_PATTERN = /\.(heic|heif)$/i;
 
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
@@ -31,6 +33,7 @@ type ClientsSnapshot = {
 type UploadedImageAsset = {
   url: string;
   publicId: string;
+  photo?: GalleryPhoto;
 };
 
 type ClientMutationResponse = {
@@ -148,6 +151,22 @@ function buildClientDbError(error: unknown, fallback: string) {
 
 function hasFichaAnamneseData(ficha: Client["fichaAnamnese"]) {
   return Boolean(ficha && Object.keys(ficha).length > 0);
+}
+
+function isHeicOrHeifFile(file: File) {
+  const mimeType = file.type.trim().toLowerCase();
+  return mimeType === "image/heic" || mimeType === "image/heif" || HEIC_HEIF_FILE_PATTERN.test(file.name);
+}
+
+function validateImageUploadFile(file: File) {
+  if (isHeicOrHeifFile(file)) {
+    throw new Error("Fotos em HEIC ou HEIF ainda nao sao suportadas aqui. Converta para JPG, PNG ou WebP antes de enviar.");
+  }
+
+  const mimeType = file.type.trim().toLowerCase();
+  if (!ALLOWED_GALLERY_IMAGE_MIME_TYPES.has(mimeType)) {
+    throw new Error("Formato de imagem nao suportado. Use apenas JPG, PNG ou WebP.");
+  }
 }
 
 function hasUpcomingAppointment(appointments: readonly ClientAppointment[]) {
@@ -641,6 +660,7 @@ export function useClients() {
     type?: string,
     options?: { persistClientPhoto?: boolean }
   ): Promise<UploadedImageAsset | null> => {
+    validateImageUploadFile(file);
     const preparedFile = await normalizeImageFileForUpload(file);
     const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto);
 
@@ -696,6 +716,7 @@ export function useClients() {
     return {
       url: result.url || proxyUrl,
       publicId: result.publicId || objectKey,
+      photo: result.record as GalleryPhoto | undefined,
     };
   };
 
@@ -731,6 +752,7 @@ export function useClients() {
     const galleryFiles = (photoFiles || []).filter((item) => item.type !== "avatar");
     let nextProfile = sanitized.profile;
     let avatarPublicId: string | null = null;
+    const createdGalleryPhotos: GalleryPhoto[] = [];
 
     if (avatarFile) {
       const avatarUpload = await uploadImage(sanitized.id, avatarFile.file);
@@ -777,11 +799,46 @@ export function useClients() {
     }
 
     if (galleryFiles.length > 0) {
-      for (const item of galleryFiles) {
-        const uploadedPhoto = await uploadImage(sanitized.id, item.file, item.type);
-        if (!uploadedPhoto) {
-          throw new Error(`Falha ao enviar a foto ${item.file.name}.`);
+      try {
+        for (const item of galleryFiles) {
+          const uploadedPhoto = await uploadImage(sanitized.id, item.file, item.type);
+          if (!uploadedPhoto) {
+            throw new Error(`Falha ao enviar a foto ${item.file.name}.`);
+          }
+
+          if (uploadedPhoto.photo) {
+            createdGalleryPhotos.push(uploadedPhoto.photo);
+          }
         }
+      } catch (error) {
+        if (createdGalleryPhotos.length > 0) {
+          const partialClientToken = clientsRef.current.find((entry) => entry.id === sanitized.id)?.portalLink?.token;
+          const partialClients = clientsRef.current.map((client) =>
+            client.id === sanitized.id
+              ? {
+                  ...client,
+                  profile: {
+                    ...client.profile,
+                    ...nextProfile,
+                  },
+                  signatures: sanitized.signatures || client.signatures,
+                  gallery: [...createdGalleryPhotos, ...client.gallery.filter((photo) => !createdGalleryPhotos.some((created) => created.id === photo.id))],
+                  updatedAt: new Date().toISOString(),
+                }
+              : client
+          );
+
+          commitClients(partialClients);
+          void loadClients({ background: true });
+          notifyPortalUpdate(partialClientToken);
+        }
+
+        const message = error instanceof Error && error.message ? error.message : "Falha ao enviar uma das fotos selecionadas.";
+        throw new Error(
+          createdGalleryPhotos.length > 0
+            ? `Algumas fotos foram salvas, mas o restante falhou. ${message}`
+            : message
+        );
       }
     }
 
@@ -795,14 +852,19 @@ export function useClients() {
               ...nextProfile,
             },
             signatures: sanitized.signatures || client.signatures,
+            gallery: createdGalleryPhotos.length > 0
+              ? [...createdGalleryPhotos, ...client.gallery.filter((photo) => !createdGalleryPhotos.some((created) => created.id === photo.id))]
+              : client.gallery,
             updatedAt: new Date().toISOString(),
           }
         : client
     );
 
     commitClients(nextClients);
-    await loadClients();
+    const updatedClient = nextClients.find((client) => client.id === sanitized.id);
+    await loadClients({ background: true });
     notifyPortalUpdate(clientToken);
+    return updatedClient ?? sanitized;
   };
 
   const deletePhoto = async (clientId: string, photoId: string) => {

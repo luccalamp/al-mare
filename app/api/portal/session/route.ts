@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { encodeStoragePathForRoute } from "@/lib/server/mediaProxy";
 import { isManagedPhotoBucket } from "@/lib/server/photoStorage";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
-import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
+import { buildStorageUnavailablePlaceholder, createSignedStorageUrl } from "@/lib/server/storageUrls";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -76,16 +76,22 @@ async function validateAndLoadPortal(token: string) {
       .order("captured_at", { ascending: false }),
   ]);
 
-  const signedGallery = (galleryRes.data ?? []).map((photo) => ({
-    id: photo.id,
-    captured_at: photo.captured_at,
-    type: photo.type,
-    caption: photo.caption,
-    url:
-      isManagedPhotoBucket(photo.storage_bucket) && typeof photo.storage_path === "string"
-        ? buildPortalMediaProxyUrl(photo.storage_path)
-        : buildStorageObjectPublicUrl(photo.storage_bucket, photo.storage_path) || photo.url,
-  }));
+  const signedGallery = await Promise.all(
+    (galleryRes.data ?? []).map(async (photo) => ({
+      id: photo.id,
+      captured_at: photo.captured_at,
+      type: photo.type,
+      caption: photo.caption,
+      url:
+        (isManagedPhotoBucket(photo.storage_bucket) && typeof photo.storage_path === "string"
+          ? buildPortalMediaProxyUrl(photo.storage_path)
+          : await createSignedStorageUrl(supabase, {
+              storageBucket: photo.storage_bucket,
+              storagePath: photo.storage_path,
+              fallbackUrl: photo.url,
+            })) || buildStorageUnavailablePlaceholder(),
+    }))
+  );
 
   return {
     status: "ready" as const,

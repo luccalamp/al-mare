@@ -734,8 +734,6 @@ async function archiveClientPhotoRow(
     throw new Error("A foto selecionada nao possui id valido.");
   }
 
-  console.log("archiveClientPhotoRow: marking photo as deleted", photoId);
-
   const { error: markDeletedError, count } = await supabase
     .from("client_photos")
     .update({
@@ -750,23 +748,17 @@ async function archiveClientPhotoRow(
     .single();
 
   if (markDeletedError) {
-    console.error("archiveClientPhotoRow: mark deleted error", markDeletedError);
     throw markDeletedError;
   }
 
   if (count === 0) {
-    console.error("archiveClientPhotoRow: update affected 0 rows", photoId);
     throw new Error("A foto nao foi encontrada ou nao pode ser arquivada.");
   }
-
-  console.log("archiveClientPhotoRow: photo marked as deleted", photoId);
 
   const storageBucket = asString(photoRow.storage_bucket) || "anamnese-fotos";
   const storagePath = asString(photoRow.storage_path);
   const clientId = asString(photoRow.cliente_id);
   if (isManagedPhotoBucket(storageBucket)) {
-    console.log("archiveClientPhotoRow: moving managed photo to archived area in S3", photoId, storageBucket, storagePath);
-
     const archivedManagedPhoto = storagePath
       ? await archiveManagedPhotoObject("client-photos", photoId, storagePath)
       : { archivedStorage: false, targetBucket: undefined, targetPath: undefined };
@@ -783,7 +775,6 @@ async function archiveClientPhotoRow(
       .single();
 
     if (quarantineUpdateError) {
-      console.error("archiveClientPhotoRow: managed photo archive metadata update error", quarantineUpdateError);
       throw quarantineUpdateError;
     }
 
@@ -801,7 +792,6 @@ async function archiveClientPhotoRow(
         .eq("profile_photo_storage_path", storagePath);
 
       if (profileResetError) {
-        console.error("archiveClientPhotoRow: failed to clear matching profile photo", profileResetError);
         throw profileResetError;
       }
     }
@@ -810,16 +800,12 @@ async function archiveClientPhotoRow(
   }
 
   if (storageBucket.toLowerCase() === "google-drive") {
-    console.log("archiveClientPhotoRow: google-drive photo, skipping quarantine", photoId);
     return;
   }
 
   if (!storagePath) {
-    console.log("archiveClientPhotoRow: no storage path, skipping quarantine", photoId);
     return;
   }
-
-  console.log("archiveClientPhotoRow: moving photo to quarantine", photoId, storageBucket, storagePath);
 
   const quarantineResult = await moveObject(
     supabase,
@@ -828,8 +814,6 @@ async function archiveClientPhotoRow(
     QUARANTINE_BUCKET,
     buildQuarantinePath("client-photos", photoId, storagePath)
   );
-
-  console.log("archiveClientPhotoRow: quarantine result", quarantineResult);
 
   const { error: quarantineUpdateError } = await supabase
     .from("client_photos")
@@ -843,37 +827,25 @@ async function archiveClientPhotoRow(
     .single();
 
   if (quarantineUpdateError) {
-    console.error("archiveClientPhotoRow: quarantine update error", quarantineUpdateError);
     throw quarantineUpdateError;
   }
-
-  console.log("archiveClientPhotoRow: photo quarantine metadata updated", photoId);
 }
 
 export async function archivePhoto(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
-  console.log("archivePhoto: fetching photo", recordId);
   const { data, error } = await supabase.from("client_photos").select("*").eq("id", recordId).maybeSingle();
   if (error) {
-    console.error("archivePhoto: select error", error);
     throw error;
   }
 
   if (!data) {
-    console.error("archivePhoto: photo not found", recordId);
     throw new Error("A foto selecionada nao foi encontrada.");
   }
 
-  console.log("archivePhoto: photo found", data.id, "deleted_at:", data.deleted_at);
-
   if (data.deleted_at) {
-    console.log("archivePhoto: photo already archived", recordId);
     return { archived: true, recordId };
   }
-
-  console.log("archivePhoto: archiving photo", recordId);
   await archiveClientPhotoRow(supabase, data, actor, reason);
-  console.log("archivePhoto: photo archived successfully", recordId);
   return { archived: true, recordId };
 }
 
@@ -937,23 +909,17 @@ export async function archiveDocument(recordId: string, actor: string, reason: s
 
 export async function archiveClient(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
-  console.log("archiveClient: fetching client", recordId);
   const clientResult = await supabase.from("clientes").select("*").eq("id", recordId).maybeSingle();
   if (clientResult.error) {
-    console.error("archiveClient: select error", clientResult.error);
     throw clientResult.error;
   }
 
   const clientRow = clientResult.data;
   if (!clientRow) {
-    console.error("archiveClient: client not found", recordId);
     throw new Error("A paciente selecionada nao foi encontrada.");
   }
 
-  console.log("archiveClient: client found", clientRow.id, "deleted_at:", clientRow.deleted_at);
-
   if (!clientRow.deleted_at) {
-    console.log("archiveClient: marking client as deleted", recordId);
     const { error: markClientDeletedError, count: clientCount } = await supabase
       .from("clientes")
       .update({
@@ -969,21 +935,17 @@ export async function archiveClient(recordId: string, actor: string, reason: str
       .single();
 
     if (markClientDeletedError) {
-      console.error("archiveClient: mark deleted error", markClientDeletedError);
       throw markClientDeletedError;
     }
     if (clientCount === 0) {
-      console.error("archiveClient: update affected 0 rows", recordId);
       throw new Error("A paciente nao foi encontrada ou nao pode ser arquivada.");
     }
-    console.log("archiveClient: client marked as deleted", recordId);
   }
 
   const avatarStorageBucket = asString(clientRow.profile_photo_storage_bucket) || "anamnese-fotos";
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
     if (isManagedPhotoBucket(avatarStorageBucket)) {
-      console.log("archiveClient: moving managed avatar to archived area in S3", recordId, avatarStorageBucket, avatarStoragePath);
       const archivedAvatar = await archiveManagedPhotoObject("client-avatar", recordId, avatarStoragePath);
 
       const { error: avatarArchiveError } = await supabase
@@ -998,13 +960,10 @@ export async function archiveClient(recordId: string, actor: string, reason: str
         .single();
 
       if (avatarArchiveError) {
-        console.error("archiveClient: managed avatar archive update error", avatarArchiveError);
         throw avatarArchiveError;
       }
     } else if (avatarStorageBucket.toLowerCase() === "google-drive") {
-      console.log("archiveClient: google-drive avatar, skipping quarantine move", recordId);
     } else {
-      console.log("archiveClient: moving avatar to quarantine", recordId);
       const quarantineResult = await moveObject(
         supabase,
         avatarStorageBucket,
@@ -1025,13 +984,10 @@ export async function archiveClient(recordId: string, actor: string, reason: str
         .single();
 
       if (avatarUpdateError) {
-        console.error("archiveClient: avatar update error", avatarUpdateError);
         throw avatarUpdateError;
       }
     }
   }
-
-  console.log("archiveClient: fetching photos for client", recordId);
   const photosResult = await supabase
     .from("client_photos")
     .select("*")
@@ -1039,17 +995,12 @@ export async function archiveClient(recordId: string, actor: string, reason: str
     .is("deleted_at", null);
 
   if (photosResult.error) {
-    console.error("archiveClient: photos select error", photosResult.error);
     throw photosResult.error;
   }
-
-  console.log("archiveClient: found", (photosResult.data || []).length, "photos to archive");
 
   for (const photoRow of photosResult.data || []) {
     await archiveClientPhotoRow(supabase, photoRow, actor, reason, { preserveClientProfileRefs: true });
   }
-
-  console.log("archiveClient: client archived successfully", recordId);
 
   return {
     archived: true,

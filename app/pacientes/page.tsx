@@ -139,7 +139,17 @@ export default function PacientesPage() {
 
   const handleClientUpdate = async (updated: Client, photoFiles?: { file: File; type: string }[]) => {
     try {
-      await updateClient(updated, photoFiles);
+      const nextClient = await updateClient(updated, photoFiles);
+      if (nextClient) {
+        setOpenClientModal((prev) =>
+          prev?.client.id === nextClient.id
+            ? {
+                ...prev,
+                client: nextClient,
+              }
+            : prev
+        );
+      }
       setPageFeedback({
         tone: "success",
         message: "Paciente atualizado e sincronizado com sucesso.",
@@ -164,6 +174,17 @@ export default function PacientesPage() {
 
   const handleDeletePhoto = async (clientId: string, photoId: string) => {
     await deletePhoto(clientId, photoId);
+    setOpenClientModal((prev) => {
+      if (!prev || prev.client.id !== clientId) return prev;
+      return {
+        ...prev,
+        client: {
+          ...prev.client,
+          gallery: prev.client.gallery.filter((photo) => photo.id !== photoId),
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
     setPageFeedback({
       tone: "success",
       message: "Foto arquivada com sucesso e enviada para quarentena privada.",

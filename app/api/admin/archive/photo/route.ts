@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archivePhoto } from "@/lib/server/recovery";
 import { requireAuthorizedStaff, buildJsonError, requirePhotoAccess } from "@/lib/server/tenantAccess";
-import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
 const archivePhotoSchema = z.object({
@@ -23,28 +22,28 @@ export async function POST(request: Request) {
 
   const parsedBody = archivePhotoSchema.safeParse(await request.json().catch(() => null));
   if (!parsedBody.success) {
-    console.error("archive photo validation error:", parsedBody.error);
     return buildJsonError("Payload invalido para arquivar a foto.", 400);
   }
 
   let photoId = parsedBody.data.photoId;
 
   if (!photoId && parsedBody.data.photoUrl) {
-    const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase
+    const { data, error } = await authContext.admin
       .from("client_photos")
-      .select("id")
+      .select("id, clientes!inner(user_id)")
       .eq("url", parsedBody.data.photoUrl)
       .is("deleted_at", null)
       .maybeSingle();
 
     if (error) {
-      console.error("archive photo lookup error:", error);
       return buildJsonError("Nao foi possivel encontrar a foto.", 500);
     }
-    if (!data) {
+
+    const ownerRelation = Array.isArray(data?.clientes) ? data.clientes[0] : data?.clientes;
+    if (!data?.id || ownerRelation?.user_id !== authContext.userId) {
       return buildJsonError("Foto nao encontrada ou ja arquivada.", 404);
     }
+
     photoId = data.id;
   }
 
@@ -58,16 +57,18 @@ export async function POST(request: Request) {
     return access.response;
   }
 
+  if (!photoId) {
+    return buildJsonError("Foto nao encontrada ou ja arquivada.", 404);
+  }
+
   try {
     const result = await archivePhoto(
-      photoId!,
+      photoId,
       authContext.userId,
       parsedBody.data.reason || "Arquivamento administrativo da galeria com quarentena privada."
     );
-    console.log("archive photo result:", result);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
-    console.error("archive photo error:", error);
     return NextResponse.json({ error: safeErrorMessage(error, "Falha ao arquivar a foto.") }, { status: 500 });
   }
 }

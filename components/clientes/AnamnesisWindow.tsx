@@ -73,7 +73,7 @@ interface AnamnesisWindowProps {
   client: Client;
   portalLink?: PortalLink;
   onClose: () => void;
-  onUpdate: (client: Client, photoFiles?: { file: File; type: string }[]) => void;
+  onUpdate: (client: Client, photoFiles?: { file: File; type: string }[]) => Promise<void> | void;
   onAddDiagnostico: (
     clientId: string,
     diagnostico: {
@@ -1390,6 +1390,11 @@ const PHOTO_CATEGORY_LABELS: Record<PhotoUploadCategory, string> = {
   referencia: "Referência",
 };
 
+const GALLERY_FILE_ACCEPT = "image/jpeg,image/png,image/webp";
+const GALLERY_FALLBACK_IMAGE = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800"><rect width="800" height="800" fill="#f5ede1"/><rect x="88" y="88" width="624" height="624" rx="32" fill="#eadcc8"/><path d="M220 560l110-130 85 95 70-64 95 99H220z" fill="#c49a6c"/><circle cx="320" cy="300" r="42" fill="#b07a45"/><text x="400" y="660" text-anchor="middle" fill="#7a4921" font-family="Arial, sans-serif" font-size="30">Imagem indisponivel</text></svg>`
+)}`;
+
 // ---- ABA: GALERIA ----
 function GalleryTab({
   client,
@@ -1397,13 +1402,15 @@ function GalleryTab({
   onDeletePhoto,
 }: {
   client: Client;
-  onUpdate: (c: Client, files?: {file: File, type: string}[]) => void;
+  onUpdate: (c: Client, files?: {file: File, type: string}[]) => Promise<void> | void;
   onDeletePhoto: (clientId: string, photoId: string) => Promise<void>;
 }) {
   const [activeFilter, setActiveFilter] = useState<"todos" | PhotoUploadCategory>("todos");
   const [captureType, setCaptureType] = useState<PhotoUploadCategory>("antes");
-  const [galleryMessage, setGalleryMessage] = useState<string | null>(null);
+  const [galleryFeedback, setGalleryFeedback] = useState<{ tone: "success" | "error"; message: string } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [removingPhotoId, setRemovingPhotoId] = useState<string | null>(null);
+  const [brokenPhotoIds, setBrokenPhotoIds] = useState<string[]>([]);
   const {
     videoRef,
     isActive,
@@ -1435,23 +1442,63 @@ function GalleryTab({
     );
   }, [client.gallery]);
 
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>, type: PhotoUploadCategory) => {
+  useEffect(() => {
+    setBrokenPhotoIds((current) => current.filter((photoId) => client.gallery.some((photo) => photo.id === photoId)));
+  }, [client.gallery]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: PhotoUploadCategory) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
-    setGalleryMessage(null);
-    onUpdate({ ...client, updatedAt: new Date().toISOString() }, files.map(file => ({ file, type })));
-    e.target.value = "";
+
+    if (isUploading) {
+      setGalleryFeedback({ tone: "error", message: "Aguarde o envio atual terminar antes de iniciar outro upload." });
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setGalleryFeedback(null);
+      await onUpdate({ ...client, updatedAt: new Date().toISOString() }, files.map((file) => ({ file, type })));
+      setGalleryFeedback({
+        tone: "success",
+        message: `${files.length} foto${files.length > 1 ? "s enviadas" : " enviada"} com sucesso para a galeria.`,
+      });
+      e.target.value = "";
+    } catch (uploadError) {
+      setGalleryFeedback({
+        tone: "error",
+        message: uploadError instanceof Error ? uploadError.message : "Nao foi possivel enviar as fotos agora.",
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleCapture = async () => {
-    setGalleryMessage(null);
-    const file = await captureFrame(`captura-${captureType}-${Date.now()}.jpg`);
-    if (!file) return;
+    if (isUploading) {
+      setGalleryFeedback({ tone: "error", message: "Aguarde o envio atual terminar antes de capturar uma nova foto." });
+      return;
+    }
 
-    onUpdate(
-      { ...client, updatedAt: new Date().toISOString() },
-      [{ file, type: captureType }]
-    );
+    try {
+      setIsUploading(true);
+      setGalleryFeedback(null);
+      const file = await captureFrame(`captura-${captureType}-${Date.now()}.jpg`);
+      if (!file) return;
+
+      await onUpdate(
+        { ...client, updatedAt: new Date().toISOString() },
+        [{ file, type: captureType }]
+      );
+      setGalleryFeedback({ tone: "success", message: `Foto ${PHOTO_CATEGORY_LABELS[captureType].toLowerCase()} capturada e salva com sucesso.` });
+    } catch (captureError) {
+      setGalleryFeedback({
+        tone: "error",
+        message: captureError instanceof Error ? captureError.message : "Nao foi possivel capturar a foto agora.",
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const renderCategoryBadge = (type: string) => {
@@ -1468,12 +1515,15 @@ function GalleryTab({
     if (!confirmed) return;
 
     try {
-      setGalleryMessage(null);
+      setGalleryFeedback(null);
       setRemovingPhotoId(photo.id);
       await onDeletePhoto(client.id, photo.id);
+      setGalleryFeedback({ tone: "success", message: "Foto arquivada com sucesso." });
     } catch (removeError) {
-      console.error(removeError);
-      setGalleryMessage(removeError instanceof Error ? removeError.message : "Nao foi possivel arquivar a foto agora.");
+      setGalleryFeedback({
+        tone: "error",
+        message: removeError instanceof Error ? removeError.message : "Nao foi possivel arquivar a foto agora.",
+      });
     } finally {
       setRemovingPhotoId(null);
     }
@@ -1506,9 +1556,16 @@ function GalleryTab({
 
            <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
              {(["antes", "depois", "referencia"] as PhotoUploadCategory[]).map((type) => (
-               <label key={type} className="cursor-pointer rounded-2xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-3 text-center text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-deep)] transition-all hover:bg-white sm:text-left sm:py-2.5">
+               <label key={type} className={`rounded-2xl border border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] px-4 py-3 text-center text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-deep)] transition-all sm:text-left sm:py-2.5 ${isUploading ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-white"}`}>
                  + {PHOTO_CATEGORY_LABELS[type]}
-                 <input type="file" multiple className="hidden" onChange={(e) => handleUpload(e, type)} />
+                 <input
+                   type="file"
+                   accept={GALLERY_FILE_ACCEPT}
+                   multiple
+                   disabled={isUploading}
+                   className="hidden"
+                   onChange={(e) => void handleUpload(e, type)}
+                 />
                </label>
              ))}
            </div>
@@ -1535,7 +1592,12 @@ function GalleryTab({
              ))}
            </div>
 
-           {galleryMessage && <p className="mt-4 text-sm text-rose-700">{galleryMessage}</p>}
+           {galleryFeedback && (
+             <p className={`mt-4 text-sm ${galleryFeedback.tone === "success" ? "text-emerald-700" : "text-rose-700"}`}>
+               {galleryFeedback.message}
+             </p>
+           )}
+           {isUploading && <p className="mt-2 text-xs font-medium text-[var(--color-brand-deep)]">Enviando imagens e atualizando a galeria...</p>}
 
            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
              {filteredPhotos.length === 0 ? (
@@ -1556,12 +1618,15 @@ function GalleryTab({
                          {removingPhotoId === photo.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                        </button>
                         <Image
-                          src={photo.url}
-                            alt={renderPhotoTitle(photo.type)}
+                          src={brokenPhotoIds.includes(photo.id) || !photo.url ? GALLERY_FALLBACK_IMAGE : photo.url}
+                          alt={renderPhotoTitle(photo.type)}
                           fill
                           unoptimized
                           sizes="(min-width: 640px) 33vw, 50vw"
                           className="object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                          onError={() =>
+                            setBrokenPhotoIds((current) => (current.includes(photo.id) ? current : [...current, photo.id]))
+                          }
                         />
                      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-[rgba(52,28,12,0.78)] to-transparent px-3 py-3 text-white">
                        <span className="rounded-full bg-white/18 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em]">{renderCategoryBadge(photo.type)}</span>
@@ -1702,10 +1767,10 @@ function GalleryTab({
                    <button
                      type="button"
                      onClick={handleCapture}
-                     disabled={isBusy}
+                     disabled={isBusy || isUploading}
                      className="inline-flex min-h-12 items-center justify-center rounded-xl bg-orange-500 px-4 py-3 text-sm font-bold text-white shadow-[0_0_20px_rgba(249,115,22,0.4)] transition hover:bg-orange-600 hover:shadow-[0_0_25px_rgba(249,115,22,0.6)] disabled:cursor-not-allowed disabled:opacity-45"
                    >
-                     Capturar
+                     {isUploading ? "Salvando..." : "Capturar"}
                    </button>
                  )}
                </div>

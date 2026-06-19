@@ -16,7 +16,7 @@ export interface S3MoveResult {
 }
 
 const S3_STORAGE_BUCKET = "s3";
-const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type S3Config = {
   region: string;
@@ -91,7 +91,6 @@ function sanitizeCategory(category?: string | null) {
 function getExtensionFromMime(contentType: string) {
   if (contentType === "image/png") return "png";
   if (contentType === "image/webp") return "webp";
-  if (contentType === "image/avif") return "avif";
   return "jpg";
 }
 
@@ -111,7 +110,7 @@ export function isS3ObjectKeyForClient(clienteId: string, objectKey: string) {
     normalizedObjectKey &&
       !normalizedObjectKey.includes("..") &&
       normalizedObjectKey.startsWith(buildS3ClientPrefix(clienteId)) &&
-      /\.(jpe?g|png|webp|avif)$/i.test(normalizedObjectKey)
+      /\.(jpe?g|png|webp)$/i.test(normalizedObjectKey)
   );
 }
 
@@ -233,7 +232,7 @@ function buildFallbackObjectKeys(objectKey: string) {
     return [];
   }
 
-  return ["jpg", "jpeg", "png", "webp", "avif"].map((extension) => `${objectKey}.${extension}`);
+  return ["jpg", "jpeg", "png", "webp"].map((extension) => `${objectKey}.${extension}`);
 }
 
 export async function downloadFromS3(objectKey: string) {
