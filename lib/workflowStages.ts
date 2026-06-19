@@ -15,8 +15,8 @@ export type WorkflowStageDefinition = {
 export const WORKFLOW_STAGE_STORAGE_KEY = "almare.workflow.stages.v1";
 export const WORKFLOW_STAGE_PREFERENCE_KEY = "workflow-stages";
 
-function getWorkflowStageCacheKey(organizationId: string | null) {
-  return organizationId ? `${WORKFLOW_STAGE_STORAGE_KEY}:${organizationId}` : null;
+function getWorkflowStageCacheKey(_scopeKey?: string | null) {
+  return WORKFLOW_STAGE_STORAGE_KEY;
 }
 
 export const WORKFLOW_STAGE_TEMPLATE_LABELS: Record<WorkflowStageTemplate, string> = {
@@ -134,37 +134,63 @@ function serializeWorkflowStages(stages: WorkflowStageDefinition[]) {
   }));
 }
 
-export function readWorkflowStagesCache(organizationId: string | null): WorkflowStageDefinition[] {
+function readLegacyWorkflowStagesCache() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const legacyPrefix = `${WORKFLOW_STAGE_STORAGE_KEY}:`;
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key || !key.startsWith(legacyPrefix)) {
+      continue;
+    }
+
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      continue;
+    }
+
+    try {
+      return mergeWorkflowStages(JSON.parse(raw));
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+export function readWorkflowStagesCache(scopeKey?: string | null): WorkflowStageDefinition[] {
   if (typeof window === "undefined") {
     return createDefaultWorkflowStages();
   }
 
-  const cacheKey = getWorkflowStageCacheKey(organizationId);
-  if (!cacheKey) {
-    return createDefaultWorkflowStages();
-  }
+  const cacheKey = getWorkflowStageCacheKey(scopeKey);
 
   try {
     const raw = window.localStorage.getItem(cacheKey);
-    if (!raw) return createDefaultWorkflowStages();
-    return mergeWorkflowStages(JSON.parse(raw));
+    if (raw) {
+      return mergeWorkflowStages(JSON.parse(raw));
+    }
+
+    const legacyStages = readLegacyWorkflowStagesCache();
+    if (!legacyStages) return createDefaultWorkflowStages();
+
+    window.localStorage.setItem(cacheKey, JSON.stringify(serializeWorkflowStages(legacyStages)));
+    return legacyStages;
   } catch {
     return createDefaultWorkflowStages();
   }
 }
 
-export function writeWorkflowStagesCache(stages: WorkflowStageDefinition[], organizationId: string | null) {
+export function writeWorkflowStagesCache(stages: WorkflowStageDefinition[], scopeKey?: string | null) {
   if (typeof window === "undefined") return;
-  const cacheKey = getWorkflowStageCacheKey(organizationId);
-  if (!cacheKey) return;
-  window.localStorage.setItem(cacheKey, JSON.stringify(stages));
+  const cacheKey = getWorkflowStageCacheKey(scopeKey);
+  window.localStorage.setItem(cacheKey, JSON.stringify(serializeWorkflowStages(mergeWorkflowStages(stages))));
 }
 
-export async function fetchWorkflowStagesFromSupabase(organizationId: string | null): Promise<WorkflowStageDefinition[] | null> {
-  if (!organizationId) {
-    return null;
-  }
-
+export async function fetchWorkflowStagesFromSupabase(_scopeKey?: string | null): Promise<WorkflowStageDefinition[] | null> {
   const res = await fetch(
     `/api/clinic-preferences?key=${encodeURIComponent(WORKFLOW_STAGE_PREFERENCE_KEY)}`,
     { method: "GET", cache: "no-store" }
@@ -184,11 +210,8 @@ export async function fetchWorkflowStagesFromSupabase(organizationId: string | n
   return mergeWorkflowStages(payload.payload);
 }
 
-export async function saveWorkflowStagesToSupabase(stages: WorkflowStageDefinition[], organizationId: string | null) {
-  if (!organizationId) {
-    return;
-  }
-  const payload = serializeWorkflowStages(stages);
+export async function saveWorkflowStagesToSupabase(stages: WorkflowStageDefinition[], _scopeKey?: string | null) {
+  const payload = serializeWorkflowStages(mergeWorkflowStages(stages));
 
   const res = await fetch(`/api/clinic-preferences`, {
     method: "POST",

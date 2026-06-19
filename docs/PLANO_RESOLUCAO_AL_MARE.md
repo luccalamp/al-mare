@@ -254,3 +254,24 @@
   - `npm run build` -> concluido com sucesso
 - Validacao funcional manual pendente:
   - abrir cliente autenticado, preencher tricoscopia, salvar, fechar/reabrir e recarregar para confirmar persistencia fim a fim no ambiente com sessao
+
+### Etapa 3
+
+- Concluida em codigo, com validacao de lint/build.
+- Causa raiz principal:
+  - os utilitarios de branding e workflow ainda carregavam assinatura legada por `organizationId`
+  - quando `organizationId` chegava como `null`, as funcoes de cache e persistencia retornavam cedo e nao liam nem salvavam nada
+  - a API `app/api/clinic-preferences/route.ts` ja estava correta em `user_id + preference_key`, entao o bloqueio estava no client-side
+- Correcoes aplicadas:
+  - `lib/brandingConfig.ts`: cache local agora usa chave estavel mesmo sem organizacao, com fallback de migracao para caches legados com prefixo
+  - `lib/brandingConfig.ts`: leitura e escrita remota via `/api/clinic-preferences` nao dependem mais de `organizationId`
+  - `components/BrandingConfigProvider.tsx`: passou a usar as funcoes sem `null` sentinela, mantendo leitura remota, escrita remota e localStorage ativos
+  - `lib/workflowStages.ts`: cache local agora usa chave estavel e migra caches legados quando existirem
+  - `lib/workflowStages.ts`: leitura e escrita remota do workflow nao dependem mais de `organizationId`
+  - `components/clientes/AnamnesisWindow.tsx`: carregamento e salvamento das etapas passaram a usar o fluxo persistente por usuario
+- Validacao executada na raiz do repositorio:
+  - `npm run lint` -> sem erros
+  - `npm run build` -> concluido com sucesso
+- Validacao funcional manual pendente:
+  - alterar branding, salvar e recarregar
+  - alterar etapas, salvar, fechar/reabrir cliente e recarregar

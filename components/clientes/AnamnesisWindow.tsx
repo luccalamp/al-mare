@@ -1806,17 +1806,17 @@ export default function AnamnesisWindow({
     setWorkflowLoaded(false);
     setWorkflowSyncState("loading");
 
-    const cachedStages = readWorkflowStagesCache(null);
+    const cachedStages = readWorkflowStagesCache();
     setWorkflowStages(cachedStages);
 
     void (async () => {
       try {
-        const remoteStages = await fetchWorkflowStagesFromSupabase(null);
+        const remoteStages = await fetchWorkflowStagesFromSupabase();
         if (!active) return;
 
         if (remoteStages) {
           setWorkflowStages(remoteStages);
-          writeWorkflowStagesCache(remoteStages, null);
+          writeWorkflowStagesCache(remoteStages);
         }
 
         setWorkflowSyncState("synced");
@@ -1840,14 +1840,14 @@ export default function AnamnesisWindow({
   useEffect(() => {
     if (!workflowLoaded) return;
 
-    writeWorkflowStagesCache(workflowStages, null);
+    writeWorkflowStagesCache(workflowStages);
     setWorkflowSyncState("syncing");
 
     let active = true;
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          await saveWorkflowStagesToSupabase(workflowStages, null);
+          await saveWorkflowStagesToSupabase(workflowStages);
           if (active) {
             setWorkflowSyncState("synced");
           }

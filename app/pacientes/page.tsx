@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Search, X, FolderPlus, Users, FolderOpen, AlertTriangle, CheckCircle2, ArrowLeft
@@ -33,6 +33,7 @@ type PageFeedback = {
 
 export default function PacientesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { config: branding } = useBrandingConfig();
   const baseTitle = getBrandDisplayTitle(branding);
   const {
@@ -342,6 +343,41 @@ export default function PacientesPage() {
       return freshClient ? { ...prev, client: freshClient } : null;
     });
   }, [clients]);
+
+  useEffect(() => {
+    const clientId = searchParams.get("clientId");
+    if (!clientId || clients.length === 0) return;
+
+    const client = clients.find((entry) => entry.id === clientId);
+    if (!client) return;
+
+    const requestedTab = searchParams.get("tab");
+    const allowedTabs: WindowTab[] = [
+      "perfil",
+      "agenda",
+      "pre-consulta",
+      "anamnese",
+      "diagnostico",
+      "colorimetria",
+      "evolucao",
+      "pos-venda",
+      "galeria",
+      "financeiro",
+      "assinaturas",
+    ];
+    const initialTab = allowedTabs.includes(requestedTab as WindowTab) ? (requestedTab as WindowTab) : "perfil";
+
+    setOpenClientModal((prev) => {
+      if (prev?.client.id === client.id && prev.initialTab === initialTab) return prev;
+      return { client, initialTab };
+    });
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("clientId");
+    nextParams.delete("tab");
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `/pacientes?${nextQuery}` : "/pacientes");
+  }, [clients, router, searchParams]);
 
   useEffect(() => {
     const hasOverlay = Boolean(openClientModal || showNewForm);

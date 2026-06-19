@@ -23,14 +23,14 @@ type BrandingConfigContextValue = {
 const BrandingConfigContext = createContext<BrandingConfigContextValue | null>(null);
 
 export function BrandingConfigProvider({ children }: { children: React.ReactNode }) {
-  const [config, setConfig] = useState<BrandingConfig>(() => readBrandingConfigCache(null));
+  const [config, setConfig] = useState<BrandingConfig>(() => readBrandingConfigCache());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const canUseSupabase = isSupabasePublicConfigConfigured();
 
   useEffect(() => {
     if (!canUseSupabase) {
-      setConfig(readBrandingConfigCache(null));
+      setConfig(readBrandingConfigCache());
       setLoading(false);
       return;
     }
@@ -43,27 +43,27 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         setLoading(true);
       }
 
-      setConfig(readBrandingConfigCache(null));
+      setConfig(readBrandingConfigCache());
 
       try {
-        const remoteConfig = await fetchBrandingConfigFromSupabase(null);
+        const remoteConfig = await fetchBrandingConfigFromSupabase();
         if (!active) {
           return;
         }
 
         if (remoteConfig) {
           setConfig(remoteConfig);
-          writeBrandingConfigCache(remoteConfig, null);
+          writeBrandingConfigCache(remoteConfig);
           return;
         }
 
-        const cachedConfig = readBrandingConfigCache(null);
+        const cachedConfig = readBrandingConfigCache();
         setConfig(cachedConfig);
-        writeBrandingConfigCache(cachedConfig, null);
+        writeBrandingConfigCache(cachedConfig);
       } catch (error) {
         console.error(error);
         if (active) {
-          const cachedConfig = readBrandingConfigCache(null);
+          const cachedConfig = readBrandingConfigCache();
           setConfig(cachedConfig.clinicName ? cachedConfig : { ...DEFAULT_BRANDING_CONFIG });
         }
       } finally {
@@ -135,9 +135,9 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
       setSaving(true);
 
       try {
-        await saveBrandingConfigToSupabase(mergedConfig, null);
+        await saveBrandingConfigToSupabase(mergedConfig);
         setConfig(mergedConfig);
-        writeBrandingConfigCache(mergedConfig, null);
+        writeBrandingConfigCache(mergedConfig);
         return mergedConfig;
       } finally {
         setSaving(false);

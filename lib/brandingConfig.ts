@@ -20,8 +20,8 @@ export type BrandingConfig = {
 export const BRANDING_CONFIG_STORAGE_KEY = "almare.branding.config.v1";
 export const BRANDING_CONFIG_PREFERENCE_KEY = "branding-config";
 
-function getBrandingConfigCacheKey(organizationId: string | null) {
-  return organizationId ? `${BRANDING_CONFIG_STORAGE_KEY}:${organizationId}` : null;
+function getBrandingConfigCacheKey(_scopeKey?: string | null) {
+  return BRANDING_CONFIG_STORAGE_KEY;
 }
 
 export const DEFAULT_BRANDING_CONFIG: BrandingConfig = {
@@ -145,38 +145,64 @@ export function mergeBrandingConfig(raw: unknown): BrandingConfig {
   };
 }
 
-export function readBrandingConfigCache(organizationId: string | null): BrandingConfig {
+function readLegacyBrandingConfigCache() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const legacyPrefix = `${BRANDING_CONFIG_STORAGE_KEY}:`;
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key || !key.startsWith(legacyPrefix)) {
+      continue;
+    }
+
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      continue;
+    }
+
+    try {
+      return mergeBrandingConfig(JSON.parse(raw));
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+export function readBrandingConfigCache(scopeKey?: string | null): BrandingConfig {
   if (typeof window === "undefined") {
     return { ...DEFAULT_BRANDING_CONFIG };
   }
 
-  const cacheKey = getBrandingConfigCacheKey(organizationId);
-  if (!cacheKey) {
-    return { ...DEFAULT_BRANDING_CONFIG };
-  }
+  const cacheKey = getBrandingConfigCacheKey(scopeKey);
 
   try {
     const raw = window.localStorage.getItem(cacheKey);
-    if (!raw) {
+    if (raw) {
+      return mergeBrandingConfig(JSON.parse(raw));
+    }
+
+    const legacyConfig = readLegacyBrandingConfigCache();
+    if (!legacyConfig) {
       return { ...DEFAULT_BRANDING_CONFIG };
     }
 
-    return mergeBrandingConfig(JSON.parse(raw));
+    window.localStorage.setItem(cacheKey, JSON.stringify(legacyConfig));
+    return legacyConfig;
   } catch {
     return { ...DEFAULT_BRANDING_CONFIG };
   }
 }
 
-export function writeBrandingConfigCache(config: BrandingConfig, organizationId: string | null) {
+export function writeBrandingConfigCache(config: BrandingConfig, scopeKey?: string | null) {
   if (typeof window === "undefined") {
     return;
   }
 
-  const cacheKey = getBrandingConfigCacheKey(organizationId);
-  if (!cacheKey) {
-    return;
-  }
-
+  const cacheKey = getBrandingConfigCacheKey(scopeKey);
   window.localStorage.setItem(cacheKey, JSON.stringify(mergeBrandingConfig(config)));
 }
 
@@ -184,11 +210,7 @@ export function getBrandDisplayTitle(config: BrandingConfig) {
   return [config.clinicName, config.clinicSubtitle].filter(Boolean).join(" ").trim();
 }
 
-export async function fetchBrandingConfigFromSupabase(organizationId: string | null): Promise<BrandingConfig | null> {
-  if (!organizationId) {
-    return null;
-  }
-
+export async function fetchBrandingConfigFromSupabase(_scopeKey?: string | null): Promise<BrandingConfig | null> {
   const res = await fetch(
     `/api/clinic-preferences?key=${encodeURIComponent(BRANDING_CONFIG_PREFERENCE_KEY)}`,
     { method: "GET", cache: "no-store" }
@@ -208,10 +230,7 @@ export async function fetchBrandingConfigFromSupabase(organizationId: string | n
   return mergeBrandingConfig(payload.payload);
 }
 
-export async function saveBrandingConfigToSupabase(config: BrandingConfig, organizationId: string | null) {
-  if (!organizationId) {
-    return;
-  }
+export async function saveBrandingConfigToSupabase(config: BrandingConfig, _scopeKey?: string | null) {
   const payload = mergeBrandingConfig(config);
 
   const res = await fetch(`/api/clinic-preferences`, {

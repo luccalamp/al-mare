@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { checkApiRateLimit, applyRateLimitHeaders, type RateLimitCheck } from "@/lib/server/rateLimit";
+import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
@@ -174,23 +175,44 @@ function hasAllowedApiOrigin(request: NextRequest) {
   return getAllowedApiOrigins(request).has(origin);
 }
 
-function getTrustedRedirectOrigin(request: NextRequest) {
-  const configuredOrigin =
-    readOriginFromUrlEnv("NEXT_PUBLIC_BASE_URL") ||
-    readOriginFromUrlEnv("BASE_URL") ||
-    readOriginFromUrlEnv("NEXT_PUBLIC_APP_URL") ||
-    readOriginFromUrlEnv("SITE_URL") ||
-    (process.env.VERCEL_URL ? normalizeOrigin(`https://${process.env.VERCEL_URL}`) : null);
-
-  if (configuredOrigin) {
-    return configuredOrigin;
-  }
-
-  return process.env.NODE_ENV === "production" ? API_ALLOWED_ORIGIN : request.nextUrl.origin;
+function buildTrustedRedirectUrl(pathname: string, request: NextRequest) {
+  return new URL(pathname, getTrustedAppOrigin(request));
 }
 
-function buildTrustedRedirectUrl(pathname: string, request: NextRequest) {
-  return new URL(pathname, getTrustedRedirectOrigin(request));
+function shouldRedirectToCanonicalAppOrigin(request: NextRequest) {
+  if (process.env.NODE_ENV !== "production") {
+    return false;
+  }
+
+  if (!["GET", "HEAD"].includes(request.method)) {
+    return false;
+  }
+
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return false;
+  }
+
+  const currentOrigin = getCurrentRequestOrigin(request);
+  if (!currentOrigin) {
+    return false;
+  }
+
+  const currentUrl = new URL(currentOrigin);
+  const trustedOrigin = getTrustedAppOrigin(request);
+  const trustedUrl = new URL(trustedOrigin);
+
+  if (currentUrl.origin === trustedUrl.origin) {
+    return false;
+  }
+
+  return currentUrl.hostname.endsWith(".vercel.app") || currentUrl.hostname === "www.jakoliveira.com.br";
+}
+
+function buildCanonicalAppUrl(request: NextRequest) {
+  const trustedOrigin = getTrustedAppOrigin(request);
+  const target = new URL(request.nextUrl.pathname, trustedOrigin);
+  target.search = request.nextUrl.search;
+  return target;
 }
 
 function copyCookies(from: NextResponse, to: NextResponse) {
@@ -246,9 +268,13 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", cspHeader);
+  const pathname = request.nextUrl.pathname;
+
+  if (shouldRedirectToCanonicalAppOrigin(request)) {
+    return applyResponseHeaders(NextResponse.redirect(buildCanonicalAppUrl(request), 308), pathname, nonce);
+  }
 
   const { response, user } = await updateSupabaseSession(request, requestHeaders);
-  const pathname = request.nextUrl.pathname;
 
   const isApiRoute = pathname.startsWith("/api/");
   const isPublicApiRoute = matchesPrefix(pathname, PUBLIC_API_PREFIXES);
