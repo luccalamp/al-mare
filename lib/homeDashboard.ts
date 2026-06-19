@@ -113,7 +113,7 @@ function formatAppointmentLabel(date: Date, now: Date) {
   }
 
   if (targetDay === tomorrow) {
-    return `Amanhã, ${timeLabel}`;
+    return `Amanha, ${timeLabel}`;
   }
 
   return date.toLocaleString("pt-BR", {
@@ -129,11 +129,11 @@ function formatRecordLabel(date: Date, now: Date) {
   const diffInHours = Math.max(0, Math.round(diffInMs / 3_600_000));
 
   if (diffInHours < 24) {
-    return diffInHours <= 1 ? "Atualizada há 1 hora" : `Atualizada há ${diffInHours} horas`;
+    return diffInHours <= 1 ? "Atualizada ha 1 hora" : `Atualizada ha ${diffInHours} horas`;
   }
 
   const diffInDays = Math.max(1, Math.round(diffInMs / 86_400_000));
-  return diffInDays === 1 ? "Atualizada ontem" : `Atualizada há ${diffInDays} dias`;
+  return diffInDays === 1 ? "Atualizada ontem" : `Atualizada ha ${diffInDays} dias`;
 }
 
 function formatStatusLabel(status: ClientAppointment["status"]) {
@@ -210,18 +210,18 @@ export function buildHomeDashboardSnapshot(clients: Client[]): HomeDashboardSnap
     id: client.id,
     clientId: client.id,
     clientName: getClientName(client),
-    stageLabel: client.journey?.stageLabel || "Fluxo clínico",
-    nextActionLabel: client.journey?.nextActionLabel || "Revisar prontuário",
+    stageLabel: client.journey?.stageLabel || "Fluxo clinico",
+    nextActionLabel: client.journey?.nextActionLabel || "Revisar prontuario",
     supporting:
       client.journey?.stage === "pre-consulta-pendente"
-        ? "A pré-consulta ainda não voltou."
+        ? "A pre-consulta ainda nao voltou."
         : client.journey?.stage === "avaliacao-pendente"
         ? hasFichaRegistrada(client)
-          ? "A ficha existe, mas ainda falta fechar a avaliação."
-          : "Ainda falta preencher a ficha clínica."
+          ? "A ficha existe, mas ainda falta fechar a avaliacao."
+          : "Ainda falta preencher a ficha clinica."
         : client.journey?.stage === "retorno-pendente"
-        ? "Já houve avaliação, mas ainda falta próxima sessão."
-        : "Paciente pronta para começar o fluxo.",
+        ? "Ja houve avaliacao, mas ainda falta proxima sessao."
+        : "Paciente pronta para comecar o fluxo.",
     tone: client.journey?.tone || "neutral",
     tab: client.journey?.nextTab || "perfil",
   }));
@@ -238,7 +238,7 @@ export function buildHomeDashboardSnapshot(clients: Client[]): HomeDashboardSnap
           amountLabel:
             typeof item.valorTotal === "number"
               ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.valorTotal)
-              : "Valor não informado",
+              : "Valor nao informado",
           description: item.produtosRecomendados || "Homecare pendente",
           supporting: item.dataRetornoSugerida
             ? `Retorno sugerido em ${new Date(item.dataRetornoSugerida).toLocaleDateString("pt-BR")}`
@@ -265,7 +265,7 @@ export function buildHomeDashboardSnapshot(clients: Client[]): HomeDashboardSnap
     clientName: getClientName(entry.client),
     updatedAt: entry.client.updatedAt,
     updatedLabel: formatRecordLabel(entry.updatedAt, now),
-    description: entry.client.journey?.stage === "em-acompanhamento" ? "Prontuário em acompanhamento." : "Vale revisar a evolução antes do próximo contato.",
+    description: entry.client.journey?.stage === "em-acompanhamento" ? "Prontuario em acompanhamento." : "Vale revisar a evolucao antes do proximo contato.",
     tab: "anamnese" as const,
   }));
 
@@ -280,70 +280,70 @@ export function buildHomeDashboardSnapshot(clients: Client[]): HomeDashboardSnap
   const activePatientsCount = clients.length;
   const todayAppointmentsCount = todayAppointments.length;
 
-  let heroHeadline = "Clínica organizada para o próximo atendimento";
-  let heroDescription = "A home agora mostra prioridades reais da agenda, do prontuário e do pós-venda.";
+  let heroHeadline = "Tudo pronto para um atendimento acolhedor e bem conduzido";
+  let heroDescription = "A home reune as prioridades da agenda, da evolucao clinica e do acompanhamento da paciente em um so lugar.";
 
   if (activePatientsCount === 0) {
     heroHeadline = "Pronta para receber as primeiras pacientes";
-    heroDescription = "Assim que os cadastros entrarem, a home passa a destacar agenda, fichas pendentes e retornos.";
+    heroDescription = "Assim que os cadastros entrarem, a home passa a destacar retornos, fichas pendentes e proximos cuidados.";
   } else if (todayAppointmentsCount > 0) {
-    heroHeadline = `${todayAppointmentsCount} atendimento${todayAppointmentsCount === 1 ? "" : "s"} acontecem hoje`;
-    heroDescription = "Use a agenda do dia para preparar a ficha, separar pendências e antecipar follow-ups.";
+    heroHeadline = `${todayAppointmentsCount} atendimento${todayAppointmentsCount === 1 ? "" : "s"} pedem preparo hoje`;
+    heroDescription = "Use a agenda do dia para revisar a ficha, alinhar pendencias e conduzir cada jornada com mais seguranca.";
   } else if (overdueAndPendingCount > 0) {
-    heroHeadline = `${overdueAndPendingCount} paciente${overdueAndPendingCount === 1 ? "" : "s"} pedem ação`;
-    heroDescription = "O foco agora está em fichas incompletas, retornos não marcados ou compromissos atrasados.";
+    heroHeadline = `${overdueAndPendingCount} paciente${overdueAndPendingCount === 1 ? "" : "s"} merecem atencao`;
+    heroDescription = "O foco agora esta em fichas incompletas, retornos sem continuidade ou compromissos que pedem reacendimento do cuidado.";
   } else if (upcomingAppointmentsCount > 0) {
-    heroHeadline = `${upcomingAppointmentsCount} compromisso${upcomingAppointmentsCount === 1 ? "" : "s"} já estão programados`;
-    heroDescription = "Aproveite o período livre para revisar fichas recentes e organizar o homecare.";
+    heroHeadline = `${upcomingAppointmentsCount} compromisso${upcomingAppointmentsCount === 1 ? "" : "s"} ja esta${upcomingAppointmentsCount === 1 ? "" : "o"} programado${upcomingAppointmentsCount === 1 ? "" : "s"}`;
+    heroDescription = "Aproveite esse intervalo para revisar a evolucao das pacientes e deixar o home care redondo.";
   }
 
   const stats: HomeStatCard[] = [
     {
       label: "Pacientes ativos",
       value: activePatientsCount,
-      description: activePatientsCount > 0 ? "Base pronta para atendimento e acompanhamento." : "Nenhuma paciente cadastrada ainda.",
-      supporting: activePatientsCount > 0 ? "Todos os prontuários disponíveis no fluxo clínico." : "Comece criando o primeiro prontuário para alimentar a home.",
-      badge: activePatientsCount > 0 ? "Base" : "Início",
+      description: activePatientsCount > 0 ? "Base pronta para atendimento, evolucao e acompanhamento." : "Nenhuma paciente cadastrada ainda.",
+      supporting: activePatientsCount > 0 ? "Os prontuarios ajudam a conduzir cada jornada com mais clareza." : "Comece criando o primeiro prontuario para dar contexto real a home.",
+      badge: activePatientsCount > 0 ? "Base" : "Inicio",
       accent: activePatientsCount > 0 ? "default" : "warning",
     },
     {
       label: "Agenda de hoje",
       value: todayAppointmentsCount,
-      description: todayAppointmentsCount > 0 ? "Sessões que pedem preparo e conferência hoje." : "Nenhum atendimento marcado para hoje.",
-      supporting: todayAppointmentsCount > 0 ? "Abra a agenda e confira observações antes do horário." : "Aproveite a janela para atualizar fichas e follow-ups.",
+      description: todayAppointmentsCount > 0 ? "Sessoes que pedem preparo, conforto e leitura tecnica hoje." : "Nenhum atendimento marcado para hoje.",
+      supporting: todayAppointmentsCount > 0 ? "Abra a agenda e revise observacoes importantes antes do horario." : "Aproveite a janela para atualizar fichas e follow-ups com calma.",
       badge: todayAppointmentsCount > 0 ? "Hoje" : "Livre",
       accent: todayAppointmentsCount > 0 ? "default" : "success",
     },
     {
       label: "Atrasados e pendentes",
       value: overdueAndPendingCount,
-      description: overdueAppointmentsCount > 0 ? `${overdueAppointmentsCount} compromisso(s) já passaram do horário.` : "Sem atrasos críticos na agenda.",
-      supporting: pendingPatientsCount > 0 ? `${pendingPatientsCount} paciente(s) ainda pedem ação clínica.` : "Fluxo principal sem pendências urgentes.",
+      description: overdueAppointmentsCount > 0 ? `${overdueAppointmentsCount} compromisso(s) ja passaram do horario.` : "Sem atrasos criticos na agenda.",
+      supporting: pendingPatientsCount > 0 ? `${pendingPatientsCount} paciente(s) ainda pedem acao clinica.` : "Fluxo principal sem pendencias urgentes.",
       badge: overdueAndPendingCount > 0 ? "Foco" : "Em dia",
       accent: overdueAndPendingCount > 0 ? "warning" : "success",
     },
     {
       label: "Sem ficha completa",
       value: missingFichaCount,
-      description: missingFichaCount > 0 ? "Pacientes que ainda precisam da ficha clínica." : "Todas as pacientes têm ficha registrada.",
-      supporting: missingFichaCount > 0 ? "Vale priorizar esse preenchimento antes de avançar no caso." : "A base clínica está redonda para consulta e revisão.",
+      description: missingFichaCount > 0 ? "Pacientes que ainda precisam de avaliacao clinica completa." : "Todas as pacientes tem ficha registrada.",
+      supporting: missingFichaCount > 0 ? "Vale priorizar esse preenchimento antes de avancar na conduta." : "A base clinica esta pronta para consulta e revisao.",
       badge: missingFichaCount > 0 ? "Ficha" : "Completo",
       accent: missingFichaCount > 0 ? "warning" : "success",
     },
     {
       label: "Homecare pendente",
       value: pendingHomecareCount,
-      description: pendingHomecareCount > 0 ? "Itens em aberto para receber, revisar ou cobrar." : "Sem pendências financeiras de homecare.",
-      supporting: pendingHomecareCount > 0 ? "Use esse bloco para cobrar pagamento ou marcar retorno." : "O pós-venda está sem pendência financeira no momento.",
+      description: pendingHomecareCount > 0 ? "Cuidados em casa que ainda pedem ajuste, acerto ou retorno." : "Sem pendencias financeiras de homecare.",
+      supporting: pendingHomecareCount > 0 ? "Use esse bloco para manter o acompanhamento vivo fora da clinica." : "O pos-venda esta em dia no momento.",
       badge: pendingHomecareCount > 0 ? "Caixa" : "Ok",
       accent: pendingHomecareCount > 0 ? "warning" : "success",
     },
     {
       label: "Fichas recentes",
       value: recentFichaUpdatesCount,
-      description: recentFichaUpdatesCount > 0 ? "Prontuários atualizados nos últimos 7 dias." : "Nenhuma ficha atualizada na última semana.",
-      supporting: recentFichaUpdatesCount > 0 ? "Bom bloco para revisar evolução e retorno das pacientes." : "Quando a equipe atualizar fichas, elas aparecem aqui.",
-      badge: recentFichaUpdatesCount > 0 ? "Recente" : "Histórico",
+      description: recentFichaUpdatesCount > 0 ? "Prontuarios atualizados nos ultimos 7 dias." : "Nenhuma ficha atualizada na ultima semana.",
+      supporting: recentFichaUpdatesCount > 0 ? "Bom bloco para revisar evolucao, resposta terapeutica e retorno das pacientes." : "Quando a equipe atualizar fichas, elas aparecem aqui.",
+      badge: recentFichaUpdatesCount > 0 ? "Recente" : "Historico",
       accent: recentFichaUpdatesCount > 0 ? "default" : "success",
     },
   ];

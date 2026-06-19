@@ -210,7 +210,7 @@ export default function HomePage() {
                 <div>
                   <p className="premium-kicker">
                     <Sparkles size={14} />
-                    Operacao
+                    Rotina da clinica
                   </p>
                   <h1 className="premium-heading mt-4 max-w-4xl text-5xl lg:text-6xl xl:text-7xl">
                     {baseTitle}
@@ -295,7 +295,7 @@ export default function HomePage() {
 
               <div className="workspace-aside-card p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Painel de acao</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--color-brand-accent)]">Pulso do atendimento</p>
                   <div className="flex items-center gap-2">
                     <span className={`premium-chip px-3 py-2 text-[11px] ${syncStatus === "error" ? "" : "is-active"}`}>
                       {snapshotStatusLabel}
@@ -324,7 +324,7 @@ export default function HomePage() {
 
                 <div className="mt-4 rounded-[1.8rem] border border-white/70 bg-white/72 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Hoje na clinica</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Hoje no studio</p>
                     <CalendarDays size={14} className="text-[var(--color-brand-accent)]" />
                   </div>
 
@@ -349,14 +349,14 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                      Nenhum atendimento marcado para hoje. Bom momento para revisar fichas, cobrar homecare ou abrir novas triagens.
+                      Nenhum atendimento marcado para hoje. Bom momento para revisar fichas, preparar retornos e cuidar da experiencia das proximas pacientes.
                     </p>
                   )}
                 </div>
 
                 <div className="mt-4 rounded-[1.8rem] border border-white/70 bg-white/72 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">O que fazer agora</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-brand-accent)]">Quem merece atencao agora</p>
                     {dashboardSnapshot.attentionItems.length > 0 && (
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-text-secondary)]">
                         {dashboardSnapshot.attentionItems.length} em foco
@@ -386,7 +386,7 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                      Sem pendencias criticas no momento. Use esse espaco para manter a base organizada e preparar a proxima semana.
+                      Sem pendencias criticas no momento. Use esse espaco para revisar a evolucao das pacientes e deixar a proxima agenda mais leve.
                     </p>
                   )}
                 </div>
@@ -397,7 +397,7 @@ export default function HomePage() {
           <section className="premium-panel mb-4 rounded-[1.8rem] p-4 sm:hidden">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="premium-kicker">Operacao</p>
+                <p className="premium-kicker">Rotina da clinica</p>
                 <h1 className="premium-title mt-3 text-[2.35rem] font-semibold leading-none text-[var(--color-ink)]">
                   {baseTitle}
                 </h1>
@@ -466,7 +466,7 @@ export default function HomePage() {
                 {dashboardSnapshot.heroHeadline}
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                {dashboardSnapshot.attentionItems[0]?.nextActionLabel || "A home fica mais util quando existem pacientes e agendamentos cadastrados."}
+                  {dashboardSnapshot.attentionItems[0]?.nextActionLabel || "Assim que a base ganhar pacientes e agenda, este bloco passa a sugerir o proximo cuidado."}
               </p>
             </div>
           </section>
@@ -578,7 +578,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-[1.4rem] border border-dashed border-[var(--color-brand-line)] bg-white/60 px-4 py-5 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                  Sem agenda futura por enquanto. Assim que um retorno for marcado, ele aparece aqui para acesso rapido.
+                  Sem agenda futura por enquanto. Assim que um retorno for marcado, ele aparece aqui para acesso rapido da equipe.
                 </div>
               )}
             </div>
@@ -617,7 +617,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-[1.4rem] border border-dashed border-emerald-200 bg-emerald-50/55 px-4 py-5 text-sm leading-relaxed text-emerald-900">
-                  Sem pendencias de homecare no momento. O pos-venda esta financeiramente em dia.
+                  Sem pendencias de homecare no momento. O acompanhamento em casa esta em dia.
                 </div>
               )}
             </div>
@@ -657,7 +657,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-[1.4rem] border border-dashed border-[var(--color-brand-line)] bg-white/60 px-4 py-5 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                  Ainda nao existem fichas recentes para revisar. Quando a equipe atualizar prontuarios, eles passam a aparecer aqui.
+                  Ainda nao existem fichas recentes para revisar. Quando a equipe atualizar prontuarios, eles passam a aparecer aqui com mais contexto clinico.
                 </div>
               )}
             </div>
@@ -668,9 +668,9 @@ export default function HomePage() {
               <div className="flex items-start gap-3">
                 <Clock3 size={18} className="mt-0.5 text-[var(--color-brand-accent)]" />
                 <div>
-                  <p className="font-semibold text-[var(--color-ink)]">Home pronta para ganhar contexto</p>
+                  <p className="font-semibold text-[var(--color-ink)]">Home pronta para ganhar contexto real</p>
                   <p className="mt-1">
-                    Assim que voce cadastrar pacientes, lancar agenda e registrar homecare, a tela inicial passa a mostrar prioridades reais em vez de blocos vazios.
+                    Assim que voce cadastrar pacientes, lancar agenda e registrar homecare, a tela inicial passa a mostrar prioridades reais da jornada capilar em vez de blocos genericos.
                   </p>
                 </div>
               </div>

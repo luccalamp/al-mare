@@ -9,13 +9,13 @@ export const CAPILLARY_THERAPY_PDFS = [
   {
     id: "manual",
     title: "Manual de Terapia Capilar",
-    description: "Orientacoes sobre consulta, avaliacao e condução das sessoes.",
+    description: "Orientacoes sobre consulta, avaliacao e conducao das sessoes com mais seguranca e acolhimento.",
     href: "/pdfs/Manual_Terapia_Capilar_Jak_Oliveira_Atualizado.pdf",
   },
   {
     id: "budget",
     title: "Orcamento Terapia Capilar",
-    description: "Consulta, sessao avulsa, pacotes e kit home care alinhados ao PDF.",
+    description: "Consulta, sessao avulsa, pacotes e kit home care alinhados a um acompanhamento premium.",
     href: "/pdfs/Orcamento_Terapia_Capilar_Jak_Oliveira.pdf",
   },
 ] as const;
@@ -25,7 +25,7 @@ export const CAPILLARY_THERAPY_MANUAL_TOPICS = [
   "Historico capilar",
   "Grau de queda ou oleosidade",
   "Sensibilidade e alteracoes capilares",
-  "Qualidade dos fios",
+  "Qualidade, brilho e resistencia dos fios",
 ] as const;
 
 export const CAPILLARY_THERAPY_SESSION_STEPS = [
@@ -33,7 +33,7 @@ export const CAPILLARY_THERAPY_SESSION_STEPS = [
   "Aplicacao de ativos",
   "Massagens terapeuticas",
   "Uso de aparelhos",
-  "Tratamento para os fios",
+  "Tratamento para os fios e finalizacao de cuidado",
 ] as const;
 
 export type CapillaryTherapyBudgetPreset = {
@@ -49,18 +49,18 @@ export const CAPILLARY_THERAPY_BUDGET_PRESETS: readonly CapillaryTherapyBudgetPr
   {
     id: "consulta",
     title: "Consulta",
-    description: "Triagem + exame de tricoscopia",
+    description: "Triagem + exame de tricoscopia com leitura inicial",
     value: 250,
     tecnicaUtilizada: "Consulta capilar",
-    notes: "Consulta de triagem com exame de tricoscopia.",
+    notes: "Consulta de triagem com exame de tricoscopia e direcionamento terapeutico inicial.",
   },
   {
     id: "sessao-unica",
     title: "1 sessao",
-    description: "Sessao avulsa de terapia capilar",
+    description: "Sessao avulsa de terapia capilar e cuidado direcionado",
     value: 220,
     tecnicaUtilizada: "Sessao de terapia capilar",
-    notes: "Sessao individual de terapia capilar.",
+    notes: "Sessao individual de terapia capilar com foco na necessidade atual da paciente.",
   },
   {
     id: "pacote-4",

@@ -15,14 +15,14 @@ export type PhotoComparisonPair = {
 };
 
 const PHOTO_CATEGORY_LABELS: Record<NormalizedPhotoCategory, string> = {
-  antes: "Antes",
-  depois: "Depois",
-  referencia: "Referência",
+  antes: "Antes do protocolo",
+  depois: "Resultado parcial/final",
+  referencia: "Tricoscopia / comparativo",
 };
 
-const BEFORE_CATEGORY_PATTERN = /(^|[^a-z])(antes|before|inicial|inicio|baseline)([^a-z]|$)/;
-const AFTER_CATEGORY_PATTERN = /(^|[^a-z])(depois|after|apos|resultado|evolucao)([^a-z]|$)/;
-const REFERENCE_CATEGORY_PATTERN = /(^|[^a-z])(referencia|reference|inspiracao)([^a-z]|$)/;
+const BEFORE_CATEGORY_PATTERN = /(^|[^a-z])(antes|before|inicial|inicio|baseline|protocolo)([^a-z]|$)/;
+const AFTER_CATEGORY_PATTERN = /(^|[^a-z])(depois|after|apos|resultado|evolucao|parcial|final)([^a-z]|$)/;
+const REFERENCE_CATEGORY_PATTERN = /(^|[^a-z])(referencia|reference|inspiracao|tricoscopia|comparativo)([^a-z]|$)/;
 
 function normalizePhotoToken(value: string | undefined) {
   return (value || "")

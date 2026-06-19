@@ -99,6 +99,77 @@ export const HairProfileSchema = z.object({
   lifestyleNotes: safeOptionalText(1000),
 });
 
+// ---- Ficha Capilar 360 (dados opcionais dentro de ficha_anamnese_capilar.dados) ----
+const booleanMapSchema = z.record(z.string(), z.boolean().optional()).optional();
+
+const Capillary360ScalpRegionSchema = z
+  .object({
+    achados: booleanMapSchema,
+    observacoes: safeOptionalText(1200),
+  })
+  .passthrough();
+
+export const Capillary360Schema = z
+  .object({
+    triagemQueixa: z
+      .object({
+        queixas: booleanMapSchema,
+        inicio: safeOptionalText(300),
+        evolucao: safeOptionalText(300),
+        momentoPercebido: safeOptionalText(500),
+        quedaRaizOuQuebra: safeOptionalText(500),
+        observacoes: safeOptionalText(1600),
+      })
+      .passthrough()
+      .optional(),
+    fatoresRecentes: z
+      .object({
+        fatores: booleanMapSchema,
+        detalhes: safeOptionalText(1600),
+        medicamentos: safeOptionalText(1200),
+        historicoHormonal: safeOptionalText(1200),
+      })
+      .passthrough()
+      .optional(),
+    mapaCouroCabeludo: z
+      .object({
+        frontal: Capillary360ScalpRegionSchema.optional(),
+        topo: Capillary360ScalpRegionSchema.optional(),
+        coroa: Capillary360ScalpRegionSchema.optional(),
+        lateralDireita: Capillary360ScalpRegionSchema.optional(),
+        lateralEsquerda: Capillary360ScalpRegionSchema.optional(),
+        nuca: Capillary360ScalpRegionSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+    historicoQuimico: z
+      .object({
+        procedimentos: booleanMapSchema,
+        dataUltimoProcedimento: safeOptionalText(40),
+        usoCalorFrequente: safeOptionalText(500),
+        corteQuimico: safeOptionalText(500),
+        elasticidade: safeOptionalText(500),
+        porosidade: safeOptionalText(500),
+        quebraAposQuimica: safeOptionalText(700),
+        observacoes: safeOptionalText(1600),
+      })
+      .passthrough()
+      .optional(),
+    rotinaCapilar: z.record(z.string(), z.unknown()).optional(),
+    registrosTricoscopia: z.array(z.record(z.string(), z.unknown())).optional(),
+    planoCuidado: z.record(z.string(), z.unknown()).optional(),
+    evolucaoSessoes: z.array(z.record(z.string(), z.unknown())).optional(),
+    consentimentos: z.record(z.string(), z.boolean().optional()).optional(),
+  })
+  .passthrough();
+
+export const FichaAnamneseCapilarSchema = z
+  .object({
+    schemaVersion: z.number().int().min(1).optional(),
+    capilar360: Capillary360Schema.optional(),
+  })
+  .passthrough();
+
 // ---- Procedimento ----
 export const ProcedureSchema = z.object({
   id: z.string().uuid(),
@@ -149,3 +220,5 @@ export type ClientProfileInput = z.infer<typeof ClientProfileSchema>;
 export type HairProfileInput = z.infer<typeof HairProfileSchema>;
 export type ProcedureInput = z.infer<typeof ProcedureSchema>;
 export type ChemicalHistoryInput = z.infer<typeof ChemicalHistorySchema>;
+export type Capillary360Input = z.infer<typeof Capillary360Schema>;
+export type FichaAnamneseCapilarInput = z.infer<typeof FichaAnamneseCapilarSchema>;

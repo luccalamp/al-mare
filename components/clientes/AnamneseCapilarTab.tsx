@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import type { Client } from "@/types";
 import type { FichaAnamneseAssinatura, FichaAnamneseCapilarDados } from "@/types/anamneseCapilar";
 import { useBrandingConfig } from "@/components/BrandingConfigProvider";
+import FichaCapilar360Section from "@/components/clientes/FichaCapilar360Section";
 import type { BrandingConfig } from "@/lib/brandingConfig";
 import { Loader2, Printer, Save } from "lucide-react";
 
@@ -1047,7 +1048,7 @@ export default function AnamneseCapilarTab({
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
           <h3 className="text-sm font-bold uppercase tracking-wider text-[#1d1d1f]">Ficha de anamnese capilar</h3>
-          <p className="text-xs text-[#86868b]">Estrutura reorganizada conforme o ebook, com todos os blocos na ordem original da ficha.</p>
+          <p className="text-xs text-[#86868b]">Avaliacao clinica organizada para registrar a jornada capilar com mais clareza, tecnica e acolhimento.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <button
@@ -1065,7 +1066,7 @@ export default function AnamneseCapilarTab({
             className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#7a4921]/18 bg-[rgba(122,73,33,0.08)] px-4 py-2 text-sm font-semibold text-[#7a4921] hover:bg-[rgba(122,73,33,0.12)] disabled:opacity-60 sm:w-auto"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            {saving ? "Salvando..." : "Salvar ficha"}
+            {saving ? "Salvando..." : "Salvar avaliacao"}
           </button>
         </div>
       </div>
@@ -1093,6 +1094,8 @@ export default function AnamneseCapilarTab({
           <Section title="QUEIXA PRINCIPAL">
             <TextAreaField label="Queixa principal" value={dados.queixaPrincipal ?? ""} onChange={(value) => updateDados((current) => ({ ...current, queixaPrincipal: value }))} minHeight={130} />
           </Section>
+
+          <FichaCapilar360Section dados={dados} onChange={updateDados} photos={client.gallery} />
 
           <Section title="DADOS CLÍNICOS">
             <Subsection title="QUEDA ACENTUADA">

@@ -8,7 +8,7 @@ import { buildPhotoComparisonPairs } from "@/lib/photos";
 
 function formatDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Data indisponível";
+  if (Number.isNaN(date.getTime())) return "Data indisponivel";
   return date.toLocaleDateString("pt-BR");
 }
 
@@ -19,8 +19,8 @@ export default function PhotoEvolutionComparison({ photos }: { photos: readonly 
     <section className="space-y-4 rounded-[28px] border border-[var(--color-brand-line)] bg-[rgba(255,250,243,0.78)] p-4 shadow-[0_20px_50px_rgba(94,58,28,0.08)] sm:p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Evolução</p>
-          <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Comparador Antes e Depois</h3>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Evolucao</p>
+          <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Linha de evolucao da paciente</h3>
         </div>
         <div className="flex items-center gap-2 rounded-full bg-[rgba(122,73,33,0.08)] px-3 py-1 text-xs font-semibold text-[var(--color-brand-deep)]">
           <Sparkles size={14} />
@@ -30,7 +30,7 @@ export default function PhotoEvolutionComparison({ photos }: { photos: readonly 
 
       {pairs.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-[var(--color-brand-line)] bg-white/60 p-6 text-sm text-[var(--color-text-secondary)]">
-          Cadastre ao menos uma foto marcada como antes e outra como depois para liberar a linha de evolução do paciente.
+          Cadastre ao menos uma foto marcada como antes e outra como depois para visualizar a evolucao capilar com mais contexto.
         </div>
       ) : (
         <div className="space-y-5">
@@ -42,7 +42,7 @@ export default function PhotoEvolutionComparison({ photos }: { photos: readonly 
                   {pair.elapsedDays} dia{pair.elapsedDays !== 1 ? "s" : ""} de intervalo
                 </div>
                 <div className="text-xs text-[var(--color-text-secondary)]">
-                  {formatDate(pair.before.date)} até {formatDate(pair.after.date)}
+                  {formatDate(pair.before.date)} ate {formatDate(pair.after.date)}
                 </div>
               </div>
 

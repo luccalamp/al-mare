@@ -24,15 +24,15 @@ export type HelpGuideScenario = {
 export const HELP_GUIDE_PRINCIPLES = [
   {
     title: "Comece pela home",
-    description: "A tela inicial agora mostra o que pede acao no dia: agenda, fichas pendentes, homecare em aberto e prontuarios recentes.",
+    description: "A tela inicial mostra o que pede cuidado no dia: agenda, fichas pendentes, homecare em aberto e prontuarios recentes.",
   },
   {
     title: "Atenda por etapas",
-    description: "Cada prontuario foi dividido em blocos para evitar retrabalho: dados, avaliacao, agenda, evolucao e pos-venda.",
+    description: "Cada prontuario foi dividido em etapas para conduzir a jornada com mais clareza: dados, avaliacao, agenda, evolucao e pos-venda.",
   },
   {
     title: "Feche o ciclo",
-    description: "Depois do atendimento, registre orientacoes, retorno, homecare e materiais do portal para manter o acompanhamento vivo.",
+    description: "Depois do atendimento, registre orientacoes, retorno, homecare e materiais do portal para manter o acompanhamento vivo e acolhedor.",
   },
 ] as const;
 
@@ -41,14 +41,14 @@ export const HELP_GUIDE_SECTIONS: readonly HelpGuideSection[] = [
     id: "workspace",
     kicker: "Visao geral",
     title: "Home da clinica",
-    description: "Essa e a mesa de trabalho principal. Tudo comeca aqui: ver prioridades reais do dia, abrir modulos centrais e chegar direto na paciente certa.",
+    description: "Essa e a mesa de trabalho principal. Tudo comeca aqui: ver prioridades reais do dia, abrir modulos centrais e chegar direto na paciente certa com mais preparo.",
     items: [
       {
         id: "workspace-home",
         title: "Workspace clinico",
-        purpose: "Mostra o panorama da operacao com cards realmente uteis para agenda, pendencias, fichas e pos-venda.",
+        purpose: "Mostra o panorama da operacao com cards realmente uteis para agenda, pendencias, fichas e acompanhamento pos-atendimento.",
         whenToUse: "Use ao iniciar o expediente ou sempre que quiser decidir qual paciente merece atencao primeiro.",
-        example: "Voce abre a home para ver quem atende hoje, quais fichas ainda faltam e qual homecare precisa de acerto.",
+        example: "Voce abre a home para ver quem atende hoje, quais fichas ainda faltam e qual paciente pede atencao primeiro.",
       },
       {
         id: "workspace-search",
@@ -173,9 +173,9 @@ export const HELP_GUIDE_SECTIONS: readonly HelpGuideSection[] = [
       {
         id: "tab-galeria",
         title: "Galeria",
-        purpose: "Guarda fotos de antes, depois e referencias para comparar visualmente a evolucao do caso.",
+        purpose: "Guarda fotos de antes, depois e referencias para comparar visualmente a evolucao do caso com mais seguranca.",
         whenToUse: "Use sempre que a imagem fizer parte da avaliacao, da comparacao ou da prova de resultado.",
-        example: "Na revisao, voce coloca lado a lado as fotos do inicio e do pos-tratamento para mostrar avanco real.",
+        example: "Na revisao, voce coloca lado a lado as fotos do inicio e do pos-tratamento para mostrar avanco real da jornada capilar.",
       },
       {
         id: "tab-etapas",

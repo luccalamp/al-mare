@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { FichaAnamneseCapilarSchema } from "@/schemas/anamnese";
+import type { FichaAnamneseCapilarDados } from "@/types/anamneseCapilar";
+import { analyzeCapillaryTriage } from "@/lib/capillaryTriage";
 import { resolveManagedPhotoUrl } from "@/lib/server/photoStorage";
 import { buildStorageObjectPublicUrl } from "@/lib/server/storageUrls";
 import {
@@ -107,6 +110,31 @@ function buildRecordError(error: { message?: string } | null | undefined, fallba
 
   console.error("Failed to persist client record:", error);
   return buildJsonError(fallback, 500);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function buildFichaMetadata(dados: FichaAnamneseCapilarDados) {
+  const hasCapilar360 = Boolean(dados.capilar360 && Object.keys(dados.capilar360).length > 0);
+  const triage = analyzeCapillaryTriage(dados);
+  const schemaVersion = Math.max(dados.schemaVersion ?? 1, hasCapilar360 ? 2 : 1);
+
+  return {
+    schema_version: schemaVersion,
+    capilar360_attention_level: hasCapilar360 ? triage.attentionLevel : null,
+    capilar360_red_flags_count: hasCapilar360 ? triage.redFlags.length : 0,
+    capilar360_pending_questions_count: hasCapilar360 ? triage.pendingQuestions.length : 0,
+    capilar360_summary: hasCapilar360 ? triage.complaintSummary.slice(0, 2000) : null,
+    capilar360_last_triage_at: hasCapilar360 ? new Date().toISOString() : null,
+    capilar360_metadata: hasCapilar360
+      ? {
+          patternIds: triage.patterns.map((item) => item.id),
+          redFlagIds: triage.redFlags.map((item) => item.id),
+        }
+      : {},
+  };
 }
 
 export async function POST(request: Request) {
@@ -228,30 +256,57 @@ export async function POST(request: Request) {
     }
 
     case "ficha-anamnese": {
-      if (
-        !parsedBody.data.dados ||
-        typeof parsedBody.data.dados !== "object" ||
-        Array.isArray(parsedBody.data.dados)
-      ) {
+      if (!isPlainRecord(parsedBody.data.dados)) {
         return buildJsonError("Os dados da ficha clínica estão inválidos.", 400);
       }
 
+      const parsedFicha = FichaAnamneseCapilarSchema.safeParse(parsedBody.data.dados);
+      if (!parsedFicha.success) {
+        return buildJsonError("A ficha capilar possui campos inválidos. Revise os dados e tente novamente.", 400);
+      }
+
       const timestamp = new Date().toISOString();
+      const fichaMetadata = buildFichaMetadata(parsedFicha.data as FichaAnamneseCapilarDados);
+      const fichaDados = {
+        ...(parsedFicha.data as FichaAnamneseCapilarDados),
+        schemaVersion: fichaMetadata.schema_version,
+      };
+      const basePayload = {
+        dados: fichaDados,
+        updated_at: timestamp,
+      };
+      const enhancedPayload = {
+        ...basePayload,
+        ...fichaMetadata,
+      };
+
       const { data: updatedRows, error: updateError } = await authContext.admin
         .from("ficha_anamnese_capilar")
-        .update({
-          dados: parsedBody.data.dados,
-          updated_at: timestamp,
-        })
+        .update(enhancedPayload)
         .eq("cliente_id", clientId)
         .is("deleted_at", null)
         .select("dados");
 
       if (updateError) {
-        return buildRecordError(updateError, "Não foi possível salvar a ficha clínica agora.");
-      }
+        if (!isMissingColumnError(updateError.message)) {
+          return buildRecordError(updateError, "Não foi possível salvar a ficha clínica agora.");
+        }
 
-      if (Array.isArray(updatedRows) && updatedRows.length > 0) {
+        const { data: fallbackUpdatedRows, error: fallbackUpdateError } = await authContext.admin
+          .from("ficha_anamnese_capilar")
+          .update(basePayload)
+          .eq("cliente_id", clientId)
+          .is("deleted_at", null)
+          .select("dados");
+
+        if (fallbackUpdateError) {
+          return buildRecordError(fallbackUpdateError, "Não foi possível salvar a ficha clínica agora.");
+        }
+
+        if (Array.isArray(fallbackUpdatedRows) && fallbackUpdatedRows.length > 0) {
+          return NextResponse.json({ record: fallbackUpdatedRows[0] });
+        }
+      } else if (Array.isArray(updatedRows) && updatedRows.length > 0) {
         return NextResponse.json({ record: updatedRows[0] });
       }
 
@@ -259,13 +314,33 @@ export async function POST(request: Request) {
         .from("ficha_anamnese_capilar")
         .insert({
           cliente_id: clientId,
-          dados: parsedBody.data.dados,
-          updated_at: timestamp,
+          ...enhancedPayload,
         })
         .select("dados")
         .single();
 
-      if (error || !data) {
+      if (error) {
+        if (!isMissingColumnError(error.message)) {
+          return buildRecordError(error, "Não foi possível salvar a ficha clínica agora.");
+        }
+
+        const { data: fallbackData, error: fallbackInsertError } = await authContext.admin
+          .from("ficha_anamnese_capilar")
+          .insert({
+            cliente_id: clientId,
+            ...basePayload,
+          })
+          .select("dados")
+          .single();
+
+        if (fallbackInsertError || !fallbackData) {
+          return buildRecordError(fallbackInsertError, "Não foi possível salvar a ficha clínica agora.");
+        }
+
+        return NextResponse.json({ record: fallbackData });
+      }
+
+      if (!data) {
         return buildRecordError(error, "Não foi possível salvar a ficha clínica agora.");
       }
 

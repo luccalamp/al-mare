@@ -1385,9 +1385,9 @@ function HomecareTab({ client, onAddHomecare, onConfirmarPagamento }: {
 type PhotoUploadCategory = "antes" | "depois" | "referencia";
 
 const PHOTO_CATEGORY_LABELS: Record<PhotoUploadCategory, string> = {
-  antes: "Antes",
-  depois: "Depois",
-  referencia: "Referência",
+  antes: "Antes do protocolo",
+  depois: "Resultado parcial/final",
+  referencia: "Tricoscopia / comparativo",
 };
 
 const GALLERY_FILE_ACCEPT = "image/jpeg,image/png,image/webp";
@@ -1506,8 +1506,10 @@ function GalleryTab({
   };
 
   const renderPhotoTitle = (type: string) => {
-    const label = getPhotoCategoryLabel(type).toLowerCase();
-    return label === "referência" ? "Foto de referência" : `Foto ${label}`;
+    const category = normalizePhotoCategory(type);
+    if (category === "antes") return "Registro antes do protocolo";
+    if (category === "depois") return "Registro de evolucao";
+    return "Registro de tricoscopia ou comparativo";
   };
 
   const handleRemovePhoto = async (photo: Client["gallery"][number]) => {
@@ -1535,8 +1537,8 @@ function GalleryTab({
          <div className="order-last rounded-[28px] border border-[var(--color-brand-line)] bg-white/70 p-4 shadow-[0_18px_45px_rgba(94,58,28,0.08)] sm:p-5 xl:order-first">
            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
              <div>
-               <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Acervo clínico</p>
-               <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Fotos de perfil, couro cabeludo e referências</h3>
+               <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Galeria de evolucao</p>
+               <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Antes, tricoscopia e comparativos do protocolo</h3>
              </div>
              <div className="grid grid-cols-3 gap-2 text-center text-xs">
                <div className="rounded-2xl bg-[var(--color-brand-soft)] px-3 py-2 text-[var(--color-brand-deep)]">
@@ -1545,11 +1547,11 @@ function GalleryTab({
                </div>
                <div className="rounded-2xl bg-[var(--color-brand-soft)] px-3 py-2 text-[var(--color-brand-deep)]">
                  <strong className="block text-base">{totals.depois}</strong>
-                 Depois
+                 Evolucao
                </div>
                <div className="rounded-2xl bg-[var(--color-brand-soft)] px-3 py-2 text-[var(--color-brand-deep)]">
                  <strong className="block text-base">{totals.referencia}</strong>
-                 Referência
+                 Tricoscopia
                </div>
              </div>
            </div>
@@ -1573,9 +1575,9 @@ function GalleryTab({
            <div className="mt-4 flex flex-wrap gap-2">
              {([
                ["todos", "Tudo"],
-               ["antes", "Antes"],
-               ["depois", "Depois"],
-               ["referencia", "Referência"],
+               ["antes", "Antes do protocolo"],
+               ["depois", "Durante/resultado"],
+               ["referencia", "Tricoscopia"],
              ] as const).map(([value, label]) => (
                <button
                  key={value}
@@ -1602,7 +1604,7 @@ function GalleryTab({
            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
              {filteredPhotos.length === 0 ? (
                <div className="col-span-full rounded-[24px] border border-dashed border-[var(--color-brand-line)] bg-[var(--color-brand-soft)] p-6 text-sm text-[var(--color-text-secondary)]">
-                 Nenhuma foto nesta categoria ainda.
+                 Nenhuma foto nesta categoria ainda. Use &ldquo;Adicionar registro de evolucao&rdquo; quando quiser comparar o protocolo.
                </div>
              ) : (
                filteredPhotos.map((photo) => (
@@ -1654,7 +1656,7 @@ function GalleryTab({
              <>
                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--color-brand-accent)]">Webcam</p>
                <h3 className="mt-1 text-lg font-semibold text-[var(--color-text)]">Captura direta no prontuário</h3>
-               <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Use a câmera para registrar foto de perfil, couro cabeludo ou evolução sem sair da ficha.</p>
+               <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Use a camera para registrar couro cabeludo, tricoscopia ou evolucao sem sair da ficha.</p>
              </>
            )}
 
