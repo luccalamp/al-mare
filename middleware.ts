@@ -1,13 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { checkApiRateLimit, applyRateLimitHeaders, type RateLimitCheck } from "@/lib/server/rateLimit";
 import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
+import { getConfiguredTrustedOrigins, parseTrustedOrigin } from "@/lib/trustedOrigin";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
 
 const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback", "/auth/v1/callback", "/auth/callback"];
 const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/auth/password", "/api/portal", "/api/google-calendar/callback"];
-const API_ALLOWED_ORIGIN = "https://jakoliveira.com.br";
-const API_ALLOWED_ORIGIN_FALLBACKS = ["https://www.jakoliveira.com.br"];
 const UNSAFE_API_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function buildCsp(nonce: string) {
@@ -77,18 +76,7 @@ function matchesPrefix(pathname: string, prefixes: string[]) {
 }
 
 function normalizeOrigin(value?: string | null) {
-  const candidate = value?.trim();
-  if (!candidate) return null;
-
-  try {
-    return new URL(candidate).origin;
-  } catch {
-    return null;
-  }
-}
-
-function readOriginFromUrlEnv(name: string) {
-  return normalizeOrigin(process.env[name]);
+  return parseTrustedOrigin(value);
 }
 
 function getCurrentRequestOrigin(request: NextRequest) {
@@ -109,22 +97,7 @@ function getCurrentRequestOrigin(request: NextRequest) {
 }
 
 function getAllowedApiOrigins(request: NextRequest) {
-  const origins = new Set<string>([
-    API_ALLOWED_ORIGIN,
-    ...API_ALLOWED_ORIGIN_FALLBACKS,
-  ]);
-
-  const envOrigins = [
-    readOriginFromUrlEnv("NEXT_PUBLIC_BASE_URL"),
-    readOriginFromUrlEnv("BASE_URL"),
-    readOriginFromUrlEnv("NEXT_PUBLIC_APP_URL"),
-    readOriginFromUrlEnv("SITE_URL"),
-    process.env.VERCEL_URL ? normalizeOrigin(`https://${process.env.VERCEL_URL}`) : null,
-  ];
-
-  envOrigins.forEach((origin) => {
-    if (origin) origins.add(origin);
-  });
+  const origins = getConfiguredTrustedOrigins(process.env);
 
   const currentRequestOrigin = getCurrentRequestOrigin(request);
   if (currentRequestOrigin) {
@@ -138,6 +111,15 @@ function getAllowedApiOrigins(request: NextRequest) {
   }
 
   return origins;
+}
+
+function resolveApiCorsOrigin(request: NextRequest) {
+  const requestOrigin = getBrowserRequestOrigin(request);
+  if (requestOrigin && getAllowedApiOrigins(request).has(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  return getCurrentRequestOrigin(request) || getTrustedAppOrigin(request);
 }
 
 function getBrowserRequestOrigin(request: NextRequest) {
@@ -197,7 +179,7 @@ function shouldRedirectToCanonicalAppOrigin(request: NextRequest) {
     return false;
   }
 
-  return currentUrl.hostname.endsWith(".vercel.app") || currentUrl.hostname === "www.jakoliveira.com.br";
+  return currentUrl.hostname.endsWith(".vercel.app");
 }
 
 function buildCanonicalAppUrl(request: NextRequest) {
@@ -232,6 +214,7 @@ function appendVaryHeader(response: NextResponse, value: string) {
 
 function applyResponseHeaders(
   response: NextResponse,
+  request: NextRequest,
   pathname: string,
   nonce: string,
   rateLimit?: RateLimitCheck
@@ -240,7 +223,7 @@ function applyResponseHeaders(
   response.headers.set("x-vercel-id", "");
 
   if (pathname.startsWith("/api/")) {
-    response.headers.set("Access-Control-Allow-Origin", API_ALLOWED_ORIGIN);
+    response.headers.set("Access-Control-Allow-Origin", resolveApiCorsOrigin(request));
     response.headers.set("Access-Control-Allow-Credentials", "true");
     response.headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Cron-Secret, X-Admin-Actor");
@@ -263,7 +246,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (shouldRedirectToCanonicalAppOrigin(request)) {
-    return applyResponseHeaders(NextResponse.redirect(buildCanonicalAppUrl(request), 308), pathname, nonce);
+    return applyResponseHeaders(NextResponse.redirect(buildCanonicalAppUrl(request), 308), request, pathname, nonce);
   }
 
   const { response, user } = await updateSupabaseSession(request, requestHeaders);
@@ -272,7 +255,7 @@ export async function middleware(request: NextRequest) {
   const isPublicApiRoute = matchesPrefix(pathname, PUBLIC_API_PREFIXES);
 
   if (isApiRoute && request.method === "OPTIONS") {
-    return applyResponseHeaders(new NextResponse(null, { status: 204 }), pathname, nonce);
+    return applyResponseHeaders(new NextResponse(null, { status: 204 }), request, pathname, nonce);
   }
 
   if (isApiRoute && UNSAFE_API_METHODS.has(request.method) && !hasAllowedApiOrigin(request)) {
@@ -281,6 +264,7 @@ export async function middleware(request: NextRequest) {
         response,
         NextResponse.json({ error: "Origem da requisicao nao autorizada." }, { status: 403 })
       ),
+      request,
       pathname,
       nonce
     );
@@ -299,6 +283,7 @@ export async function middleware(request: NextRequest) {
           response,
           NextResponse.json({ error: "Limite de requisições excedido. Tente novamente em instantes." }, { status: 429 })
         ),
+        request,
         pathname,
         nonce,
         rateLimit
@@ -307,12 +292,12 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isPublicApiRoute) {
-    return applyResponseHeaders(response, pathname, nonce, rateLimit);
+    return applyResponseHeaders(response, request, pathname, nonce, rateLimit);
   }
 
   if (isApiRoute) {
     if (user) {
-      return applyResponseHeaders(response, pathname, nonce, rateLimit);
+      return applyResponseHeaders(response, request, pathname, nonce, rateLimit);
     }
 
     return applyResponseHeaders(
@@ -320,6 +305,7 @@ export async function middleware(request: NextRequest) {
         response,
         NextResponse.json({ error: "Sua sessão expirou. Entre novamente para continuar." }, { status: 401 })
       ),
+      request,
       pathname,
       nonce,
       rateLimit
@@ -331,17 +317,17 @@ export async function middleware(request: NextRequest) {
     const allowsLoginSession = loginMode === "setup-password" || loginMode === "reset-password";
 
     if (user && pathname === "/login" && !allowsLoginSession) {
-      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/", request))), pathname, nonce);
+      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/", request))), request, pathname, nonce);
     }
 
-    return applyResponseHeaders(response, pathname, nonce);
+    return applyResponseHeaders(response, request, pathname, nonce);
   }
 
   if (user) {
-    return applyResponseHeaders(response, pathname, nonce);
+    return applyResponseHeaders(response, request, pathname, nonce);
   }
 
-  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/login", request))), pathname, nonce);
+  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/login", request))), request, pathname, nonce);
 }
 
 export const config = {

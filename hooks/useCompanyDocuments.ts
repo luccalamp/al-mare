@@ -64,7 +64,7 @@ function buildErrorMessage(error: unknown, fallback: string) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string") {
       if (/organization_context_required|not_authorized_for_organization|row-level security/i.test(message)) {
-        return "Sua sessÃ£o atual nÃ£o permite concluir esta operaÃ§Ã£o.";
+        return "Sua sessão atual não permite concluir esta operação.";
       }
       if (/duplicate key value|already exists|idx_company_document_folders_nome_unique/i.test(message)) {
         return "Ja existe uma pasta com esse nome.";

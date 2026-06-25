@@ -8,7 +8,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { sanitizeObject } from "@/lib/sanitize";
 import { notifyPortalUpdate } from "@/lib/preConsultation";
 
-const CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-snapshot-v1";
+const LEGACY_CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-snapshot-v1";
+const CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-metadata-v2";
 const CLIENTS_REALTIME_TABLES = [
   "clientes",
   "diagnostico_capilar",
@@ -27,7 +28,8 @@ export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
 type ClientsSnapshot = {
   savedAt: string;
-  clients: Client[];
+  clientCount: number;
+  newestUpdatedAt?: string | null;
 };
 
 type UploadedImageAsset = {
@@ -147,7 +149,7 @@ function buildClientDbError(error: unknown, fallback: string) {
     const message = String((error as { message?: unknown }).message ?? "");
 
     if (/organization_context_required|not_authorized_for_organization|row-level security/i.test(message)) {
-      return "Sua sessÃ£o atual nÃ£o permite concluir esta operaÃ§Ã£o.";
+      return "Sua sessão atual não permite concluir esta operação.";
     }
 
     if (/null value in column .*nome|null value in column .*whatsapp|violates not-null constraint/i.test(message)) {
@@ -155,7 +157,7 @@ function buildClientDbError(error: unknown, fallback: string) {
     }
 
     if (/duplicate key value|already exists/i.test(message)) {
-      return "JÃ¡ existe um registro com esses dados.";
+      return "Já existe um registro com esses dados.";
     }
   }
 
@@ -415,26 +417,12 @@ const readClientsSnapshot = (): ClientsSnapshot | null => {
   if (!snapshotKey) return null;
 
   try {
-    const raw = window.localStorage.getItem(snapshotKey);
+    window.localStorage.removeItem(LEGACY_CLIENTS_SNAPSHOT_KEY);
+    const raw = window.sessionStorage.getItem(snapshotKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ClientsSnapshot;
-    if (!Array.isArray(parsed.clients)) return null;
-    return {
-      ...parsed,
-      clients: parsed.clients.map((client) =>
-        enrichClient({
-          ...(client as Client),
-          gallery: Array.isArray((client as Client).gallery)
-            ? (client as Client).gallery.map((photo) => ({
-                ...photo,
-                type: resolvePhotoCategory(photo.type, photo.url, photo.caption),
-                caption: sanitizePhotoCaption(photo.caption),
-              }))
-            : [],
-          appointments: Array.isArray((client as Client).appointments) ? (client as Client).appointments : [],
-        })
-      ),
-    };
+    if (!parsed.savedAt || typeof parsed.clientCount !== "number") return null;
+    return parsed;
   } catch (error) {
     console.error("Falha ao ler snapshot local de clientes:", error);
     return null;
@@ -447,11 +435,18 @@ const persistClientsSnapshot = (clients: Client[]): string | null => {
   if (!snapshotKey) return null;
 
   try {
+    window.localStorage.removeItem(LEGACY_CLIENTS_SNAPSHOT_KEY);
     const snapshot: ClientsSnapshot = {
       savedAt: new Date().toISOString(),
-      clients,
+      clientCount: clients.length,
+      newestUpdatedAt: clients.reduce<string | null>((latest, client) => {
+        const candidate = client.updatedAt || client.createdAt || null;
+        if (!candidate) return latest;
+        if (!latest) return candidate;
+        return new Date(candidate).getTime() > new Date(latest).getTime() ? candidate : latest;
+      }, null),
     };
-    window.localStorage.setItem(snapshotKey, JSON.stringify(snapshot));
+    window.sessionStorage.setItem(snapshotKey, JSON.stringify(snapshot));
     return snapshot.savedAt;
   } catch (error) {
     console.error("Falha ao gravar snapshot local de clientes:", error);
@@ -524,16 +519,15 @@ export function useClients() {
   }, []);
 
   const restoreSnapshot = useCallback((warning: string) => {
+    void warning;
     const snapshot = readClientsSnapshot();
-    if (!snapshot?.clients.length) return false;
+    if (!snapshot) return false;
 
-    clientsRef.current = snapshot.clients;
-    setClients(snapshot.clients);
     setLastSnapshotAt(snapshot.savedAt);
-    return true;
+    return false;
   }, []);
 
-  // 1. Loader Principal - Consome os 4 mÃ³dulos do Iluminare Studio
+  // 1. Loader Principal - Consome os 4 módulos do Iluminare Studio
   const loadClients = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     try {
       if (!background) {
@@ -570,9 +564,7 @@ export function useClients() {
 
   useEffect(() => {
     const snapshot = readClientsSnapshot();
-    if (snapshot?.clients.length) {
-      clientsRef.current = snapshot.clients;
-      setClients(snapshot.clients);
+    if (snapshot) {
       setLastSnapshotAt(snapshot.savedAt);
     }
 
@@ -890,7 +882,7 @@ export function useClients() {
         historiaQuimicaPrevia: diagnostico.historiaQuimicaPrevia || null,
         resultadoTesteMecha: diagnostico.resultadoTesteMecha,
       },
-      "Falha ao salvar diagnÃ³stico."
+      "Falha ao salvar diagnóstico."
     );
 
     const data = response.record as {
@@ -904,7 +896,7 @@ export function useClients() {
     } | undefined;
 
     if (!data) {
-      throw new Error("Falha ao salvar diagnÃ³stico.");
+      throw new Error("Falha ao salvar diagnóstico.");
     }
 
     const novoDiagnostico: DiagnosticoCapilar = {
@@ -1125,7 +1117,7 @@ export function useClients() {
         clientId,
         dados: sanitized,
       },
-      "Falha ao salvar a ficha clÃ­nica."
+      "Falha ao salvar a ficha clínica."
     );
 
     const data = response.record as { dados?: FichaAnamneseCapilarDados } | undefined;
@@ -1247,7 +1239,7 @@ export function useClients() {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      const message = body && typeof body === "object" && "error" in body ? String((body as Record<string, unknown>)["error"]) : "NÃ£o foi possÃ­vel alterar o status.";
+      const message = body && typeof body === "object" && "error" in body ? String((body as Record<string, unknown>)["error"]) : "Não foi possível alterar o status.";
       throw new Error(message);
     }
 

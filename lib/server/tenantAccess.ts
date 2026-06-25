@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { type User, SupabaseClient, createClient } from "@supabase/supabase-js";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
 export type AuthenticatedUserContext = {
   client: SupabaseClient;
@@ -13,6 +14,8 @@ export type AuthorizedStaffContext = {
   admin: SupabaseClient;
   userId: string;
   user: User;
+  authorizationSource: "access_requests" | "app_metadata";
+  staffRole?: string;
 };
 
 export function buildJsonError(message: string, status: number) {
@@ -83,18 +86,147 @@ export async function requireAuthorizedStaff(
     forbiddenMessage?: string;
   }
 ) {
-  void options;
-
   const authContext = await requireAuthenticatedUser(request);
   if (authContext instanceof NextResponse) {
     return authContext;
+  }
+
+  const appMetadataAuthorization = getAppMetadataStaffAuthorization(authContext.user);
+  if (appMetadataAuthorization.authorized) {
+    return {
+      admin: authContext.client,
+      userId: authContext.userId,
+      user: authContext.user,
+      authorizationSource: "app_metadata",
+      staffRole: appMetadataAuthorization.role,
+    } satisfies AuthorizedStaffContext;
+  }
+
+  const approvedAccessRequest = await loadApprovedAccessRequest(authContext.user);
+  if (approvedAccessRequest instanceof NextResponse) {
+    return approvedAccessRequest;
+  }
+
+  if (!approvedAccessRequest) {
+    return buildJsonError(options?.forbiddenMessage || "Seu acesso ainda nao foi aprovado.", 403);
   }
 
   return {
     admin: authContext.client,
     userId: authContext.userId,
     user: authContext.user,
+    authorizationSource: "access_requests",
+    staffRole: "staff",
   } satisfies AuthorizedStaffContext;
+}
+
+function getStringClaim(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getStringListClaim(value: unknown): string[] {
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => getStringClaim(item))
+      .filter((item): item is string => Boolean(item));
+  }
+
+  return [];
+}
+
+function getAppMetadataStaffAuthorization(user: User) {
+  const metadata = (user.app_metadata || {}) as Record<string, unknown>;
+  const nestedClaims = metadata.claims && typeof metadata.claims === "object"
+    ? metadata.claims as Record<string, unknown>
+    : {};
+
+  const approvedStatus = [
+    metadata.access_status,
+    metadata.staff_status,
+    metadata.approval_status,
+    nestedClaims.access_status,
+    nestedClaims.staff_status,
+    nestedClaims.approval_status,
+  ]
+    .map((value) => getStringClaim(value)?.toLowerCase())
+    .some((value) => value === "approved");
+
+  if (approvedStatus) {
+    return { authorized: true, role: "staff" };
+  }
+
+  const roles = [
+    ...getStringListClaim(metadata.role),
+    ...getStringListClaim(metadata.app_role),
+    ...getStringListClaim(metadata.roles),
+    ...getStringListClaim(metadata.staff_roles),
+    ...getStringListClaim(nestedClaims.role),
+    ...getStringListClaim(nestedClaims.roles),
+  ].map((role) => role.toLowerCase());
+
+  const allowedRole = roles.find((role) =>
+    ["staff", "admin", "owner", "operator", "operations"].includes(role)
+  );
+
+  if (allowedRole) {
+    return { authorized: true, role: allowedRole };
+  }
+
+  const permissions = [
+    ...getStringListClaim(metadata.permissions),
+    ...getStringListClaim(nestedClaims.permissions),
+  ].map((permission) => permission.toLowerCase());
+
+  if (permissions.some((permission) => ["staff:access", "admin:operations"].includes(permission))) {
+    return { authorized: true, role: "staff" };
+  }
+
+  return { authorized: false, role: undefined };
+}
+
+async function loadApprovedAccessRequest(user: User) {
+  const email = user.email?.toLowerCase().trim();
+  const admin = createSupabaseAdminClient();
+
+  const byRequester = await admin
+    .from("access_requests")
+    .select("id, status")
+    .eq("requester_user_id", user.id)
+    .eq("status", "approved")
+    .limit(1)
+    .maybeSingle();
+
+  if (byRequester.error && !isMissingColumnError(byRequester.error.message)) {
+    console.error("Failed to validate approved staff access:", byRequester.error);
+    return buildJsonError("Nao foi possivel validar sua autorizacao agora.", 500);
+  }
+
+  if (byRequester.data?.status === "approved") {
+    return byRequester.data;
+  }
+
+  if (!email) {
+    return null;
+  }
+
+  const byEmail = await admin
+    .from("access_requests")
+    .select("id, status")
+    .eq("email", email)
+    .eq("status", "approved")
+    .limit(1)
+    .maybeSingle();
+
+  if (byEmail.error) {
+    console.error("Failed to validate approved staff access:", byEmail.error);
+    return buildJsonError("Nao foi possivel validar sua autorizacao agora.", 500);
+  }
+
+  return byEmail.data?.status === "approved" ? byEmail.data : null;
 }
 
 async function loadOwnedRowUserId(

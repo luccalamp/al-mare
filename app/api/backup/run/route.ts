@@ -1,22 +1,21 @@
 import { NextResponse } from "next/server";
 import { runBackupExport } from "@/lib/server/backup";
-import { buildJsonError, requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { requireAdminRequest, resolveOperationActor } from "@/lib/server/requestGuards";
+import { buildJsonError } from "@/lib/server/tenantAccess";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const authContext = await requireAuthorizedStaff(request, {
-    forbiddenMessage: "Seu acesso nao permite executar backups.",
-  });
-  if (authContext instanceof NextResponse) {
-    return authContext;
+  const authResponse = requireAdminRequest(request);
+  if (authResponse) {
+    return authResponse;
   }
 
   try {
     const result = await runBackupExport("manual", {
       route: "/api/backup/run",
       method: request.method,
-      actor: authContext.userId,
+      actor: resolveOperationActor(request),
     });
 
     return NextResponse.json(result, { status: 200 });

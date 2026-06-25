@@ -50,15 +50,21 @@ export function resolveOperationActor(request: Request) {
   return actor ? actor.slice(0, 120) : "admin-console";
 }
 
+function readAdminRequestToken(request: Request) {
+  return readHeaderToken(request, "x-admin-token") || readBearerToken(request) || readAdminTokenFromCookie();
+}
+
+export function isAdminRequest(request: Request) {
+  return hasMatchingToken(readAdminRequestToken(request), getAdminOperationsToken());
+}
+
 export function requireAdminRequest(request: Request) {
   const expectedToken = getAdminOperationsToken();
   if (!expectedToken) {
     return buildError("ADMIN_OPERATIONS_TOKEN nao foi configurado no servidor.", 500);
   }
 
-  // Try header first, then cookie
-  const candidate = readHeaderToken(request, "x-admin-token") || readBearerToken(request) || readAdminTokenFromCookie();
-  if (!hasMatchingToken(candidate, expectedToken)) {
+  if (!hasMatchingToken(readAdminRequestToken(request), expectedToken)) {
     return buildError("Chave administrativa invalida.", 401);
   }
 

@@ -1,40 +1,49 @@
-const DEFAULT_APP_ORIGIN = "https://jakoliveira.com.br";
+import {
+  buildAppUrl,
+  getConfiguredTrustedOrigin,
+  parseTrustedOrigin,
+  trimTrailingSlash,
+} from "@/lib/trustedOrigin";
 
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, "");
-}
-
-function parseOrigin(value?: string | null) {
-  const normalized = value?.trim();
-  if (!normalized) {
+function getRequestOrigin(request?: Request) {
+  if (!request) {
     return null;
   }
 
-  try {
-    return trimTrailingSlash(new URL(normalized).origin);
-  } catch {
-    return null;
+  const forwardedHost = request.headers.get("x-forwarded-host")?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.trim();
+  const host = request.headers.get("host")?.trim();
+
+  if ((forwardedHost || host) && forwardedProto) {
+    return parseTrustedOrigin(`${forwardedProto}://${forwardedHost || host}`);
   }
+
+  if (host) {
+    const protocol = new URL(request.url).protocol || (process.env.NODE_ENV === "production" ? "https:" : "http:");
+    return parseTrustedOrigin(`${protocol}//${host}`);
+  }
+
+  return parseTrustedOrigin(new URL(request.url).origin);
 }
 
 export function getTrustedAppOrigin(request?: Request) {
-  const configuredOrigin =
-    parseOrigin(process.env.NEXT_PUBLIC_BASE_URL) ||
-    parseOrigin(process.env.BASE_URL) ||
-    parseOrigin(process.env.NEXT_PUBLIC_APP_URL) ||
-    parseOrigin(process.env.SITE_URL);
-
+  const configuredOrigin = getConfiguredTrustedOrigin(process.env);
   if (configuredOrigin) {
     return configuredOrigin;
   }
 
-  if (process.env.NODE_ENV !== "production" && request) {
-    return new URL(request.url).origin;
+  const requestOrigin = getRequestOrigin(request);
+  if (requestOrigin) {
+    return trimTrailingSlash(requestOrigin);
   }
 
-  return DEFAULT_APP_ORIGIN;
+  if (process.env.NODE_ENV !== "production") {
+    return "http://localhost:3000";
+  }
+
+  throw new Error("Configure NEXT_PUBLIC_BASE_URL, BASE_URL, NEXT_PUBLIC_APP_URL ou SITE_URL.");
 }
 
 export function buildTrustedAppUrl(path: string, request?: Request) {
-  return new URL(path, getTrustedAppOrigin(request)).toString();
+  return buildAppUrl(path, getTrustedAppOrigin(request));
 }

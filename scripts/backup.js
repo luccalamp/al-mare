@@ -33,10 +33,28 @@ function safeGetProjectRef() {
   }
 }
 
+function isTruthyEnv(value) {
+  return ['1', 'true', 'yes', 'y'].includes(String(value || '').trim().toLowerCase());
+}
+
+function getDatabaseSslOptions() {
+  const sslMode = String(process.env.BACKUP_DATABASE_SSL_MODE || '').trim().toLowerCase();
+  if (sslMode === 'disable') {
+    return false;
+  }
+
+  if (isTruthyEnv(process.env.BACKUP_ALLOW_INSECURE_TLS)) {
+    console.warn(`${POLICY_PREFIX} BACKUP_ALLOW_INSECURE_TLS ativo; a verificacao TLS do banco foi desabilitada para esta execucao.`);
+    return { rejectUnauthorized: false };
+  }
+
+  return { rejectUnauthorized: true };
+}
+
 function getConnectionOptions() {
   return {
     connectionString: getDatabaseConnectionString(),
-    ssl: { rejectUnauthorized: false },
+    ssl: getDatabaseSslOptions(),
   };
 }
 

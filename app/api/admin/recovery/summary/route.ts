@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { BackupRunHistory, DeletedRecordSummary, RecoverySummary, RestoreDrillHistory } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
+import { isAdminRequest } from "@/lib/server/requestGuards";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
 type BackupRunRow = {
@@ -116,6 +117,7 @@ export async function GET(request: Request) {
   }
 
   const supabase = createSupabaseAdminClient();
+  const includeGlobalRecoveryState = isAdminRequest(request);
 
   try {
     const [clientsResult, photosResult, documentsResult, backupResult, restoreDrillResult] = await Promise.all([
@@ -140,8 +142,12 @@ export async function GET(request: Request) {
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(18),
-      supabase.from("backup_run_history").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("restore_drill_history").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+      includeGlobalRecoveryState
+        ? supabase.from("backup_run_history").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      includeGlobalRecoveryState
+        ? supabase.from("restore_drill_history").select("*").order("started_at", { ascending: false }).limit(1).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (clientsResult.error) throw clientsResult.error;
@@ -185,8 +191,8 @@ export async function GET(request: Request) {
       deletedClients,
       deletedPhotos,
       deletedDocuments,
-      latestBackup: backupResult.data ? mapBackupRun(backupResult.data) : undefined,
-      latestRestoreDrill: restoreDrillResult.data ? mapRestoreDrill(restoreDrillResult.data) : undefined,
+      latestBackup: includeGlobalRecoveryState && backupResult.data ? mapBackupRun(backupResult.data) : undefined,
+      latestRestoreDrill: includeGlobalRecoveryState && restoreDrillResult.data ? mapRestoreDrill(restoreDrillResult.data) : undefined,
     };
 
     return NextResponse.json(response, { status: 200 });

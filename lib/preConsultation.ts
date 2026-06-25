@@ -1,6 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
-
-const PRODUCTION_ORIGIN = "https://jakoliveira.com.br";
+import { buildAppUrl, getBrowserTrustedAppOrigin } from "@/lib/trustedOrigin";
 
 function normalizeWhatsappNumber(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -11,7 +10,8 @@ function normalizeWhatsappNumber(phone: string) {
 }
 
 export function buildPortalLink(token: string) {
-  return `${PRODUCTION_ORIGIN}/portal/${token}`;
+  const origin = getBrowserTrustedAppOrigin();
+  return origin ? buildAppUrl(`/portal/${token}`, origin) : `/portal/${token}`;
 }
 
 export function buildPortalWhatsappMessage(patientName: string, link: string) {
@@ -90,4 +90,3 @@ export function notifyPortalUpdate(portalToken?: string) {
     }
   });
 }
-

@@ -36,16 +36,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "State OAuth inválido. Possível tentativa de CSRF." }, { status: 403 });
     }
 
-    // Clear the state cookie after validation
-    const response = NextResponse.json({ success: true });
-    response.cookies.set(OAUTH_STATE_COOKIE, "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 0,
-      path: "/",
-    });
-
     const redirectUri = resolveGoogleCalendarRedirectUri(request);
 
     const existingTokens = readStoredTokens();
@@ -58,8 +48,15 @@ export async function POST(request: Request) {
       email: tokens.email,
     };
 
-    const tokenResponse = storeTokens(storedTokens);
-    tokenResponse.cookies.set("gcal_connected", "true", {
+    const response = storeTokens(storedTokens, NextResponse.json({ success: true }));
+    response.cookies.set(OAUTH_STATE_COOKIE, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 0,
+      path: "/",
+    });
+    response.cookies.set("gcal_connected", "true", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -67,7 +64,7 @@ export async function POST(request: Request) {
       path: "/",
     });
 
-    return tokenResponse;
+    return response;
   } catch {
     return NextResponse.json(
       { error: "Falha ao completar a autenticação com o Google." },

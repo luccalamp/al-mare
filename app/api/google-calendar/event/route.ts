@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuthorizedStaff } from "@/lib/server/tenantAccess";
-import { createCalendarEventServer } from "@/lib/server/googleCalendarAuth";
+import { applyStoredTokensCookie, createCalendarEventServer } from "@/lib/server/googleCalendarAuth";
 
 const eventSchema = z.object({
   summary: z.string().min(1),
@@ -28,8 +28,13 @@ export async function POST(request: Request) {
 
   try {
     const result = await createCalendarEventServer(parsed.data);
-    console.log("[gcal-event-api] Event created:", result.id);
-    return NextResponse.json(result);
+    console.log("[gcal-event-api] Event created:", result.event.id);
+    const response = NextResponse.json(result.event);
+    if (result.refreshedTokens) {
+      response.headers.set("X-GCal-Token-Refreshed", "true");
+      applyStoredTokensCookie(response, result.refreshedTokens);
+    }
+    return response;
   } catch (err) {
     console.error("[gcal-event-api] Error:", err);
     const message = err instanceof Error ? err.message : "Não foi possível criar o evento no Google Calendar.";

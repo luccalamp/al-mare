@@ -2,11 +2,7 @@ import crypto from "crypto";
 import { readServerEnv } from "@/lib/server/supabaseAdmin";
 
 function getSigningSecret() {
-  const secret =
-    readServerEnv("AUTH_COOKIE_SIGNING_SECRET") ||
-    readServerEnv("TWO_FA_COOKIE_SECRET") ||
-    readServerEnv("SUPABASE_SERVICE_ROLE_KEY") ||
-    readServerEnv("RESEND_API_KEY");
+  const secret = readServerEnv("AUTH_COOKIE_SIGNING_SECRET");
 
   if (!secret) {
     throw new Error("AUTH_COOKIE_SIGNING_SECRET nao configurado para assinar cookies sensiveis.");

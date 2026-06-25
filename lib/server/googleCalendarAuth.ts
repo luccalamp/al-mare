@@ -7,7 +7,7 @@ const GOOGLE_TOKEN_COOKIE = "gcal_tokens";
 const GOOGLE_TOKEN_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 const GOOGLE_CALENDAR_CALLBACK_PATH = "/google-calendar-callback";
 
-type StoredTokens = {
+export type StoredGoogleCalendarTokens = {
   access_token: string;
   refresh_token?: string;
   expires_at: number;
@@ -40,21 +40,8 @@ export function resolveGoogleCalendarRedirectUri(request?: Request): string {
     return trimTrailingSlash(explicitRedirectUri);
   }
 
-  if (request) {
-    const origin = trimTrailingSlash(getTrustedAppOrigin(request));
-    return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
-  }
-
-  const configuredBaseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL?.trim() || process.env.BASE_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
-
-  if (configuredBaseUrl) {
-    return `${trimTrailingSlash(configuredBaseUrl)}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
-  }
-
-  throw new Error(
-    "Nao foi possivel determinar a URL de retorno do Google Calendar. Configure GOOGLE_CALENDAR_REDIRECT_URI ou acesse pela URL final do app."
-  );
+  const origin = trimTrailingSlash(getTrustedAppOrigin(request));
+  return `${origin}${GOOGLE_CALENDAR_CALLBACK_PATH}`;
 }
 
 export function getGoogleCalendarAuthUrl(state: string, redirectUri: string): string {
@@ -157,7 +144,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   };
 }
 
-export function readStoredTokens(): StoredTokens | null {
+export function readStoredTokens(): StoredGoogleCalendarTokens | null {
   const cookieStore = cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
@@ -188,8 +175,7 @@ export function readStoredTokens(): StoredTokens | null {
   }
 }
 
-export function storeTokens(tokens: StoredTokens): NextResponse {
-  const response = NextResponse.json({ success: true });
+export function applyStoredTokensCookie<T extends NextResponse>(response: T, tokens: StoredGoogleCalendarTokens): T {
   const encrypted = encryptTokens(tokens);
 
   response.cookies.set(GOOGLE_TOKEN_COOKIE, encrypted, {
@@ -203,8 +189,11 @@ export function storeTokens(tokens: StoredTokens): NextResponse {
   return response;
 }
 
-export function clearStoredTokens(): NextResponse {
-  const response = NextResponse.json({ success: true });
+export function storeTokens(tokens: StoredGoogleCalendarTokens, response = NextResponse.json({ success: true })): NextResponse {
+  return applyStoredTokensCookie(response, tokens);
+}
+
+export function clearStoredTokens(response = NextResponse.json({ success: true })): NextResponse {
   response.cookies.set(GOOGLE_TOKEN_COOKIE, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -228,7 +217,7 @@ function getEncryptionKey(): Buffer {
   return crypto.createHash("sha256").update(secret).digest().slice(0, 32);
 }
 
-function encryptTokens(tokens: StoredTokens): string {
+function encryptTokens(tokens: StoredGoogleCalendarTokens): string {
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
@@ -239,7 +228,7 @@ function encryptTokens(tokens: StoredTokens): string {
   return `${iv.toString("hex")}:${authTag}:${encrypted}`;
 }
 
-export function decryptTokens(encrypted: string): StoredTokens | null {
+export function decryptTokens(encrypted: string): StoredGoogleCalendarTokens | null {
   try {
     const [ivHex, authTagHex, encryptedHex] = encrypted.split(":");
     if (!ivHex || !authTagHex || !encryptedHex) {
@@ -253,7 +242,7 @@ export function decryptTokens(encrypted: string): StoredTokens | null {
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encryptedHex, "hex", "utf8");
     decrypted += decipher.final("utf8");
-    const parsed = JSON.parse(decrypted) as StoredTokens;
+    const parsed = JSON.parse(decrypted) as StoredGoogleCalendarTokens;
 
     return parsed;
   } catch (err) {
@@ -264,13 +253,13 @@ export function decryptTokens(encrypted: string): StoredTokens | null {
   }
 }
 
-export async function getValidAccessToken(): Promise<{ accessToken: string; email?: string } | null> {
-  const cookieStore = cookies();
-  const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
-
-  if (!raw) return null;
-
-  const tokens = decryptTokens(raw);
+export async function getValidAccessToken(): Promise<{
+  accessToken: string;
+  email?: string;
+  expiresAt: number;
+  refreshedTokens?: StoredGoogleCalendarTokens;
+} | null> {
+  const tokens = readStoredTokens();
   if (!tokens) {
     return null;
   }
@@ -282,14 +271,17 @@ export async function getValidAccessToken(): Promise<{ accessToken: string; emai
 
     try {
       const refreshed = await refreshAccessToken(tokens.refresh_token);
-      const updated: StoredTokens = {
+      const updated: StoredGoogleCalendarTokens = {
         ...tokens,
         access_token: refreshed.access_token,
         expires_at: Date.now() + refreshed.expires_in * 1000,
       };
-      const response = storeTokens(updated);
-      response.headers.set("X-GCal-Token-Refreshed", "true");
-      return { accessToken: updated.access_token, email: tokens.email };
+      return {
+        accessToken: updated.access_token,
+        email: tokens.email,
+        expiresAt: updated.expires_at,
+        refreshedTokens: updated,
+      };
     } catch (err) {
       if (process.env.NODE_ENV !== "production") {
         console.error("[gcal-valid-token] Refresh failed:", err);
@@ -298,7 +290,7 @@ export async function getValidAccessToken(): Promise<{ accessToken: string; emai
     }
   }
 
-  return { accessToken: tokens.access_token, email: tokens.email };
+  return { accessToken: tokens.access_token, email: tokens.email, expiresAt: tokens.expires_at };
 }
 
 export async function createCalendarEventServer(input: {
@@ -308,9 +300,12 @@ export async function createCalendarEventServer(input: {
   end: string;
   timeZone?: string;
 }): Promise<{
-  id: string;
-  htmlLink?: string;
-  organizer?: { email?: string };
+  event: {
+    id: string;
+    htmlLink?: string;
+    organizer?: { email?: string };
+  };
+  refreshedTokens?: StoredGoogleCalendarTokens;
 }> {
   const auth = await getValidAccessToken();
   if (!auth) {
@@ -340,5 +335,8 @@ export async function createCalendarEventServer(input: {
   }
 
   const result = await response.json();
-  return result;
+  return {
+    event: result,
+    refreshedTokens: auth.refreshedTokens,
+  };
 }
