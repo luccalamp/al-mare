@@ -95,26 +95,3 @@ export function getCronSecret() {
   return process.env.CRON_SECRET?.trim() || null;
 }
 
-export function getOptionalS3Config() {
-  const region = process.env.BACKUP_S3_REGION?.trim();
-  const bucket = process.env.BACKUP_S3_BUCKET?.trim();
-  const accessKeyId = process.env.BACKUP_S3_ACCESS_KEY_ID?.trim();
-  const secretAccessKey = process.env.BACKUP_S3_SECRET_ACCESS_KEY?.trim();
-  const endpoint = process.env.BACKUP_S3_ENDPOINT?.trim();
-  const prefix = process.env.BACKUP_S3_PREFIX?.trim() || "salon-clinical";
-  const forcePathStyle = process.env.BACKUP_S3_FORCE_PATH_STYLE === "true";
-
-  if (!region || !bucket || !accessKeyId || !secretAccessKey) {
-    return null;
-  }
-
-  return {
-    region,
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    endpoint: endpoint || undefined,
-    prefix,
-    forcePathStyle,
-  };
-}

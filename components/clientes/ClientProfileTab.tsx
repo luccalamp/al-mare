@@ -170,54 +170,28 @@ export default function ClientProfileTab({
 
   const uploadGridSlotImage = async (file: File, _caption: string, category: string) => {
     const preparedFile = await normalizeImageFileForUpload(file);
+    const formData = new FormData();
+    formData.set("clientId", client.id);
+    formData.set("type", category);
+    formData.set("intent", "gallery");
+    formData.set("file", preparedFile);
 
-    const presignedRes = await fetch("/api/upload/presigned", {
+    const uploadRes = await fetch("/api/gallery/upload", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clienteId: client.id,
-        originalName: preparedFile.name,
-        mimeType: preparedFile.type,
-        category,
-        photoCategory: category,
-      }),
+      body: formData,
     });
 
-    if (!presignedRes.ok) {
-      const err = await presignedRes.json().catch(() => null);
-      throw new Error(err?.error || "Nao foi possivel salvar a foto da tricoscopia.");
-    }
-
-    const { presignedUrl, objectKey, proxyUrl } = await presignedRes.json();
-
-    const uploadRes = await fetch(presignedUrl, {
-      method: "PUT",
-      body: preparedFile,
-      headers: { "Content-Type": preparedFile.type },
-    });
-
+    const result = await uploadRes.json().catch(() => null);
     if (!uploadRes.ok) {
-      throw new Error("Nao foi possivel salvar a foto da tricoscopia.");
+      throw new Error(result?.error || "Nao foi possivel salvar a foto da tricoscopia.");
     }
 
-    const confirmRes = await fetch("/api/upload/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clienteId: client.id,
-        objectKey,
-        proxyUrl,
-        category,
-        photoCategory: category,
-      }),
-    });
-
-    if (!confirmRes.ok) {
-      const err = await confirmRes.json().catch(() => null);
-      throw new Error(err?.error || "Nao foi possivel salvar a foto da tricoscopia.");
+    const storagePath = result?.record?.storage_path || result?.asset?.storagePath;
+    if (!storagePath || typeof storagePath !== "string") {
+      throw new Error("Foto enviada, mas nao foi possivel preparar a visualizacao.");
     }
 
-    return proxyUrl;
+    return `/api/media/${storagePath.split("/").map(encodeURIComponent).join("/")}`;
   };
 
   const persistGridSlot = async (

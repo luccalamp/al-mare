@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { createSupabaseAdminClient, getOptionalS3Config } from "@/lib/server/supabaseAdmin";
+import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 
 const BACKUP_BUCKET = "ops-backups";
 
@@ -18,26 +17,6 @@ const BACKUP_TABLES: Array<{ name: string; orderColumn: string }> = [
   { name: "clinic_preferences", orderColumn: "created_at" },
   { name: "services", orderColumn: "created_at" },
 ];
-
-function buildS3Client() {
-  const s3Config = getOptionalS3Config();
-  if (!s3Config) {
-    return null;
-  }
-
-  return {
-    config: s3Config,
-    client: new S3Client({
-      region: s3Config.region,
-      endpoint: s3Config.endpoint,
-      forcePathStyle: s3Config.forcePathStyle,
-      credentials: {
-        accessKeyId: s3Config.accessKeyId,
-        secretAccessKey: s3Config.secretAccessKey,
-      },
-    }),
-  };
-}
 
 async function fetchTableRows(tableName: string, orderColumn: string) {
   const supabase = createSupabaseAdminClient();
@@ -215,31 +194,12 @@ export async function runBackupExport(triggerSource: string, metadata: Record<st
       throw uploadError;
     }
 
-    let s3Bucket: string | null = null;
-    let s3Key: string | null = null;
-    let destination = "supabase-storage";
-    const s3 = buildS3Client();
-    if (s3) {
-      s3Bucket = s3.config.bucket;
-      s3Key = `${s3.config.prefix}/${storagePath}`;
-      await s3.client.send(
-        new PutObjectCommand({
-          Bucket: s3Bucket,
-          Key: s3Key,
-          Body: buffer,
-          ContentType: "application/json; charset=utf-8",
-          ChecksumSHA256: checksum,
-        })
-      );
-      destination = "supabase-storage+s3";
-    }
-
     await finalizeBackupRun(runId, {
-      destination,
+      destination: "supabase-storage",
       storageBucket: BACKUP_BUCKET,
       storagePath,
-      s3Bucket,
-      s3Key,
+      s3Bucket: null,
+      s3Key: null,
       checksum,
       payloadBytes: buffer.byteLength,
       tableCounts,
@@ -249,11 +209,11 @@ export async function runBackupExport(triggerSource: string, metadata: Record<st
 
     return {
       id: runId,
-      destination,
+      destination: "supabase-storage",
       storageBucket: BACKUP_BUCKET,
       storagePath,
-      s3Bucket,
-      s3Key,
+      s3Bucket: null,
+      s3Key: null,
       checksum,
       payloadBytes: buffer.byteLength,
       tableCounts,

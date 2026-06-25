@@ -1,10 +1,8 @@
 import type { RecoverableTableName, RestoreOperationResult, RowChangeAuditEntry } from "@/types";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { isManagedPhotoBucket } from "@/lib/server/photoStorage";
-import { getS3StorageBucketLabel, moveWithinS3 } from "@/lib/server/s3";
 
 const QUARANTINE_BUCKET = "recovery-quarantine";
-const MANAGED_PHOTO_ARCHIVE_PREFIX = "almare/arquivados";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 type StorageMoveResult = {
@@ -54,31 +52,6 @@ function buildQuarantinePath(kind: string, recordId: string, sourcePath?: string
   return `${kind}/${recordId}/${Date.now()}-${fileName}`;
 }
 
-function buildManagedArchivePath(kind: string, recordId: string, sourcePath?: string | null) {
-  return `${MANAGED_PHOTO_ARCHIVE_PREFIX}/${buildQuarantinePath(kind, recordId, sourcePath)}`;
-}
-
-async function archiveManagedPhotoObject(kind: string, recordId: string, sourcePath: string) {
-  const targetPath = buildManagedArchivePath(kind, recordId, sourcePath);
-  const moveResult = await moveWithinS3(sourcePath, targetPath);
-
-  return {
-    archivedStorage: moveResult.moved,
-    targetBucket: moveResult.moved ? getS3StorageBucketLabel() : undefined,
-    targetPath: moveResult.moved ? targetPath : undefined,
-  };
-}
-
-async function restoreManagedPhotoObject(quarantinedPath: string, storagePath: string): Promise<StorageMoveResult> {
-  const moveResult = await moveWithinS3(quarantinedPath, storagePath);
-
-  return {
-    restoredStorage: moveResult.moved,
-    targetBucket: getS3StorageBucketLabel(),
-    targetPath: storagePath,
-  };
-}
-
 async function removeIfExists(supabase: SupabaseAdminClient, bucket: string, path: string) {
   const { error } = await supabase.storage.from(bucket).remove([path]);
   if (error && !/not found|does not exist/i.test(error.message || "")) {
@@ -117,6 +90,23 @@ async function moveObject(
     restoredStorage: true,
     targetBucket,
     targetPath,
+  };
+}
+
+async function archiveManagedPhotoObject(
+  supabase: SupabaseAdminClient,
+  sourceBucket: string,
+  kind: string,
+  recordId: string,
+  sourcePath: string
+) {
+  const targetPath = buildQuarantinePath(kind, recordId, sourcePath);
+  const moveResult = await moveObject(supabase, sourceBucket, sourcePath, QUARANTINE_BUCKET, targetPath);
+
+  return {
+    archivedStorage: moveResult.restoredStorage,
+    targetBucket: moveResult.targetBucket,
+    targetPath: moveResult.targetPath,
   };
 }
 
@@ -316,7 +306,7 @@ async function restoreClientStorage(
       return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
     }
 
-    return restoreManagedPhotoObject(quarantinedPath, storagePath);
+    return moveObject(supabase, quarantinedBucket, quarantinedPath, storageBucket, storagePath);
   }
 
   if (!storagePath || !quarantinedPath) {
@@ -344,7 +334,7 @@ async function restorePhotoStorage(
       return { restoredStorage: false, targetBucket: storageBucket, targetPath: storagePath };
     }
 
-    return restoreManagedPhotoObject(quarantinedPath, storagePath);
+    return moveObject(supabase, quarantinedBucket, quarantinedPath, storageBucket, storagePath);
   }
 
   if (!storagePath || !quarantinedPath) {
@@ -760,7 +750,7 @@ async function archiveClientPhotoRow(
   const clientId = asString(photoRow.cliente_id);
   if (isManagedPhotoBucket(storageBucket)) {
     const archivedManagedPhoto = storagePath
-      ? await archiveManagedPhotoObject("client-photos", photoId, storagePath)
+      ? await archiveManagedPhotoObject(supabase, storageBucket, "client-photos", photoId, storagePath)
       : { archivedStorage: false, targetBucket: undefined, targetPath: undefined };
 
     const { error: quarantineUpdateError } = await supabase
@@ -833,6 +823,11 @@ async function archiveClientPhotoRow(
 
 export async function archivePhoto(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
+  const allowed = await isRecoverableRecordOwnedByUser("client_photos", recordId, actor);
+  if (!allowed) {
+    throw new Error("Seu acesso nao permite arquivar esta foto.");
+  }
+
   const { data, error } = await supabase.from("client_photos").select("*").eq("id", recordId).maybeSingle();
   if (error) {
     throw error;
@@ -851,6 +846,11 @@ export async function archivePhoto(recordId: string, actor: string, reason: stri
 
 export async function archiveDocument(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
+  const allowed = await isRecoverableRecordOwnedByUser("company_documents", recordId, actor);
+  if (!allowed) {
+    throw new Error("Seu acesso nao permite arquivar este documento.");
+  }
+
   const { data, error } = await supabase.from("company_documents").select("*").eq("id", recordId).maybeSingle();
   if (error) {
     throw error;
@@ -909,6 +909,11 @@ export async function archiveDocument(recordId: string, actor: string, reason: s
 
 export async function archiveClient(recordId: string, actor: string, reason: string) {
   const supabase = createSupabaseAdminClient();
+  const allowed = await isRecoverableRecordOwnedByUser("clientes", recordId, actor);
+  if (!allowed) {
+    throw new Error("Seu acesso nao permite arquivar esta paciente.");
+  }
+
   const clientResult = await supabase.from("clientes").select("*").eq("id", recordId).maybeSingle();
   if (clientResult.error) {
     throw clientResult.error;
@@ -946,7 +951,13 @@ export async function archiveClient(recordId: string, actor: string, reason: str
   const avatarStoragePath = asString(clientRow.profile_photo_storage_path);
   if (avatarStoragePath) {
     if (isManagedPhotoBucket(avatarStorageBucket)) {
-      const archivedAvatar = await archiveManagedPhotoObject("client-avatar", recordId, avatarStoragePath);
+      const archivedAvatar = await archiveManagedPhotoObject(
+        supabase,
+        avatarStorageBucket,
+        "client-avatar",
+        recordId,
+        avatarStoragePath
+      );
 
       const { error: avatarArchiveError } = await supabase
         .from("clientes")

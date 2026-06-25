@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colorimetria, FichaAnamneseCapilarDados, GalleryPhoto, ManutencaoHomecare } from "@/types";
@@ -33,6 +33,8 @@ type ClientsSnapshot = {
 type UploadedImageAsset = {
   url: string;
   publicId: string;
+  storageBucket: string;
+  storagePath: string;
   photo?: GalleryPhoto;
 };
 
@@ -129,12 +131,23 @@ function pickLatestActiveRow<T extends { deleted_at?: string | null; updated_at?
   return value;
 }
 
+function mapDbGalleryPhoto(row: any): GalleryPhoto {
+  return {
+    id: row.id,
+    date: row.created_at,
+    url: row.url,
+    type: resolvePhotoCategory(row.categoria, row.type, row.url, row.caption),
+    caption: sanitizePhotoCaption(row.caption),
+    technicalNote: row.anotacao_tecnica || undefined,
+  };
+}
+
 function buildClientDbError(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "message" in error) {
     const message = String((error as { message?: unknown }).message ?? "");
 
     if (/organization_context_required|not_authorized_for_organization|row-level security/i.test(message)) {
-      return "Sua sessão atual não permite concluir esta operação.";
+      return "Sua sessÃ£o atual nÃ£o permite concluir esta operaÃ§Ã£o.";
     }
 
     if (/null value in column .*nome|null value in column .*whatsapp|violates not-null constraint/i.test(message)) {
@@ -142,7 +155,7 @@ function buildClientDbError(error: unknown, fallback: string) {
     }
 
     if (/duplicate key value|already exists/i.test(message)) {
-      return "Já existe um registro com esses dados.";
+      return "JÃ¡ existe um registro com esses dados.";
     }
   }
 
@@ -378,14 +391,7 @@ const mapDbClients = (dbClients: any[]): Client[] =>
         pago: m.pago ?? undefined,
         confirmadoEm: m.confirmado_em ?? undefined,
       })),
-      gallery: galleryRows.map((p: any) => ({
-        id: p.id,
-        date: p.created_at,
-        url: p.url,
-        type: resolvePhotoCategory(p.categoria, p.type, p.url, p.caption),
-        caption: sanitizePhotoCaption(p.caption),
-        technicalNote: p.anotacao_tecnica || undefined,
-      })),
+      gallery: galleryRows.map(mapDbGalleryPhoto),
       appointments: sortAppointments(appointmentsRows.map((appointment: any) => mapDbAppointment(appointment))),
       preConsultation: {
         token: row.token_pre_consulta || undefined,
@@ -495,26 +501,6 @@ async function runClientRecordMutation(
   return result ?? {};
 }
 
-async function removeUploadedClientAsset(publicId: string) {
-  const response = await fetch("/api/upload", {
-    method: "DELETE",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      publicId,
-    }),
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    console.error(
-      "Falha ao limpar arquivo enviado após erro de persistência:",
-      payload?.error && typeof payload.error === "string" ? payload.error : response.statusText
-    );
-  }
-}
-
 export function useClients() {
   const [clients, setClients] = useState<Client[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -547,7 +533,7 @@ export function useClients() {
     return true;
   }, []);
 
-  // 1. Loader Principal - Consome os 4 módulos do Iluminare Studio
+  // 1. Loader Principal - Consome os 4 mÃ³dulos do Iluminare Studio
   const loadClients = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     try {
       if (!background) {
@@ -664,59 +650,38 @@ export function useClients() {
     const preparedFile = await normalizeImageFileForUpload(file);
     const shouldPersistClientPhoto = Boolean(options?.persistClientPhoto);
 
-    const presignedResponse = await fetch("/api/upload/presigned", {
+    const formData = new FormData();
+    formData.set("clientId", clientId);
+    formData.set("type", type || "referencia");
+    formData.set("intent", shouldPersistClientPhoto ? "gallery" : type === "avatar" ? "avatar" : "gallery");
+    formData.set("file", preparedFile);
+
+    const uploadResponse = await fetch("/api/gallery/upload", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clienteId: clientId,
-        originalName: preparedFile.name,
-        mimeType: preparedFile.type,
-        category: type,
-        photoCategory: type,
-      }),
+      body: formData,
     });
 
-    if (!presignedResponse.ok) {
-      const err = await presignedResponse.json().catch(() => null);
-      throw new Error(err?.error || "Falha ao gerar URL de upload.");
-    }
-
-    const { presignedUrl, objectKey, proxyUrl } = await presignedResponse.json();
-
-    const uploadResponse = await fetch(presignedUrl, {
-      method: "PUT",
-      body: preparedFile,
-      headers: { "Content-Type": preparedFile.type },
-    });
-
+    const result = await uploadResponse.json().catch(() => null);
     if (!uploadResponse.ok) {
-      throw new Error("Falha ao enviar imagem para o storage.");
+      throw new Error(result?.error || "Falha ao enviar imagem para a galeria.");
     }
 
-    const confirmResponse = await fetch("/api/upload/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clienteId: clientId,
-        objectKey,
-        proxyUrl,
-        category: type,
-        photoCategory: type,
-        persistClientPhoto: shouldPersistClientPhoto,
-      }),
-    });
+    const asset = result?.asset;
+    const record = result?.record;
+    const resolvedUrl = asset?.signedUrl || record?.url;
+    const resolvedPath = asset?.storagePath || record?.storage_path;
+    const resolvedBucket = asset?.storageBucket || record?.storage_bucket || "anamnese-fotos";
 
-    if (!confirmResponse.ok) {
-      const err = await confirmResponse.json().catch(() => null);
-      throw new Error(err?.error || "Falha ao confirmar upload.");
+    if (!resolvedUrl || !resolvedPath) {
+      throw new Error("Upload concluido, mas a foto nao retornou uma URL valida.");
     }
-
-    const result = await confirmResponse.json();
 
     return {
-      url: result.url || proxyUrl,
-      publicId: result.publicId || objectKey,
-      photo: result.record as GalleryPhoto | undefined,
+      url: resolvedUrl,
+      publicId: resolvedPath,
+      storageBucket: resolvedBucket,
+      storagePath: resolvedPath,
+      photo: record ? mapDbGalleryPhoto(record) : undefined,
     };
   };
 
@@ -751,7 +716,8 @@ export function useClients() {
     const avatarFile = photoFiles?.find((item) => item.type === "avatar");
     const galleryFiles = (photoFiles || []).filter((item) => item.type !== "avatar");
     let nextProfile = sanitized.profile;
-    let avatarPublicId: string | null = null;
+    let avatarStorageBucket: string | null = null;
+    let avatarStoragePath: string | null = null;
     const createdGalleryPhotos: GalleryPhoto[] = [];
 
     if (avatarFile) {
@@ -759,7 +725,8 @@ export function useClients() {
       if (!avatarUpload) {
         throw new Error(`Falha ao enviar a foto ${avatarFile.file.name}.`);
       }
-      avatarPublicId = avatarUpload.publicId;
+      avatarStorageBucket = avatarUpload.storageBucket;
+      avatarStoragePath = avatarUpload.storagePath;
       nextProfile = {
         ...nextProfile,
         photoUrl: avatarUpload.url,
@@ -781,20 +748,16 @@ export function useClients() {
             ...serializeProfilePayload(nextProfile),
             signatures: sanitized.signatures || [],
           },
-          ...(avatarPublicId
-            ? {
-                profilePhotoStorageBucket: "s3",
-                profilePhotoStoragePath: avatarPublicId,
+            ...(avatarStorageBucket && avatarStoragePath
+              ? {
+                profilePhotoStorageBucket: avatarStorageBucket,
+                profilePhotoStoragePath: avatarStoragePath,
               }
             : {}),
         },
         "Nao foi possivel salvar essa atualizacao no banco."
       );
     } catch (error) {
-      if (avatarPublicId) {
-        await removeUploadedClientAsset(avatarPublicId);
-      }
-
       throw error;
     }
 
@@ -875,8 +838,8 @@ export function useClients() {
       throw new Error("A foto selecionada nao foi encontrada.");
     }
 
-    const response = await fetch("/api/admin/archive/photo", {
-      method: "POST",
+    const response = await fetch("/api/gallery/photo", {
+      method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         photoId,
@@ -927,7 +890,7 @@ export function useClients() {
         historiaQuimicaPrevia: diagnostico.historiaQuimicaPrevia || null,
         resultadoTesteMecha: diagnostico.resultadoTesteMecha,
       },
-      "Falha ao salvar diagnóstico."
+      "Falha ao salvar diagnÃ³stico."
     );
 
     const data = response.record as {
@@ -941,7 +904,7 @@ export function useClients() {
     } | undefined;
 
     if (!data) {
-      throw new Error("Falha ao salvar diagnóstico.");
+      throw new Error("Falha ao salvar diagnÃ³stico.");
     }
 
     const novoDiagnostico: DiagnosticoCapilar = {
@@ -1162,7 +1125,7 @@ export function useClients() {
         clientId,
         dados: sanitized,
       },
-      "Falha ao salvar a ficha clínica."
+      "Falha ao salvar a ficha clÃ­nica."
     );
 
     const data = response.record as { dados?: FichaAnamneseCapilarDados } | undefined;
@@ -1284,7 +1247,7 @@ export function useClients() {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      const message = body && typeof body === "object" && "error" in body ? String((body as Record<string, unknown>)["error"]) : "Não foi possível alterar o status.";
+      const message = body && typeof body === "object" && "error" in body ? String((body as Record<string, unknown>)["error"]) : "NÃ£o foi possÃ­vel alterar o status.";
       throw new Error(message);
     }
 

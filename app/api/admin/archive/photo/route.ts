@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { archivePhoto } from "@/lib/server/recovery";
+import { normalizeStoragePathFromRoute } from "@/lib/server/mediaProxy";
+import { findPhotoRecordByStoragePath } from "@/lib/server/photoStorageAccess";
 import { requireAuthorizedStaff, buildJsonError, requirePhotoAccess } from "@/lib/server/tenantAccess";
 import { safeErrorMessage } from "@/lib/server/safeError";
 
@@ -26,6 +28,25 @@ export async function POST(request: Request) {
   }
 
   let photoId = parsedBody.data.photoId;
+
+  if (!photoId && parsedBody.data.photoUrl) {
+    const mediaPrefix = "/api/media/";
+    const photoUrl = parsedBody.data.photoUrl.trim();
+    const mediaPathIndex = photoUrl.indexOf(mediaPrefix);
+
+    if (mediaPathIndex >= 0) {
+      const storagePath = normalizeStoragePathFromRoute(
+        photoUrl.slice(mediaPathIndex + mediaPrefix.length).split("/")
+      );
+      const { data: pathMatch, error: pathMatchError } = await findPhotoRecordByStoragePath(storagePath);
+
+      if (pathMatchError) {
+        return buildJsonError("Nao foi possivel encontrar a foto.", 500);
+      }
+
+      photoId = pathMatch?.id;
+    }
+  }
 
   if (!photoId && parsedBody.data.photoUrl) {
     const { data, error } = await authContext.admin

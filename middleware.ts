@@ -22,10 +22,6 @@ function buildCsp(nonce: string) {
   const supabaseStorageOrigin = supabaseHostname.endsWith(".supabase.co") && supabaseProjectRef
     ? `https://${supabaseProjectRef}.storage.supabase.co`
     : null;
-  const s3Bucket = process.env.WS_BUCKET_NAME || process.env.AWS_S3_BUCKET || "";
-  const s3Region = process.env.AWS_S3_REGION || process.env.AWS_REGION || "";
-  const s3Endpoint = s3Bucket && s3Region ? `https://${s3Bucket}.s3.${s3Region}.amazonaws.com` : null;
-
   const imgSrc = ["'self'", "data:", "blob:"];
   const connectSrc = ["'self'"];
   const scriptSrc = [
@@ -58,10 +54,6 @@ function buildCsp(nonce: string) {
 
   if (supabaseStorageOrigin) {
     connectSrc.push(supabaseStorageOrigin);
-  }
-
-  if (s3Endpoint) {
-    connectSrc.push(s3Endpoint);
   }
 
   return [

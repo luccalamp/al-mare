@@ -1,27 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompanyDocument, CompanyDocumentFolder } from "@/types";
 
 import { supabase } from "@/lib/supabaseClient";
 
-const COMPANY_DOCUMENT_BUCKET = "company-documents";
 const COMPANY_DOCUMENTS_REALTIME_DEBOUNCE_MS = 300;
-
-function sanitizeSegment(value: string) {
-  return (
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "arquivo"
-  );
-}
-
-function stripExtension(fileName: string) {
-  const lastDot = fileName.lastIndexOf(".");
-  return lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
-}
 
 function normalizeNotes(value: string) {
   const trimmedValue = value.trim();
@@ -80,7 +64,7 @@ function buildErrorMessage(error: unknown, fallback: string) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string") {
       if (/organization_context_required|not_authorized_for_organization|row-level security/i.test(message)) {
-        return "Sua sessão atual não permite concluir esta operação.";
+        return "Sua sessÃ£o atual nÃ£o permite concluir esta operaÃ§Ã£o.";
       }
       if (/duplicate key value|already exists|idx_company_document_folders_nome_unique/i.test(message)) {
         return "Ja existe uma pasta com esse nome.";
@@ -122,13 +106,6 @@ async function runCompanyDocumentMutation(
   }
 
   return result ?? {};
-}
-
-async function removeUploadedCompanyDocument(storagePath: string) {
-  const { error } = await supabase.storage.from(COMPANY_DOCUMENT_BUCKET).remove([storagePath]);
-  if (error) {
-    console.error("Falha ao limpar documento enviado após erro de persistência:", error);
-  }
 }
 
 export function useCompanyDocuments() {
@@ -302,47 +279,25 @@ export function useCompanyDocuments() {
       setSyncing(true);
       setError(null);
 
-      const createdDocuments: CompanyDocument[] = [];
-
+      const formData = new FormData();
+      formData.set("folderId", folderId);
       for (const file of files) {
-        const extension = file.name.split(".").pop()?.toLowerCase();
-        const baseName = sanitizeSegment(stripExtension(file.name));
-        const storagePath = `${folderId}/${Date.now()}-${crypto.randomUUID()}${extension ? `-${baseName}.${extension}` : `-${baseName}`}`;
-
-        const { error: uploadError } = await supabase.storage.from(COMPANY_DOCUMENT_BUCKET).upload(storagePath, file);
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        let data: unknown = null;
-
-        try {
-          const response = await runCompanyDocumentMutation(
-            "POST",
-            {
-              action: "register-document",
-              folderId,
-              name: stripExtension(file.name),
-              fileName: file.name,
-              mimeType: file.type || null,
-              sizeBytes: file.size,
-              storageBucket: COMPANY_DOCUMENT_BUCKET,
-              storagePath,
-            },
-            `Nao foi possivel registrar ${file.name} agora.`
-          );
-
-          data = response.record;
-          if (!data) {
-            throw new Error(`Nao foi possivel registrar ${file.name} agora.`);
-          }
-        } catch (insertError) {
-          await removeUploadedCompanyDocument(storagePath);
-          throw insertError;
-        }
-
-        createdDocuments.push(mapDocument(data));
+        formData.append("files", file);
       }
+
+      const response = await fetch("/api/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = (await response.json().catch(() => null)) as { documents?: unknown[]; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Nao foi possivel enviar os documentos agora.");
+      }
+
+      const createdDocuments = Array.isArray(payload?.documents)
+        ? payload.documents.map(mapDocument)
+        : [];
 
       setDocuments((current) => sortDocuments([...createdDocuments, ...current]));
       return createdDocuments;
@@ -364,8 +319,8 @@ export function useCompanyDocuments() {
         setSyncing(true);
         setError(null);
 
-        const response = await fetch("/api/admin/archive/document", {
-          method: "POST",
+        const response = await fetch("/api/documents", {
+          method: "DELETE",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             documentId,

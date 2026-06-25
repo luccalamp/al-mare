@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readServerEnv } from "@/lib/server/supabaseAdmin";
 
 const DEFAULT_SIGNED_URL_EXPIRES_IN = 60 * 60;
-const STORAGE_FALLBACK_LABEL = "Imagem temporariamente indisponivel";
 
 function encodeStoragePath(storagePath: string) {
   return storagePath
@@ -23,9 +22,8 @@ export function buildStorageObjectPublicUrl(storageBucket?: string | null, stora
   return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/${encodeURIComponent(normalizedBucket)}/${encodeStoragePath(normalizedPath)}`;
 }
 
-export function buildStorageUnavailablePlaceholder(label = STORAGE_FALLBACK_LABEL) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200"><rect width="1200" height="1200" rx="48" fill="#f5ede1"/><rect x="120" y="120" width="960" height="960" rx="36" fill="#eadcc8"/><path d="M320 820l180-220 120 140 110-100 150 180H320z" fill="#c49a6c"/><circle cx="470" cy="430" r="70" fill="#b07a45"/><text x="600" y="930" text-anchor="middle" fill="#7a4921" font-family="Arial, sans-serif" font-size="44">${label}</text></svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+export function buildStorageUnavailablePlaceholder() {
+  return "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420' viewBox='0 0 640 420'%3E%3Crect width='640' height='420' fill='%23f4efe7'/%3E%3Ctext x='50%25' y='48%25' dominant-baseline='middle' text-anchor='middle' fill='%23706a5f' font-family='Arial,sans-serif' font-size='22'%3EImagem indisponivel%3C/text%3E%3Ctext x='50%25' y='57%25' dominant-baseline='middle' text-anchor='middle' fill='%238c8578' font-family='Arial,sans-serif' font-size='15'%3ETente recarregar ou reenviar a foto.%3C/text%3E%3C/svg%3E";
 }
 
 export async function createSignedStorageUrl(
@@ -51,7 +49,11 @@ export async function createSignedStorageUrl(
 
   if (error || !data?.signedUrl) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("Failed to create signed storage URL.");
+      console.error("Failed to create signed storage URL:", {
+        storageBucket,
+        storagePath,
+        error,
+      });
     }
 
     return null;
