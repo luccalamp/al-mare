@@ -1,5 +1,6 @@
 import {
   buildAppUrl,
+  getExplicitConfiguredTrustedOrigin,
   getConfiguredTrustedOrigin,
   parseTrustedOrigin,
   trimTrailingSlash,
@@ -26,13 +27,30 @@ function getRequestOrigin(request?: Request) {
   return parseTrustedOrigin(new URL(request.url).origin);
 }
 
+function isVercelDeploymentOrigin(origin: string) {
+  try {
+    return new URL(origin).hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
 export function getTrustedAppOrigin(request?: Request) {
+  const explicitConfiguredOrigin = getExplicitConfiguredTrustedOrigin(process.env);
+  if (explicitConfiguredOrigin) {
+    return explicitConfiguredOrigin;
+  }
+
+  const requestOrigin = getRequestOrigin(request);
+  if (requestOrigin && !isVercelDeploymentOrigin(requestOrigin)) {
+    return trimTrailingSlash(requestOrigin);
+  }
+
   const configuredOrigin = getConfiguredTrustedOrigin(process.env);
   if (configuredOrigin) {
     return configuredOrigin;
   }
 
-  const requestOrigin = getRequestOrigin(request);
   if (requestOrigin) {
     return trimTrailingSlash(requestOrigin);
   }

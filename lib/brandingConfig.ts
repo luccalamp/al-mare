@@ -217,6 +217,10 @@ export async function fetchBrandingConfigFromSupabase(_scopeKey?: string | null)
   );
 
   if (!res.ok) {
+    if (res.status === 401) {
+      return null;
+    }
+
     const payload = await res.json().catch(() => null);
     const message =
       payload && typeof payload === "object" && "error" in payload

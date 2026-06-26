@@ -269,14 +269,16 @@ function parseS3Url(value: string) {
 function resolveSource(row: ClientPhotoRow): MigrationCandidate["source"] | null {
   const bucket = row.legacy_s3_bucket || row.s3_bucket;
   const key = row.legacy_s3_key || row.s3_key;
+  const fallbackAwsUrl = isAwsUrl(row.url) ? row.url || undefined : undefined;
+
   if (bucket && key) {
-    return { kind: "s3", bucket, key };
+    return { kind: "s3", bucket, key, url: fallbackAwsUrl };
   }
 
   if (isAwsUrl(row.url)) {
     const parsedS3Url = row.url ? parseS3Url(row.url) : null;
     if (parsedS3Url?.bucket && parsedS3Url.key) {
-      return { kind: "s3", bucket: parsedS3Url.bucket, key: parsedS3Url.key };
+      return { kind: "s3", bucket: parsedS3Url.bucket, key: parsedS3Url.key, url: row.url || undefined };
     }
 
     return { kind: "url", url: row.url || "" };
@@ -298,10 +300,10 @@ function buildTargetPaths(row: ClientPhotoRow, image: OptimizedImage) {
 }
 
 function createS3Client() {
-  const region = readEnv("MIGRATION_AWS_REGION", "AWS_REGION", "BACKUP_S3_REGION");
+  const region = readEnv("MIGRATION_AWS_REGION", "AWS_S3_REGION", "AWS_REGION", "BACKUP_S3_REGION");
   const accessKeyId = readEnv("MIGRATION_AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", "BACKUP_S3_ACCESS_KEY_ID");
   const secretAccessKey = readEnv("MIGRATION_AWS_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "BACKUP_S3_SECRET_ACCESS_KEY");
-  const endpoint = readEnv("MIGRATION_AWS_ENDPOINT", "AWS_ENDPOINT", "BACKUP_S3_ENDPOINT");
+  const endpoint = readEnv("MIGRATION_AWS_ENDPOINT", "AWS_S3_ENDPOINT", "AWS_ENDPOINT", "BACKUP_S3_ENDPOINT");
   const forcePathStyle = readEnv("MIGRATION_AWS_FORCE_PATH_STYLE", "BACKUP_S3_FORCE_PATH_STYLE") === "true";
 
   if (!region || !accessKeyId || !secretAccessKey) {
@@ -316,6 +318,40 @@ function createS3Client() {
   });
 }
 
+function hasS3Credentials() {
+  return Boolean(
+    readEnv("MIGRATION_AWS_REGION", "AWS_S3_REGION", "AWS_REGION", "BACKUP_S3_REGION")
+    && readEnv("MIGRATION_AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", "BACKUP_S3_ACCESS_KEY_ID")
+    && readEnv("MIGRATION_AWS_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "BACKUP_S3_SECRET_ACCESS_KEY")
+  );
+}
+
+function readConfiguredS3Bucket() {
+  return readEnv("MIGRATION_AWS_BUCKET", "AWS_S3_BUCKET", "AWS_BUCKET_NAME", "WS_BUCKET_NAME", "BACKUP_S3_BUCKET");
+}
+
+function resolveS3ObjectSource(source: MigrationCandidate["source"]) {
+  const sourceBucket = source.bucket?.trim();
+  const key = source.key?.trim();
+
+  if (!sourceBucket || !key) {
+    throw new Error("Referencia S3 legada incompleta.");
+  }
+
+  if (sourceBucket.toLowerCase() !== "s3") {
+    return { bucket: sourceBucket, key };
+  }
+
+  const configuredBucket = readConfiguredS3Bucket();
+  if (!configuredBucket) {
+    throw new Error(
+      "Bucket AWS ausente para registros legados com storage_bucket='s3'. Configure MIGRATION_AWS_BUCKET, AWS_S3_BUCKET, AWS_BUCKET_NAME ou WS_BUCKET_NAME."
+    );
+  }
+
+  return { bucket: configuredBucket, key };
+}
+
 async function streamToBuffer(body: any) {
   const chunks: Buffer[] = [];
   for await (const chunk of body) {
@@ -324,23 +360,24 @@ async function streamToBuffer(body: any) {
   return Buffer.concat(chunks);
 }
 
-async function downloadSource(source: MigrationCandidate["source"]) {
-  if (source.kind === "url") {
-    const response = await fetch(source.url || "");
-    if (!response.ok) {
-      throw new Error(`Falha ao baixar URL AWS: HTTP ${response.status}`);
-    }
-    return {
-      buffer: Buffer.from(await response.arrayBuffer()),
-      mimeType: response.headers.get("content-type"),
-    };
+async function downloadSourceUrl(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Falha ao baixar URL AWS: HTTP ${response.status}`);
   }
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    mimeType: response.headers.get("content-type"),
+  };
+}
 
+async function downloadSourceS3(source: MigrationCandidate["source"]) {
   const s3 = createS3Client();
+  const resolvedSource = resolveS3ObjectSource(source);
   const response = await s3.send(
     new GetObjectCommand({
-      Bucket: source.bucket,
-      Key: source.key,
+      Bucket: resolvedSource.bucket,
+      Key: resolvedSource.key,
     })
   );
 
@@ -348,6 +385,30 @@ async function downloadSource(source: MigrationCandidate["source"]) {
     buffer: await streamToBuffer(response.Body),
     mimeType: response.ContentType,
   };
+}
+
+async function downloadSource(source: MigrationCandidate["source"]) {
+  if (source.kind === "url") {
+    return downloadSourceUrl(source.url || "");
+  }
+
+  if (!hasS3Credentials()) {
+    if (source.url) {
+      return downloadSourceUrl(source.url);
+    }
+
+    throw new Error("Credenciais AWS ausentes para baixar s3_bucket/s3_key legado.");
+  }
+
+  try {
+    return await downloadSourceS3(source);
+  } catch (error) {
+    if (source.url) {
+      return downloadSourceUrl(source.url);
+    }
+
+    throw error;
+  }
 }
 
 function sanitizeError(error: unknown) {

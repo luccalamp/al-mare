@@ -37,6 +37,19 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
 
     let active = true;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const stopRealtimeSync = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+
+      if (channel) {
+        void supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
 
     const syncRemoteConfig = async ({ background = false }: { background?: boolean } = {}) => {
       if (!background) {
@@ -73,58 +86,104 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
       }
     };
 
-    void syncRemoteConfig();
+    const startRealtimeSync = () => {
+      if (channel) {
+        return;
+      }
 
-    const channel = supabase
-      .channel(`branding-config-sync-${crypto.randomUUID()}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "clinic_preferences",
-        },
-        () => {
-          if (refreshTimer) {
-            clearTimeout(refreshTimer);
+      channel = supabase
+        .channel(`branding-config-sync-${crypto.randomUUID()}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "clinic_preferences",
+          },
+          () => {
+            if (refreshTimer) {
+              clearTimeout(refreshTimer);
+            }
+
+            refreshTimer = setTimeout(() => {
+              refreshTimer = null;
+              void syncRemoteConfig({ background: true });
+            }, 300);
           }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "clinic_preferences",
+          },
+          () => {
+            if (refreshTimer) {
+              clearTimeout(refreshTimer);
+            }
 
-          refreshTimer = setTimeout(() => {
-            refreshTimer = null;
-            void syncRemoteConfig({ background: true });
-          }, 300);
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "clinic_preferences",
-        },
-        () => {
-          if (refreshTimer) {
-            clearTimeout(refreshTimer);
+            refreshTimer = setTimeout(() => {
+              refreshTimer = null;
+              void syncRemoteConfig({ background: true });
+            }, 300);
           }
+        );
 
-          refreshTimer = setTimeout(() => {
-            refreshTimer = null;
-            void syncRemoteConfig({ background: true });
-          }, 300);
-        }
-      );
-
-    if (channel) {
       channel.subscribe();
-    }
+    };
+
+    const applyCachedConfig = () => {
+      setConfig(readBrandingConfigCache());
+      setLoading(false);
+    };
+
+    const enableRemoteConfig = () => {
+      startRealtimeSync();
+      void syncRemoteConfig();
+    };
+
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!active) {
+          return;
+        }
+
+        if (data.session) {
+          enableRemoteConfig();
+          return;
+        }
+
+        applyCachedConfig();
+      })
+      .catch(() => {
+        if (active) {
+          applyCachedConfig();
+        }
+      });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) {
+        return;
+      }
+
+      if (session) {
+        enableRemoteConfig();
+        return;
+      }
+
+      stopRealtimeSync();
+      applyCachedConfig();
+    });
 
     return () => {
       active = false;
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      if (channel) {
-        void supabase.removeChannel(channel);
+      stopRealtimeSync();
+      try {
+        authListener?.subscription?.unsubscribe?.();
+      } catch {
+        /* ignore */
       }
     };
   }, [canUseSupabase]);

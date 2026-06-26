@@ -52,6 +52,7 @@ npx tsx scripts/migrate-aws-photos-to-supabase.ts --execute
 Usar somente em ambiente server-side/local controlado:
 
 - `MIGRATION_AWS_REGION`
+- `MIGRATION_AWS_BUCKET`
 - `MIGRATION_AWS_ACCESS_KEY_ID`
 - `MIGRATION_AWS_SECRET_ACCESS_KEY`
 - `MIGRATION_AWS_ENDPOINT`
@@ -99,3 +100,10 @@ Remover `@aws-sdk/client-s3` e variaveis `MIGRATION_AWS_*` somente quando:
 - `npm run storage:migrate-aws-photos`: dry-run concluido com `totalCandidates = 0`.
 - `npm run lint`: sem warnings ou erros.
 - `npm run build`: build concluido com sucesso.
+
+## Resultado local em 2026-06-25
+
+- Dry-run autenticado no projeto `ccrorpxyvxzzsoafwbsj`: `totalCandidates = 2`.
+- Os 2 registros pendentes usam `storage_bucket = 's3'`, que e apenas o rotulo interno legado; o bucket AWS real precisa vir de `MIGRATION_AWS_BUCKET`, `AWS_S3_BUCKET`, `AWS_BUCKET_NAME` ou `WS_BUCKET_NAME`.
+- As URLs publicas provaveis retornaram 404 e os objetos nao existem em `anamnese-fotos`, entao a copia real depende das credenciais/bucket AWS legados.
+- A UI foi ajustada para usar `/api/media/...` estavel para fotos ja gerenciadas pelo Supabase, evitando signed URLs expiradas no estado do frontend.

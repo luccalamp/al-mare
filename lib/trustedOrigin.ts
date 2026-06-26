@@ -32,16 +32,25 @@ function parseCommaSeparatedOrigins(value?: string | null) {
 }
 
 export function getConfiguredTrustedOrigin(env: EnvLike = process.env) {
-  for (const key of TRUSTED_ORIGIN_ENV_KEYS) {
-    const origin = parseTrustedOrigin(env[key]);
-    if (origin) {
-      return origin;
-    }
+  const explicitOrigin = getExplicitConfiguredTrustedOrigin(env);
+  if (explicitOrigin) {
+    return explicitOrigin;
   }
 
   const vercelUrl = env.VERCEL_URL?.trim();
   if (vercelUrl) {
     return parseTrustedOrigin(`https://${vercelUrl}`);
+  }
+
+  return null;
+}
+
+export function getExplicitConfiguredTrustedOrigin(env: EnvLike = process.env) {
+  for (const key of TRUSTED_ORIGIN_ENV_KEYS) {
+    const origin = parseTrustedOrigin(env[key]);
+    if (origin) {
+      return origin;
+    }
   }
 
   return null;

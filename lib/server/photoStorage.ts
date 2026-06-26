@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { encodeStoragePathForRoute } from "@/lib/server/mediaProxy";
 import { STORAGE_BUCKETS } from "@/lib/server/storageUpload";
 
 const MANAGED_PHOTO_BUCKETS = new Set<string>([
@@ -18,8 +19,15 @@ export function isManagedPhotoBucket(bucket?: string | null) {
   return MANAGED_PHOTO_BUCKETS.has(normalizeBucket(bucket));
 }
 
-export function resolveManagedPhotoUrl(_bucket?: string | null, _storagePath?: string | null) {
-  return null;
+export function resolveManagedPhotoUrl(bucket?: string | null, storagePath?: string | null) {
+  const normalizedBucket = normalizeBucket(bucket);
+  const normalizedPath = normalizePath(storagePath);
+
+  if (!normalizedPath || !isManagedPhotoBucket(normalizedBucket)) {
+    return null;
+  }
+
+  return `/api/media/${encodeStoragePathForRoute(normalizedPath)}`;
 }
 
 export async function downloadManagedPhoto(bucket?: string | null, storagePath?: string | null) {

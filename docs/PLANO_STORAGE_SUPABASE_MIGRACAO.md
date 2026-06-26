@@ -39,7 +39,7 @@ O front ainda usa o client Supabase para autenticacao/realtime. Os acessos sensi
 ## Riscos de perda de fotos
 
 - Registros antigos podem ter apenas URL publica AWS sem `s3_bucket/s3_key`; o script tenta baixar por URL quando nao ha bucket/key.
-- Fotos privadas no S3 exigem credenciais `MIGRATION_AWS_*`; sem elas o dry-run funciona, mas a migracao real falha.
+- Fotos privadas no S3 exigem credenciais `MIGRATION_AWS_*` e bucket real (`MIGRATION_AWS_BUCKET`, `AWS_S3_BUCKET`, `AWS_BUCKET_NAME` ou `WS_BUCKET_NAME`); sem elas o dry-run funciona, mas a migracao real falha.
 - Se a migration do banco nao for aplicada antes do app novo, campos como `optimized_storage_path` e `thumbnail_storage_path` nao existirao.
 - Signed URLs expiram; a UI deve recarregar dados pelo servidor quando uma URL antiga falhar.
 
