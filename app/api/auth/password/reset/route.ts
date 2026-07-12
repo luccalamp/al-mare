@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { createSupabaseAdminClient, readServerEnv } from "@/lib/server/supabaseAdmin";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { buildTrustedAppUrl } from "@/lib/server/trustedOrigin";
+import { buildAuthConfirmationUrl } from "@/lib/server/authLinks";
 
 type SupabaseGenerateLinkError = {
   code?: string;
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
       },
     });
 
-    if (error || !data.properties?.action_link) {
+    if (error || !data.properties?.hashed_token) {
       const typedError = error as SupabaseGenerateLinkError | null;
 
       if (typedError?.status && typedError.status >= 500) {
@@ -93,11 +94,16 @@ export async function POST(request: Request) {
     }
 
     const resend = new Resend(resendApiKey);
+    const resetUrl = buildAuthConfirmationUrl(request, {
+      tokenHash: data.properties.hashed_token,
+      type: "recovery",
+      nextPath: "/login?mode=reset-password",
+    });
     const { error: sendError } = await resend.emails.send({
       from: "Al'mare Saude Capilar <contato@jakoliveira.com.br>",
       to: normalizedEmail,
       subject: "Recuperacao de senha - Al'mare",
-      html: buildRecoveryEmailHtml(data.properties.action_link),
+      html: buildRecoveryEmailHtml(resetUrl),
     });
 
     if (sendError) {

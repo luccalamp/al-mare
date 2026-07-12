@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { useParams } from "next/navigation";
+import { PORTAL_UPDATES_CHANNEL } from "@/lib/preConsultation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CAPILLARY_THERAPY_MANUAL_TOPICS,
@@ -64,6 +65,7 @@ type PreConsultaForm = {
 };
 
 const DAY_MS = 1000 * 60 * 60 * 24;
+const PORTAL_BACKGROUND_REFRESH_MS = 60_000;
 
 const RETURN_TONE_STYLES: Record<
   ReturnStatusTone,
@@ -213,7 +215,8 @@ const emptyForm: PreConsultaForm = {
   consentimentoImagem: false,
 };
 
-export default function PortalPage({ params }: { params: { token: string } }) {
+export default function PortalPage() {
+  const { token } = useParams<{ token: string }>();
   const [status, setStatus] = useState<PortalStatus>("loading");
   const [clientName, setClientName] = useState("");
   const [homecare, setHomecare] = useState<HomecareItem[]>([]);
@@ -233,7 +236,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       const postRes = await fetch("/api/portal/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: params.token }),
+        body: JSON.stringify({ token }),
         signal,
       });
 
@@ -275,7 +278,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       if (err instanceof Error && err.name === "AbortError") return;
       setStatus("error");
     }
-  }, [params.token]);
+  }, [token]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -284,16 +287,33 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   }, [loadPortal]);
 
   useEffect(() => {
-    if (!params.token) return;
-    const channel = supabase.channel(`portal:${params.token}`)
-      .on("broadcast", { event: "update" }, () => {
+    if (!token) return;
+
+    const refreshPortal = () => {
+      if (document.visibilityState === "visible") {
         void loadPortal();
-      })
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
+      }
     };
-  }, [params.token, loadPortal]);
+
+    const intervalId = window.setInterval(refreshPortal, PORTAL_BACKGROUND_REFRESH_MS);
+    const updatesChannel = "BroadcastChannel" in window
+      ? new BroadcastChannel(PORTAL_UPDATES_CHANNEL)
+      : null;
+    if (updatesChannel) {
+      updatesChannel.onmessage = (event: MessageEvent<{ token?: string }>) => {
+        if (event.data?.token === token) {
+          void loadPortal();
+        }
+      };
+    }
+    window.addEventListener("focus", refreshPortal);
+
+    return () => {
+      window.clearInterval(intervalId);
+      updatesChannel?.close();
+      window.removeEventListener("focus", refreshPortal);
+    };
+  }, [token, loadPortal]);
 
   const updateField = <K extends keyof PreConsultaForm>(field: K, value: PreConsultaForm[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -320,7 +340,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          token: params.token,
+          token,
           ...form,
           queixaPrincipal,
         }),

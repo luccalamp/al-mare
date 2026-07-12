@@ -4,6 +4,8 @@ import { Resend } from "resend";
 import { readServerEnv } from "@/lib/server/supabaseAdmin";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { createSignedJsonCookieValue } from "@/lib/server/signedCookie";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { TWO_FACTOR_VERIFIED_COOKIE } from "@/lib/twoFactorVerification";
 import crypto from "crypto";
 
 const TWO_FA_COOKIE_SCOPE = "auth:2fa:v1";
@@ -53,7 +55,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Nao foi possivel enviar o codigo de verificacao." }, { status: 500 });
     }
 
-    if (!isGoogleOAuth) {
+    if (isGoogleOAuth) {
+      const sessionClient = await createServerSupabaseClient();
+      const {
+        data: { user },
+        error: sessionError,
+      } = await sessionClient.auth.getUser();
+
+      if (
+        sessionError ||
+        !user?.email ||
+        user.email.toLowerCase().trim() !== normalizedEmail
+      ) {
+        return NextResponse.json({ error: "Sessao do Google invalida ou expirada." }, { status: 401 });
+      }
+    } else {
       const authClient = createClient(supabaseUrl, supabasePublishableKey, {
         auth: {
           autoRefreshToken: false,
@@ -79,12 +95,13 @@ export async function POST(request: Request) {
 
     const code = generateOTP();
     const codeHash = hashOTP(code);
-    const expiresAt = Date.now() + 60 * 60 * 1000;
+    const expiresAt = Date.now() + 10 * 60 * 1000;
 
     const payload = createSignedJsonCookieValue(TWO_FA_COOKIE_SCOPE, {
       email: normalizedEmail,
       hash: codeHash,
       exp: expiresAt,
+      provider: isGoogleOAuth ? "google" : "password",
     });
 
     const response = NextResponse.json({ sent: true });
@@ -97,7 +114,14 @@ export async function POST(request: Request) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60,
+      maxAge: 10 * 60,
+      path: "/",
+    });
+    response.cookies.set(TWO_FACTOR_VERIFIED_COOKIE, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 0,
       path: "/",
     });
 
@@ -120,7 +144,7 @@ export async function POST(request: Request) {
             <span style="font-size: 42px; letter-spacing: 0.2em; font-weight: 700; color: #7a4921;">${code}</span>
           </div>
           <p style="font-size: 12px; color: #9a6d3a; text-align: center;">
-            Este código expira em até 1 hora.
+            Este código expira em 10 minutos.
           </p>
           <p style="font-size: 11px; color: #b8a48a; text-align: center; margin-top: 24px;">
             Se você não solicitou este código, ignore este e-mail.

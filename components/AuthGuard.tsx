@@ -1,9 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import { isSupabasePublicConfigConfigured } from "@/lib/supabase/config";
-import type { User } from "@supabase/supabase-js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import BrandLogo from "./BrandLogo";
@@ -27,8 +25,19 @@ type PublicAuthError = {
 
 type LoginMode = "signin" | "forgot-password" | "setup-password" | "reset-password";
 
-const GOOGLE_LOGIN_INTENT_STORAGE_KEY = "auth:google-login-intent-at";
-const GOOGLE_LOGIN_INTENT_MAX_AGE_MS = 10 * 60 * 1000;
+type AuthUser = {
+  id: string;
+  email: string | null;
+};
+
+type AuthSessionPayload = {
+  user?: AuthUser | null;
+  twoFactorVerified?: boolean;
+  pendingTwoFactor?: {
+    email: string;
+    provider: "password" | "google";
+  } | null;
+};
 
 function resolveLoginMode(value: string | null): LoginMode {
   if (value === "forgot-password" || value === "setup-password" || value === "reset-password") {
@@ -46,28 +55,6 @@ function logAuthError(scope: string, error: unknown) {
   if (process.env.NODE_ENV !== "production") {
     console.error(`[auth] ${scope}`, error);
   }
-}
-
-function getPublicAuthMessage(error: PublicAuthError | null | undefined, provider: "email" | "google") {
-  const errorText = `${error?.message ?? ""} ${error?.code ?? ""} ${error?.name ?? ""}`.toLowerCase();
-
-  if (errorText.includes("provider is not enabled") || errorText.includes("unsupported provider")) {
-    return "O login com Google está temporariamente indisponível. Tente novamente mais tarde.";
-  }
-
-  if (errorText.includes("rate limit") || errorText.includes("too many requests")) {
-    return provider === "email"
-      ? "Muitas tentativas de envio. Aguarde um instante e tente novamente."
-      : "Muitas tentativas de login. Aguarde um instante e tente novamente.";
-  }
-
-  if (errorText.includes("redirect") || errorText.includes("site url")) {
-    return "A autenticação não pôde ser concluída por configuração de redirecionamento. Tente novamente em instantes.";
-  }
-
-  return provider === "email"
-    ? "Não foi possível enviar o código de acesso agora. Tente novamente em instantes."
-    : "Não foi possível iniciar o login com Google agora. Tente novamente mais tarde.";
 }
 
 function getPublicOtpMessage(error: PublicAuthError | null | undefined) {
@@ -100,45 +87,6 @@ function getPasswordUpdateMessage(error: PublicAuthError | null | undefined) {
   }
 
   return "Nao foi possivel salvar a nova senha agora. Tente novamente em instantes.";
-}
-
-function setGoogleLoginIntent() {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY, String(Date.now()));
-  } catch {
-    /* ignore */
-  }
-}
-
-function hasFreshGoogleLoginIntent() {
-  if (typeof window === "undefined") return false;
-
-  try {
-    const storedAt = window.sessionStorage.getItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
-    if (!storedAt) return false;
-
-    const startedAt = Number(storedAt);
-    if (!Number.isFinite(startedAt) || Date.now() - startedAt > GOOGLE_LOGIN_INTENT_MAX_AGE_MS) {
-      window.sessionStorage.removeItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function clearGoogleLoginIntent() {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.removeItem(GOOGLE_LOGIN_INTENT_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
 }
 
 function MissingSupabaseConfigScreen() {
@@ -187,7 +135,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const loginRouteAllowsActiveSession = pathname === "/login" && isPasswordLinkMode(loginMode);
 
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [email, setEmail] = useState("");
   const [passwordSignIn, setPasswordSignIn] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -206,8 +154,52 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [passwordUpdateMessage, setPasswordUpdateMessage] = useState<string | null>(null);
   const pendingPasswordRef = useRef("");
   const checkingAuthRef = useRef(false);
+  const hasCheckedAuthRef = useRef(false);
   const googleLoginPendingRef = useRef(false);
   const isGoogleOAuthRef = useRef(false);
+
+  const beginGoogleTwoFactor = useCallback(async (userEmail: string) => {
+    const normalizedEmail = userEmail.toLowerCase().trim();
+    if (!normalizedEmail || googleLoginPendingRef.current || pending2FAActiveRef.current) {
+      return;
+    }
+
+    googleLoginPendingRef.current = true;
+    isGoogleOAuthRef.current = true;
+    let activated = false;
+
+    try {
+      const response = await fetch("/api/auth/2fa/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, password: "__google_oauth__" }),
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        setMessage(payload?.error || "Não foi possível enviar o código de verificação.");
+        return;
+      }
+
+      activated = true;
+      setPending2FAEmail(normalizedEmail);
+      setShow2FA(true);
+      setTwoFACode("");
+      setTwoFAMessage(null);
+      pending2FAActiveRef.current = true;
+      setPending2FAActive(true);
+      setUser(null);
+    } catch (error) {
+      logAuthError("google_2fa_start", error);
+      setMessage("Não foi possível enviar o código de verificação agora.");
+    } finally {
+      if (!activated) {
+        googleLoginPendingRef.current = false;
+        isGoogleOAuthRef.current = false;
+      }
+    }
+  }, []);
 
   const checkAuth = useCallback(async () => {
     if (!supabaseConfigured) {
@@ -218,17 +210,57 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (checkingAuthRef.current) return;
     checkingAuthRef.current = true;
-    setLoading(true);
+    if (!hasCheckedAuthRef.current) {
+      setLoading(true);
+    }
     try {
-      const { data } = await supabase.auth.getSession();
-      const session = data?.session ?? null;
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
+      const response = await fetch("/api/auth/session", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+      });
+      const payload = (await response.json().catch(() => null)) as AuthSessionPayload | null;
+      const sessionUser = response.ok && payload?.user ? payload.user : null;
+      const twoFactorVerified = Boolean(payload?.twoFactorVerified);
+      const passwordLinkSession = sessionUser && isPasswordLinkMode(loginMode);
+
+      setUser(sessionUser && (twoFactorVerified || passwordLinkSession) ? sessionUser : null);
+
+      if (twoFactorVerified) {
+        pending2FAActiveRef.current = false;
+        setPending2FAActive(false);
+        setShow2FA(false);
+        googleLoginPendingRef.current = false;
+        isGoogleOAuthRef.current = false;
+        return;
+      }
+
+      if (
+        sessionUser &&
+        payload?.pendingTwoFactor?.provider === "google" &&
+        payload.pendingTwoFactor.email
+      ) {
+        isGoogleOAuthRef.current = true;
+        googleLoginPendingRef.current = true;
+        pending2FAActiveRef.current = true;
+        setPending2FAActive(true);
+        setPending2FAEmail(payload.pendingTwoFactor.email);
+        setShow2FA(true);
+        return;
+      }
+
+      if (
+        sessionUser?.email &&
+        (statusParam === "oauth-2fa" || statusParam === "2fa-required")
+      ) {
+        await beginGoogleTwoFactor(sessionUser.email);
+      }
     } finally {
+      hasCheckedAuthRef.current = true;
       setLoading(false);
       checkingAuthRef.current = false;
     }
-  }, [supabaseConfigured]);
+  }, [beginGoogleTwoFactor, loginMode, statusParam, supabaseConfigured]);
 
   const replaceLoginMode = useCallback((nextMode: LoginMode, status?: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -255,186 +287,19 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const handleAuthCallback = async () => {
-      if (typeof window === "undefined") return;
-
-      const hasTokenInHash = !!window.location.hash && window.location.hash.includes("access_token");
-      const hasTokenInSearch = !!window.location.search && (window.location.search.includes("access_token") || window.location.search.includes("refresh_token") || window.location.search.includes("code") || window.location.search.includes("type="));
-
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[auth] URL:", window.location.href);
-        console.log("[auth] hasTokenInHash:", hasTokenInHash);
-        console.log("[auth] hasTokenInSearch:", hasTokenInSearch);
-        console.log("[auth] hash:", window.location.hash);
-        console.log("[auth] search:", window.location.search);
-      }
-
-      if (!hasTokenInHash && !hasTokenInSearch) return;
-
-      try {
-        let access_token: string | null = null;
-        let refresh_token: string | null = null;
-        let code: string | null = null;
-
-        if (hasTokenInHash) {
-          const hash = window.location.hash.replace(/^#/, "");
-          const params = new URLSearchParams(hash);
-          access_token = params.get("access_token");
-          refresh_token = params.get("refresh_token");
-        } else if (hasTokenInSearch) {
-          const params = new URLSearchParams(window.location.search);
-          access_token = params.get("access_token");
-          refresh_token = params.get("refresh_token");
-          code = params.get("code");
-        }
-
-        if (process.env.NODE_ENV !== "production") {
-          console.log("[auth] access_token:", access_token ? "present" : "missing");
-          console.log("[auth] refresh_token:", refresh_token ? "present" : "missing");
-          console.log("[auth] code:", code ? "present" : "missing");
-        }
-
-        if (access_token && refresh_token) {
-          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-          if (error) {
-            if (process.env.NODE_ENV !== "production") {
-              console.error("[auth] setSession error:", error);
-            }
-            throw error;
-          }
-        } else if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            if (process.env.NODE_ENV !== "production") {
-              console.error("[auth] exchangeCodeForSession error:", error);
-            }
-            throw error;
-          }
-        }
-
-        if (access_token || refresh_token || code) {
-          try {
-            const cleanUrl = new URL(window.location.href);
-            const authParamNames = [
-              "access_token",
-              "refresh_token",
-              "expires_in",
-              "expires_at",
-              "token_type",
-              "type",
-              "code",
-              "provider_token",
-              "provider_refresh_token",
-            ];
-            for (const paramName of authParamNames) {
-              cleanUrl.searchParams.delete(paramName);
-            }
-            cleanUrl.hash = "";
-            window.history.replaceState({}, document.title, `${cleanUrl.pathname}${cleanUrl.search}`);
-          } catch {
-            /* ignore */
-          }
-        }
-      } catch (err) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn("[auth] callback handling failed:", err);
-        }
-      }
-    };
-
-    const bootstrapAuth = async () => {
-      await handleAuthCallback();
-      await checkAuth();
-
-      if (process.env.NODE_ENV !== "production") {
-        const { data } = await supabase.auth.getSession();
-        console.log("[auth] session after bootstrap:", data?.session ? "active" : "none");
-      }
-    };
-
-    void bootstrapAuth();
-
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[auth] onAuthStateChange:", _event, session ? "user present" : "no user");
-      }
-
-      if (_event === "PASSWORD_RECOVERY") {
-        setShow2FA(false);
-        setMessage(null);
-        setPasswordUpdateMessage(null);
-        pending2FAActiveRef.current = false;
-        setPending2FAActive(false);
-        replaceLoginMode("reset-password");
-      }
-
-      if (_event === "SIGNED_IN" && session?.user) {
-        const isGoogleLogin = session.user.app_metadata?.provider === "google";
-        const hasProviderToken = !!session.provider_token;
-        const shouldTriggerGoogle2FA = (isGoogleLogin || hasProviderToken) && hasFreshGoogleLoginIntent();
-
-        if (shouldTriggerGoogle2FA && !pending2FAActiveRef.current && !googleLoginPendingRef.current) {
-          googleLoginPendingRef.current = true;
-          isGoogleOAuthRef.current = true;
-          const userEmail = session.user.email?.toLowerCase().trim() || "";
-
-          if (process.env.NODE_ENV !== "production") {
-            console.log("[auth] Google login detected, triggering 2FA for:", userEmail);
-          }
-
-          try {
-            const res = await fetch("/api/auth/2fa/send", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ email: userEmail, password: "__google_oauth__" }),
-              credentials: "include",
-            });
-            const sendData = await res.json().catch(() => null);
-
-            if (res.ok) {
-              setPending2FAEmail(userEmail);
-              setShow2FA(true);
-              setTwoFACode("");
-              setTwoFAMessage(null);
-              pending2FAActiveRef.current = true;
-              setPending2FAActive(true);
-              setUser(null);
-              return;
-            } else {
-              if (process.env.NODE_ENV !== "production") {
-                console.error("[auth] 2FA send failed:", sendData);
-              }
-              clearGoogleLoginIntent();
-            }
-          } catch (err) {
-            if (process.env.NODE_ENV !== "production") {
-              console.error("[auth] 2FA trigger error:", err);
-            }
-            clearGoogleLoginIntent();
-          }
-
-          googleLoginPendingRef.current = false;
-          isGoogleOAuthRef.current = false;
-        } else if (isGoogleLogin || hasProviderToken) {
-          clearGoogleLoginIntent();
-        }
-      }
-
-      setUser(session?.user ?? null);
-      if (pending2FAActiveRef.current && _event === "SIGNED_IN") {
-        return;
-      }
+    const refreshSession = () => {
       void checkAuth();
-    });
+    };
+
+    void checkAuth();
+    window.addEventListener("focus", refreshSession);
+    window.addEventListener("almare:auth-changed", refreshSession);
 
     return () => {
-      try {
-        listener?.subscription?.unsubscribe?.();
-      } catch {
-        /* ignore */
-      }
+      window.removeEventListener("focus", refreshSession);
+      window.removeEventListener("almare:auth-changed", refreshSession);
     };
-  }, [checkAuth, replaceLoginMode, supabaseConfigured]);
+  }, [checkAuth, supabaseConfigured]);
 
   useEffect(() => {
     if (!loading && pathname === "/login" && user && !pending2FAActive && !loginRouteAllowsActiveSession) {
@@ -528,7 +393,10 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/auth/2fa/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: twoFACode }),
+        body: JSON.stringify({
+          code: twoFACode,
+          password: isGoogleOAuthRef.current ? undefined : pendingPasswordRef.current,
+        }),
         credentials: "include",
       });
       const data = await res.json().catch(() => null);
@@ -536,17 +404,6 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       if (!res.ok) {
         setTwoFAMessage(data?.error || "Código inválido ou expirado.");
         return;
-      }
-
-      if (!isGoogleOAuthRef.current) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: pending2FAEmail,
-          password: pendingPasswordRef.current,
-        });
-
-        if (signInError) {
-          throw signInError;
-        }
       }
 
       setShow2FA(false);
@@ -558,7 +415,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setMessage(null);
       isGoogleOAuthRef.current = false;
       googleLoginPendingRef.current = false;
-      clearGoogleLoginIntent();
+      window.dispatchEvent(new CustomEvent("almare:auth-changed"));
+      window.location.replace("/");
     } catch (err) {
       logAuthError("verify_2fa", err);
       setTwoFAMessage(
@@ -578,28 +436,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     setAuthBusy(true);
-    setGoogleLoginIntent();
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          queryParams: {
-            prompt: "select_account",
-          },
-        },
-      });
-
-      if (error) {
-        logAuthError("google_oauth_start", error);
-        setMessage(getPublicAuthMessage(error, "google"));
-        clearGoogleLoginIntent();
-        return;
-      }
+      window.location.assign("/api/auth/oauth/start");
     } catch (error) {
-      clearGoogleLoginIntent();
-      throw error;
-    } finally {
+      logAuthError("google_oauth_start", error);
+      setMessage("Não foi possível iniciar o login com Google agora.");
       setAuthBusy(false);
     }
   }
@@ -659,9 +500,17 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
     setPasswordUpdateBusy(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) {
-        setPasswordUpdateMessage(getPasswordUpdateMessage(error));
+      const response = await fetch("/api/auth/password/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setPasswordUpdateMessage(
+          getPasswordUpdateMessage({ message: payload?.error || "password update failed" })
+        );
         return;
       }
 
@@ -676,7 +525,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       setNewPassword("");
       setConfirmPassword("");
       setMessage(null);
-      await supabase.auth.signOut();
+      window.dispatchEvent(new CustomEvent("almare:auth-changed"));
       replaceLoginMode("signin", successStatus);
     } catch (error) {
       logAuthError("update_password_from_link", error);
@@ -695,9 +544,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       ? "Senha criada com sucesso. Entre com sua nova senha para continuar."
       : statusParam === "password-updated"
       ? "Senha atualizada com sucesso. Entre novamente para concluir com 2FA."
+      : statusParam === "oauth-error"
+      ? "Não foi possível concluir o login com Google. Tente novamente."
+      : statusParam === "invalid-link"
+      ? "Este link é inválido ou expirou. Solicite um novo."
       : null;
   const visibleMessage = message ?? statusMessage;
-  const isSuccessMessage = Boolean(statusParam) || (visibleMessage ? /envi|sucesso/i.test(visibleMessage) : false);
+  const isSuccessStatus = statusParam === "password-created" || statusParam === "password-updated";
+  const isSuccessMessage = isSuccessStatus || (visibleMessage ? /envi|sucesso/i.test(visibleMessage) : false);
   const shouldRenderPasswordUpdateForm = pathname === "/login" && isPasswordLinkMode(loginMode) && !!user;
   const shouldRenderPasswordLinkInfo = pathname === "/login" && isPasswordLinkMode(loginMode) && !user;
 
@@ -828,6 +682,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                     type="button"
                     className="premium-button-secondary flex w-full items-center justify-center gap-2 px-5 py-3 text-xs disabled:cursor-not-allowed"
                     onClick={() => {
+                      const shouldSignOut = isGoogleOAuthRef.current;
                       setShow2FA(false);
                       setMessage(null);
                       pending2FAActiveRef.current = false;
@@ -836,7 +691,14 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                       pendingPasswordRef.current = "";
                       isGoogleOAuthRef.current = false;
                       googleLoginPendingRef.current = false;
-                      clearGoogleLoginIntent();
+                      if (shouldSignOut) {
+                        void fetch("/api/auth/signout", {
+                          method: "POST",
+                          credentials: "include",
+                        }).finally(() => {
+                          window.dispatchEvent(new CustomEvent("almare:auth-changed"));
+                        });
+                      }
                     }}
                     disabled={twoFABusy}
                   >

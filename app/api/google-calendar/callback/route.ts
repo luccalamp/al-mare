@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "State OAuth ausente." }, { status: 400 });
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const expectedStateHash = cookieStore.get(OAUTH_STATE_COOKIE)?.value;
 
     if (!expectedStateHash) {
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
     const redirectUri = resolveGoogleCalendarRedirectUri(request);
 
-    const existingTokens = readStoredTokens();
+    const existingTokens = await readStoredTokens();
     const tokens = await exchangeCodeForTokens(code, redirectUri);
 
     const storedTokens = {

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getAdminOperationsToken, getCronSecret } from "@/lib/server/supabaseAdmin";
 import crypto from "crypto";
 
@@ -20,14 +19,21 @@ function readHeaderToken(request: Request, headerName: string) {
   return token ? token : null;
 }
 
-function readAdminTokenFromCookie(): string | null {
-  try {
-    const cookieStore = cookies();
-    const token = cookieStore.get(ADMIN_TOKEN_COOKIE)?.value;
-    return token?.trim() || null;
-  } catch {
-    return null;
+function readAdminTokenFromCookie(request: Request): string | null {
+  const cookieHeader = request.headers.get("cookie") || "";
+  for (const cookie of cookieHeader.split(";")) {
+    const [name, ...valueParts] = cookie.trim().split("=");
+    if (name === ADMIN_TOKEN_COOKIE) {
+      const rawValue = valueParts.join("=");
+      try {
+        return decodeURIComponent(rawValue).trim() || null;
+      } catch {
+        return rawValue.trim() || null;
+      }
+    }
   }
+
+  return null;
 }
 
 function buildError(message: string, status: number) {
@@ -51,7 +57,7 @@ export function resolveOperationActor(request: Request) {
 }
 
 function readAdminRequestToken(request: Request) {
-  return readHeaderToken(request, "x-admin-token") || readBearerToken(request) || readAdminTokenFromCookie();
+  return readHeaderToken(request, "x-admin-token") || readBearerToken(request) || readAdminTokenFromCookie(request);
 }
 
 export function isAdminRequest(request: Request) {

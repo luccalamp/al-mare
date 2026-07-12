@@ -3,6 +3,12 @@ import { type User, SupabaseClient, createClient } from "@supabase/supabase-js";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
+import { cookies } from "next/headers";
+import {
+  isTwoFactorVerificationValid,
+  readSessionIdFromAccessToken,
+  TWO_FACTOR_VERIFIED_COOKIE,
+} from "@/lib/twoFactorVerification";
 
 export type AuthenticatedUserContext = {
   client: SupabaseClient;
@@ -38,7 +44,7 @@ function createServerUserClient(token: string) {
   });
 }
 
-function createRequestUserClient(request: Request) {
+async function createRequestUserClient(request: Request) {
   const bearerToken = readBearerToken(request);
   if (bearerToken) {
     return createServerUserClient(bearerToken);
@@ -66,11 +72,32 @@ export function isMissingColumnError(message?: string) {
 }
 
 export async function requireAuthenticatedUser(request: Request) {
-  const client = createRequestUserClient(request);
+  const client = await createRequestUserClient(request);
   const { data: userData, error: userError } = await client.auth.getUser();
 
   if (userError || !userData?.user) {
     return buildJsonError("Sua sessão expirou. Entre novamente para continuar.", 401);
+  }
+
+  const bearerToken = readBearerToken(request);
+  let accessToken = bearerToken;
+  if (!accessToken) {
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    accessToken = session?.access_token || null;
+  }
+
+  const sessionId = readSessionIdFromAccessToken(accessToken);
+  const cookieStore = await cookies();
+  const twoFactorVerified = await isTwoFactorVerificationValid(
+    cookieStore.get(TWO_FACTOR_VERIFIED_COOKIE)?.value,
+    userData.user.id,
+    sessionId
+  );
+
+  if (!twoFactorVerified) {
+    return buildJsonError("Conclua a verificacao em duas etapas para continuar.", 401);
   }
 
   return {

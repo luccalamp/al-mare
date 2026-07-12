@@ -1,5 +1,6 @@
-import { supabase } from "@/lib/supabaseClient";
 import { buildAppUrl, getBrowserTrustedAppOrigin } from "@/lib/trustedOrigin";
+
+export const PORTAL_UPDATES_CHANNEL = "almare:portal-updates";
 
 function normalizeWhatsappNumber(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -76,17 +77,9 @@ export async function togglePortalPreConsulta(clientId: string, active: boolean)
 }
 
 export function notifyPortalUpdate(portalToken?: string) {
-  if (!portalToken) return;
-  const channel = supabase.channel(`portal:${portalToken}`);
-  channel.subscribe((status) => {
-    if (status === "SUBSCRIBED") {
-      void channel.send({
-        type: "broadcast",
-        event: "update",
-        payload: {},
-      }).then(() => {
-        void supabase.removeChannel(channel);
-      });
-    }
-  });
+  if (!portalToken || typeof window === "undefined" || !("BroadcastChannel" in window)) return;
+
+  const channel = new BroadcastChannel(PORTAL_UPDATES_CHANNEL);
+  channel.postMessage({ token: portalToken });
+  channel.close();
 }

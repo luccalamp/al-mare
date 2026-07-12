@@ -1,11 +1,9 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CompanyDocument, CompanyDocumentFolder } from "@/types";
 
-import { supabase } from "@/lib/supabaseClient";
-
-const COMPANY_DOCUMENTS_REALTIME_DEBOUNCE_MS = 300;
+const COMPANY_DOCUMENTS_BACKGROUND_REFRESH_MS = 60_000;
 
 function normalizeNotes(value: string) {
   const trimmedValue = value.trim();
@@ -114,7 +112,6 @@ export function useCompanyDocuments() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadWorkspace = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     try {
@@ -150,48 +147,23 @@ export function useCompanyDocuments() {
   }, [loadWorkspace]);
 
   useEffect(() => {
-    const scheduleRefresh = () => {
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-      }
-
-      realtimeRefreshTimeoutRef.current = setTimeout(() => {
-        realtimeRefreshTimeoutRef.current = null;
+    const refreshInBackground = () => {
+      if (document.visibilityState === "visible") {
         void loadWorkspace({ background: true });
-      }, COMPANY_DOCUMENTS_REALTIME_DEBOUNCE_MS);
+      }
     };
 
-    const channel = supabase
-      .channel(`company-documents-sync-${crypto.randomUUID()}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "company_document_folders" },
-        scheduleRefresh
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "company_document_folders" },
-        scheduleRefresh
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "company_documents" },
-        scheduleRefresh
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "company_documents" },
-        scheduleRefresh
-      );
-
-    channel.subscribe();
+    const intervalId = window.setInterval(
+      refreshInBackground,
+      COMPANY_DOCUMENTS_BACKGROUND_REFRESH_MS
+    );
+    window.addEventListener("focus", refreshInBackground);
+    window.addEventListener("almare:data-changed", refreshInBackground);
 
     return () => {
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-        realtimeRefreshTimeoutRef.current = null;
-      }
-      void supabase.removeChannel(channel);
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshInBackground);
+      window.removeEventListener("almare:data-changed", refreshInBackground);
     };
   }, [loadWorkspace]);
 

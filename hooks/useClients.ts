@@ -4,23 +4,12 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { AppointmentDraft, Client, ClientAppointment, DiagnosticoCapilar, Colorimetria, FichaAnamneseCapilarDados, GalleryPhoto, ManutencaoHomecare } from "@/types";
 import { normalizePhotoCategory, resolvePhotoCategory, sanitizePhotoCaption } from "@/lib/photos";
 import { normalizeImageFileForUpload } from "@/lib/clientImageCompression";
-import { supabase } from "@/lib/supabaseClient";
 import { sanitizeObject } from "@/lib/sanitize";
 import { notifyPortalUpdate } from "@/lib/preConsultation";
 
 const LEGACY_CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-snapshot-v1";
 const CLIENTS_SNAPSHOT_KEY = "salao-anamnese-clients-metadata-v2";
-const CLIENTS_REALTIME_TABLES = [
-  "clientes",
-  "diagnostico_capilar",
-  "historico_procedimentos",
-  "manutencao_homecare",
-  "client_photos",
-  "agendamentos",
-  "ficha_anamnese_capilar",
-] as const;
-const CLIENTS_REALTIME_DEBOUNCE_MS = 300;
-const CLIENTS_HEARTBEAT_INTERVAL_MS = 60_000;
+const CLIENTS_BACKGROUND_REFRESH_MS = 60_000;
 const ALLOWED_GALLERY_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const HEIC_HEIF_FILE_PATTERN = /\.(heic|heif)$/i;
 
@@ -504,8 +493,6 @@ export function useClients() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [lastSnapshotAt, setLastSnapshotAt] = useState<string | null>(null);
   const clientsRef = useRef<Client[]>([]);
-  const realtimeRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const commitClients = useCallback((nextClients: Client[]) => {
@@ -572,53 +559,23 @@ export function useClients() {
   }, [loadClients]);
 
   useEffect(() => {
-    const scheduleRefresh = () => {
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-      }
-
-      realtimeRefreshTimeoutRef.current = setTimeout(() => {
-        realtimeRefreshTimeoutRef.current = null;
+    const refreshInBackground = () => {
+      if (document.visibilityState === "visible") {
         void loadClients({ background: true });
-      }, CLIENTS_REALTIME_DEBOUNCE_MS);
+      }
     };
 
-    const channel = CLIENTS_REALTIME_TABLES.reduce(
-      (currentChannel, table) =>
-        currentChannel
-          .on("postgres_changes", { event: "INSERT", schema: "public", table }, () => {
-            scheduleRefresh();
-          })
-          .on("postgres_changes", { event: "UPDATE", schema: "public", table }, () => {
-            scheduleRefresh();
-          })
-          .on("postgres_changes", { event: "DELETE", schema: "public", table }, () => {
-            scheduleRefresh();
-          }),
-      supabase.channel(`clients-sync-${crypto.randomUUID()}`)
+    const intervalId = window.setInterval(
+      refreshInBackground,
+      CLIENTS_BACKGROUND_REFRESH_MS
     );
-
-    channel.subscribe();
-
-    return () => {
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-        realtimeRefreshTimeoutRef.current = null;
-      }
-      void supabase.removeChannel(channel);
-    };
-  }, [loadClients]);
-
-  useEffect(() => {
-    heartbeatIntervalRef.current = setInterval(() => {
-      void loadClients({ background: true });
-    }, CLIENTS_HEARTBEAT_INTERVAL_MS);
+    window.addEventListener("focus", refreshInBackground);
+    window.addEventListener("almare:data-changed", refreshInBackground);
 
     return () => {
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshInBackground);
+      window.removeEventListener("almare:data-changed", refreshInBackground);
     };
   }, [loadClients]);
 

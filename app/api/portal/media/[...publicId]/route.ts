@@ -13,24 +13,25 @@ function isMissingColumnError(message?: string) {
   return /column .* does not exist/i.test(message || "");
 }
 
-function readTokenFromCookie() {
+async function readTokenFromCookie() {
   try {
-    return cookies().get(PORTAL_TOKEN_COOKIE)?.value?.trim() || null;
+    return (await cookies()).get(PORTAL_TOKEN_COOKIE)?.value?.trim() || null;
   } catch {
     return null;
   }
 }
 
-export async function GET(request: Request, { params }: { params: { publicId: string[] } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ publicId: string[] }> }) {
   try {
     const { searchParams } = new URL(request.url);
-    const token = searchParams.get("token")?.trim() || readTokenFromCookie();
+    const token = searchParams.get("token")?.trim() || await readTokenFromCookie();
 
     if (!token || !UUID_PATTERN.test(token)) {
       return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
     }
 
-    const storagePath = normalizeStoragePathFromRoute(params.publicId);
+    const { publicId } = await params;
+    const storagePath = normalizeStoragePathFromRoute(publicId);
     if (!storagePath) {
       return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
     }

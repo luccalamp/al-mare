@@ -10,8 +10,9 @@ import {
   saveBrandingConfigToSupabase,
   writeBrandingConfigCache,
 } from "@/lib/brandingConfig";
-import { supabase } from "@/lib/supabaseClient";
 import { isSupabasePublicConfigConfigured } from "@/lib/supabase/config";
+
+const BRANDING_CONFIG_BACKGROUND_REFRESH_MS = 60_000;
 
 type BrandingConfigContextValue = {
   config: BrandingConfig;
@@ -36,19 +37,11 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
     }
 
     let active = true;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    const stopRealtimeSync = () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
-
-      if (channel) {
-        void supabase.removeChannel(channel);
-        channel = null;
-      }
+    const applyCachedConfig = () => {
+      if (!active) return;
+      setConfig(readBrandingConfigCache());
+      setLoading(false);
     };
 
     const syncRemoteConfig = async ({ background = false }: { background?: boolean } = {}) => {
@@ -56,25 +49,17 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         setLoading(true);
       }
 
-      setConfig(readBrandingConfigCache());
-
       try {
         const remoteConfig = await fetchBrandingConfigFromSupabase();
-        if (!active) {
-          return;
-        }
+        if (!active) return;
 
-        if (remoteConfig) {
-          setConfig(remoteConfig);
-          writeBrandingConfigCache(remoteConfig);
-          return;
-        }
-
-        const cachedConfig = readBrandingConfigCache();
-        setConfig(cachedConfig);
-        writeBrandingConfigCache(cachedConfig);
+        const nextConfig = remoteConfig || readBrandingConfigCache();
+        setConfig(nextConfig);
+        writeBrandingConfigCache(nextConfig);
       } catch (error) {
-        console.error(error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[branding] Remote refresh failed", error);
+        }
         if (active) {
           const cachedConfig = readBrandingConfigCache();
           setConfig(cachedConfig.clinicName ? cachedConfig : { ...DEFAULT_BRANDING_CONFIG });
@@ -86,105 +71,47 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
       }
     };
 
-    const startRealtimeSync = () => {
-      if (channel) {
-        return;
-      }
+    const refreshIfAuthorized = async ({ background = false }: { background?: boolean } = {}) => {
+      try {
+        const response = await fetch("/api/auth/session", {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+        });
+        const payload = await response.json().catch(() => null);
 
-      channel = supabase
-        .channel(`branding-config-sync-${crypto.randomUUID()}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "clinic_preferences",
-          },
-          () => {
-            if (refreshTimer) {
-              clearTimeout(refreshTimer);
-            }
-
-            refreshTimer = setTimeout(() => {
-              refreshTimer = null;
-              void syncRemoteConfig({ background: true });
-            }, 300);
-          }
-        )
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "clinic_preferences",
-          },
-          () => {
-            if (refreshTimer) {
-              clearTimeout(refreshTimer);
-            }
-
-            refreshTimer = setTimeout(() => {
-              refreshTimer = null;
-              void syncRemoteConfig({ background: true });
-            }, 300);
-          }
-        );
-
-      channel.subscribe();
-    };
-
-    const applyCachedConfig = () => {
-      setConfig(readBrandingConfigCache());
-      setLoading(false);
-    };
-
-    const enableRemoteConfig = () => {
-      startRealtimeSync();
-      void syncRemoteConfig();
-    };
-
-    void supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!active) {
+        if (!response.ok || !payload?.twoFactorVerified) {
+          if (!background) applyCachedConfig();
           return;
         }
 
-        if (data.session) {
-          enableRemoteConfig();
-          return;
-        }
-
-        applyCachedConfig();
-      })
-      .catch(() => {
-        if (active) {
-          applyCachedConfig();
-        }
-      });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!active) {
-        return;
+        await syncRemoteConfig({ background });
+      } catch {
+        if (!background) applyCachedConfig();
       }
+    };
 
-      if (session) {
-        enableRemoteConfig();
-        return;
+    const refreshInBackground = () => {
+      if (document.visibilityState === "visible") {
+        void refreshIfAuthorized({ background: true });
       }
+    };
 
-      stopRealtimeSync();
-      applyCachedConfig();
-    });
+    void refreshIfAuthorized();
+    const intervalId = window.setInterval(
+      refreshInBackground,
+      BRANDING_CONFIG_BACKGROUND_REFRESH_MS
+    );
+    window.addEventListener("focus", refreshInBackground);
+    window.addEventListener("almare:data-changed", refreshInBackground);
+    window.addEventListener("almare:auth-changed", refreshInBackground);
 
     return () => {
       active = false;
-      stopRealtimeSync();
-      try {
-        authListener?.subscription?.unsubscribe?.();
-      } catch {
-        /* ignore */
-      }
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshInBackground);
+      window.removeEventListener("almare:data-changed", refreshInBackground);
+      window.removeEventListener("almare:auth-changed", refreshInBackground);
     };
   }, [canUseSupabase]);
 
@@ -197,6 +124,7 @@ export function BrandingConfigProvider({ children }: { children: React.ReactNode
         await saveBrandingConfigToSupabase(mergedConfig);
         setConfig(mergedConfig);
         writeBrandingConfigCache(mergedConfig);
+        window.dispatchEvent(new CustomEvent("almare:data-changed"));
         return mergedConfig;
       } finally {
         setSaving(false);

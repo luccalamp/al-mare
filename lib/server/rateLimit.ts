@@ -63,6 +63,41 @@ const limiters = redis
   : null;
 
 const inMemoryRateLimits = new Map<string, { count: number; reset: number }>();
+const MAX_IN_MEMORY_RATE_LIMIT_KEYS = 5_000;
+const RATE_LIMIT_WARNING_INTERVAL_MS = 60_000;
+let lastRateLimitWarningAt = 0;
+
+function pruneInMemoryRateLimits(now: number) {
+  if (inMemoryRateLimits.size < MAX_IN_MEMORY_RATE_LIMIT_KEYS) {
+    return;
+  }
+
+  for (const [key, entry] of inMemoryRateLimits) {
+    if (entry.reset <= now) {
+      inMemoryRateLimits.delete(key);
+    }
+  }
+
+  while (inMemoryRateLimits.size >= MAX_IN_MEMORY_RATE_LIMIT_KEYS) {
+    const oldestKey = inMemoryRateLimits.keys().next().value as string | undefined;
+    if (!oldestKey) {
+      break;
+    }
+    inMemoryRateLimits.delete(oldestKey);
+  }
+}
+
+function warnRateLimitFallback(error: unknown) {
+  const now = Date.now();
+  if (now - lastRateLimitWarningAt < RATE_LIMIT_WARNING_INTERVAL_MS) {
+    return;
+  }
+
+  lastRateLimitWarningAt = now;
+  console.warn("[rate-limit] Upstash indisponivel; usando protecao local temporaria.", {
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
 
 function getClientIdentifier(headers: Headers) {
   const forwardedFor = headers.get("x-forwarded-for");
@@ -87,6 +122,7 @@ function getProfile(isPublic: boolean) {
 
 function runInMemoryRateLimit(key: string, config: { limit: number; windowMs: number }): RateLimitCheck {
   const now = Date.now();
+  pruneInMemoryRateLimits(now);
   const current = inMemoryRateLimits.get(key);
 
   if (!current || current.reset <= now) {
@@ -117,15 +153,19 @@ function runInMemoryRateLimit(key: string, config: { limit: number; windowMs: nu
 
 async function runRateLimit(key: string, profile: RateLimitProfile): Promise<RateLimitCheck> {
   if (limiters) {
-    const limiter = profile.kind === "public" ? limiters.public : limiters.private;
-    const result = await limiter.limit(key);
+    try {
+      const limiter = profile.kind === "public" ? limiters.public : limiters.private;
+      const result = await limiter.limit(key);
 
-    return {
-      success: result.success,
-      limit: result.limit ?? profile.limit,
-      remaining: result.remaining,
-      reset: result.reset,
-    };
+      return {
+        success: result.success,
+        limit: result.limit ?? profile.limit,
+        remaining: result.remaining,
+        reset: result.reset,
+      };
+    } catch (error) {
+      warnRateLimitFallback(error);
+    }
   }
 
   return runInMemoryRateLimit(key, profile);

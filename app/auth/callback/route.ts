@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
+import { TWO_FACTOR_VERIFIED_COOKIE } from "@/lib/twoFactorVerification";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
     return { name, value: rest.join("=") };
   });
 
-  const response = NextResponse.redirect(new URL("/", origin));
+  const response = NextResponse.redirect(new URL("/login?status=oauth-2fa", origin));
 
   const supabase = createServerClient(supabaseUrl, supabasePublishableKey, {
     cookies: {
@@ -38,8 +39,16 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     console.error("[auth/callback] exchangeCodeForSession error:", error);
-    return NextResponse.redirect(new URL("/login", origin));
+    return NextResponse.redirect(new URL("/login?status=oauth-error", origin));
   }
+
+  response.cookies.set(TWO_FACTOR_VERIFIED_COOKIE, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 0,
+    path: "/",
+  });
 
   return response;
 }

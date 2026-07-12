@@ -24,12 +24,12 @@
     "@upstash/redis": "^1.38.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
-    "dompurify": "^3.4.0",
+    "dompurify": "^3.4.12",
     "framer-motion": "^12.38.0",
     "googleapis": "^171.4.0",
     "lucide-react": "^1.8.0",
-    "next": "14.2.35",
-    "nodemailer": "^8.0.7",
+    "next": "^15.5.18",
+    "nodemailer": "^9.0.3",
     "pg": "^8.20.0",
     "react": "^18",
     "react-dom": "^18",
@@ -45,11 +45,14 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
-    "eslint-config-next": "14.2.35",
-    "postcss": "^8",
-    "supabase": "^2.92.0",
+    "eslint-config-next": "^15.5.20",
+    "postcss": "8.5.16",
+    "supabase": "^2.109.1",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "8.5.16"
   }
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
-import { supabase } from "@/lib/supabaseClient";
 
 type Org = {
   id: string;
@@ -37,8 +36,15 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   const fetchOrgs = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const scopedUserId = sessionData?.session?.user?.id ?? null;
+      const response = await fetch("/api/auth/session", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+      const scopedUserId = response.ok && payload?.twoFactorVerified && payload?.user?.id
+        ? String(payload.user.id)
+        : null;
       setActiveOrgIdState(scopedUserId);
       setOrganizations(scopedUserId ? [buildScopedOrganization(scopedUserId)] : []);
     } finally {
@@ -47,17 +53,16 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   }, []);
 
   useEffect(() => {
+    const handleRefresh = () => {
+      void fetchOrgs();
+    };
+
     void fetchOrgs();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const scopedUserId = session?.user?.id ?? null;
-      setActiveOrgIdState(scopedUserId);
-      setOrganizations(scopedUserId ? [buildScopedOrganization(scopedUserId)] : []);
-      setLoading(false);
-    });
-
+    window.addEventListener("focus", handleRefresh);
+    window.addEventListener("almare:auth-changed", handleRefresh);
     return () => {
-      listener.subscription.unsubscribe();
+      window.removeEventListener("focus", handleRefresh);
+      window.removeEventListener("almare:auth-changed", handleRefresh);
     };
   }, [fetchOrgs]);
 

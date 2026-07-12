@@ -49,7 +49,6 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
-  swcMinify: true,
   poweredByHeader: false,
   reactStrictMode: true,
   compress: true,

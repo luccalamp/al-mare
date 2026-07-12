@@ -144,8 +144,8 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   };
 }
 
-export function readStoredTokens(): StoredGoogleCalendarTokens | null {
-  const cookieStore = cookies();
+export async function readStoredTokens(): Promise<StoredGoogleCalendarTokens | null> {
+  const cookieStore = await cookies();
   const raw = cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value;
 
   if (!raw) {
@@ -259,7 +259,7 @@ export async function getValidAccessToken(): Promise<{
   expiresAt: number;
   refreshedTokens?: StoredGoogleCalendarTokens;
 } | null> {
-  const tokens = readStoredTokens();
+  const tokens = await readStoredTokens();
   if (!tokens) {
     return null;
   }

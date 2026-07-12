@@ -19,9 +19,9 @@ function buildPortalMediaProxyUrl(storagePath: string) {
   return `/api/portal/media/${encodeStoragePathForRoute(storagePath)}`;
 }
 
-function readTokenFromCookie(): string | null {
+async function readTokenFromCookie(): Promise<string | null> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const token = cookieStore.get(PORTAL_TOKEN_COOKIE)?.value;
     return token?.trim() || null;
   } catch {
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const tokenFromQuery = searchParams.get("token")?.trim();
-  const tokenFromCookie = readTokenFromCookie();
+  const tokenFromCookie = await readTokenFromCookie();
 
   // Prefer query param, fall back to cookie
   const token = tokenFromQuery || tokenFromCookie;

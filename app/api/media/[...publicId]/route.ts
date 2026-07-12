@@ -4,7 +4,7 @@ import { findPhotoRecordByStoragePath, findPhotoRecordByUrl } from "@/lib/server
 import { downloadManagedPhoto } from "@/lib/server/photoStorage";
 import { buildJsonError, requireAuthorizedStaff, requireClientAccess } from "@/lib/server/tenantAccess";
 
-export async function GET(req: NextRequest, { params }: { params: { publicId: string[] } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ publicId: string[] }> }) {
   try {
     const authContext = await requireAuthorizedStaff(req, {
       forbiddenMessage: "Sem permissao para acessar esta imagem.",
@@ -14,7 +14,8 @@ export async function GET(req: NextRequest, { params }: { params: { publicId: st
       return authContext;
     }
 
-    const storagePath = normalizeStoragePathFromRoute(params.publicId);
+    const { publicId } = await params;
+    const storagePath = normalizeStoragePathFromRoute(publicId);
     const { data: storageMatch, error: photoLookupError } = await findPhotoRecordByStoragePath(storagePath);
 
     if (photoLookupError) {

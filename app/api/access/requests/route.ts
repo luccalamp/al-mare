@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient } from "@/lib/server/supabaseAdmin";
 import { requireAdminRequest, resolveOperationActor } from "@/lib/server/requestGuards";
+import { buildAuthConfirmationUrl } from "@/lib/server/authLinks";
 import { sendAccessApprovedEmail } from "@/lib/server/accessEmails";
 import { buildTrustedAppUrl } from "@/lib/server/trustedOrigin";
 
@@ -87,7 +88,7 @@ export async function PUT(request: NextRequest) {
         },
       });
 
-      if (magicLinkError || !magicLinkData.properties?.action_link) {
+      if (magicLinkError || !magicLinkData.properties?.hashed_token) {
         console.error("[access] Erro ao gerar link de criação de senha:", magicLinkError);
         return NextResponse.json({ error: "Não foi possível gerar o link de criação de senha agora." }, { status: 500 });
       }
@@ -110,10 +111,15 @@ export async function PUT(request: NextRequest) {
       }
 
       try {
+        const setupPasswordUrl = buildAuthConfirmationUrl(request, {
+          tokenHash: magicLinkData.properties.hashed_token,
+          type: "magiclink",
+          nextPath: "/login?mode=setup-password",
+        });
         await sendAccessApprovedEmail({
           email: existing.email,
           fullName: existing.full_name || null,
-          setupPasswordUrl: magicLinkData.properties.action_link,
+          setupPasswordUrl,
         });
       } catch (emailError) {
         console.error("[access] Erro ao enviar e-mail de liberação:", emailError);

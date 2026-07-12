@@ -4,16 +4,35 @@ import { getTrustedAppOrigin } from "@/lib/server/trustedOrigin";
 import { getConfiguredTrustedOrigins, parseTrustedOrigin } from "@/lib/trustedOrigin";
 import { getSupabasePublicConfig } from "@/lib/supabase/config";
 import { updateSupabaseSession } from "@/lib/supabase/middleware";
+import {
+  isTwoFactorVerificationValid,
+  TWO_FACTOR_VERIFIED_COOKIE,
+} from "@/lib/twoFactorVerification";
 
-const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback", "/auth/v1/callback", "/auth/callback"];
-const PUBLIC_API_PREFIXES = ["/api/access/request", "/api/access/check", "/api/auth/2fa", "/api/auth/password", "/api/portal", "/api/google-calendar/callback"];
+const PUBLIC_PATH_PREFIXES = ["/login", "/portal", "/google-calendar-callback", "/auth/v1/callback", "/auth/callback", "/auth/confirm"];
+const PUBLIC_API_PREFIXES = [
+  "/api/access/request",
+  "/api/access/check",
+  "/api/auth/2fa",
+  "/api/auth/oauth",
+  "/api/auth/password",
+  "/api/auth/session",
+  "/api/auth/signout",
+  "/api/portal",
+  "/api/google-calendar/callback",
+];
 const UNSAFE_API_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function buildCsp(nonce: string) {
   const isDev = process.env.NODE_ENV !== "production";
   const isPreviewDeployment = process.env.VERCEL_ENV === "preview";
   const { supabaseUrl } = getSupabasePublicConfig();
-  const supabaseParsedUrl = supabaseUrl ? new URL(supabaseUrl) : null;
+  let supabaseParsedUrl: URL | null = null;
+  try {
+    supabaseParsedUrl = supabaseUrl ? new URL(supabaseUrl) : null;
+  } catch {
+    supabaseParsedUrl = null;
+  }
   const supabaseOrigin = supabaseParsedUrl?.origin || null;
   const supabaseHostname = supabaseParsedUrl?.hostname || "";
   const supabaseWsOrigin = supabaseOrigin?.replace(/^http/i, "ws") || null;
@@ -216,10 +235,10 @@ function applyResponseHeaders(
   response: NextResponse,
   request: NextRequest,
   pathname: string,
-  nonce: string,
+  cspHeader: string,
   rateLimit?: RateLimitCheck
 ) {
-  response.headers.set("Content-Security-Policy", buildCsp(nonce));
+  response.headers.set("Content-Security-Policy", cspHeader);
   response.headers.set("x-vercel-id", "");
 
   if (pathname.startsWith("/api/")) {
@@ -246,16 +265,23 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (shouldRedirectToCanonicalAppOrigin(request)) {
-    return applyResponseHeaders(NextResponse.redirect(buildCanonicalAppUrl(request), 308), request, pathname, nonce);
+    return applyResponseHeaders(NextResponse.redirect(buildCanonicalAppUrl(request), 308), request, pathname, cspHeader);
   }
 
-  const { response, user } = await updateSupabaseSession(request, requestHeaders);
+  const { response, user, sessionId } = await updateSupabaseSession(request, requestHeaders);
+  const twoFactorVerified = user
+    ? await isTwoFactorVerificationValid(
+        request.cookies.get(TWO_FACTOR_VERIFIED_COOKIE)?.value,
+        user.id,
+        sessionId
+      )
+    : false;
 
   const isApiRoute = pathname.startsWith("/api/");
   const isPublicApiRoute = matchesPrefix(pathname, PUBLIC_API_PREFIXES);
 
   if (isApiRoute && request.method === "OPTIONS") {
-    return applyResponseHeaders(new NextResponse(null, { status: 204 }), request, pathname, nonce);
+    return applyResponseHeaders(new NextResponse(null, { status: 204 }), request, pathname, cspHeader);
   }
 
   if (isApiRoute && UNSAFE_API_METHODS.has(request.method) && !hasAllowedApiOrigin(request)) {
@@ -266,7 +292,7 @@ export async function middleware(request: NextRequest) {
       ),
       request,
       pathname,
-      nonce
+      cspHeader
     );
   }
 
@@ -274,7 +300,7 @@ export async function middleware(request: NextRequest) {
   if (isApiRoute && request.method !== "OPTIONS") {
     rateLimit = await checkApiRateLimit(request, {
       isPublic: isPublicApiRoute,
-      userId: user?.id,
+      userId: twoFactorVerified ? user?.id : undefined,
     });
 
     if (!rateLimit.success) {
@@ -285,19 +311,19 @@ export async function middleware(request: NextRequest) {
         ),
         request,
         pathname,
-        nonce,
+        cspHeader,
         rateLimit
       );
     }
   }
 
   if (isPublicApiRoute) {
-    return applyResponseHeaders(response, request, pathname, nonce, rateLimit);
+    return applyResponseHeaders(response, request, pathname, cspHeader, rateLimit);
   }
 
   if (isApiRoute) {
-    if (user) {
-      return applyResponseHeaders(response, request, pathname, nonce, rateLimit);
+    if (user && twoFactorVerified) {
+      return applyResponseHeaders(response, request, pathname, cspHeader, rateLimit);
     }
 
     return applyResponseHeaders(
@@ -307,7 +333,7 @@ export async function middleware(request: NextRequest) {
       ),
       request,
       pathname,
-      nonce,
+      cspHeader,
       rateLimit
     );
   }
@@ -316,18 +342,19 @@ export async function middleware(request: NextRequest) {
     const loginMode = request.nextUrl.searchParams.get("mode");
     const allowsLoginSession = loginMode === "setup-password" || loginMode === "reset-password";
 
-    if (user && pathname === "/login" && !allowsLoginSession) {
-      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/", request))), request, pathname, nonce);
+    if (user && twoFactorVerified && pathname === "/login" && !allowsLoginSession) {
+      return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/", request))), request, pathname, cspHeader);
     }
 
-    return applyResponseHeaders(response, request, pathname, nonce);
+    return applyResponseHeaders(response, request, pathname, cspHeader);
   }
 
-  if (user) {
-    return applyResponseHeaders(response, request, pathname, nonce);
+  if (user && twoFactorVerified) {
+    return applyResponseHeaders(response, request, pathname, cspHeader);
   }
 
-  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl("/login", request))), request, pathname, nonce);
+  const loginPath = user ? "/login?status=2fa-required" : "/login";
+  return applyResponseHeaders(copyCookies(response, NextResponse.redirect(buildTrustedRedirectUrl(loginPath, request))), request, pathname, cspHeader);
 }
 
 export const config = {

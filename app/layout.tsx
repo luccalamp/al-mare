@@ -53,12 +53,12 @@ export const viewport: Viewport = {
   themeColor: "#8c5a2d",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  headers().get("x-nonce");
+  (await headers()).get("x-nonce");
 
   return (
     <html lang="pt-BR" className={`${geist.variable} ${cormorant.variable}`} suppressHydrationWarning>
